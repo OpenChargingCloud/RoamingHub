@@ -279,4 +279,4 @@ web-login.json
 # The frontend: what npm installs is already ignored above; this is what
 # webpack emits. Built by the project file, so a checkout needs node and not
 # a copy of the bundle.
-/EMSP/Frontend/dist/
+/RoamingHub/Frontend/dist/

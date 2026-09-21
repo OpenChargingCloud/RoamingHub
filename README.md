@@ -29,17 +29,40 @@ that somebody who has read one of them has read this one.
 | The base | name resolution, the time source, the accounts, the event log, the JSON API and its event stream |
 | The peering | a peer added, a token handed out, and the credentials exchanged in **either** direction |
 | The traffic | every OCPI call that touched this hub, both ways, with the two parties of it - on its own page and its own stream |
+| The web interface | all of the above in a browser: the traffic as it happens, the peers, the configuration and the log |
 
 **What is not here yet.** Forwarding what one peer sends to another, and the
 `hubclientinfo` module that would tell a peer who else is on the hub. Those
 are what makes a hub more than a directory, and they are the next thing.
-There is no web interface either: the JSON API answers, the two event streams
-run, and a browser asking for `/` is told there is nothing to render.
 
 **No OCPI 2.1.1, and there cannot be.** The hub role arrived with OCPI 2.2 and
 the library has no hub side for the version before it. A CPO or an EMSP that
 speaks only 2.1.1 cannot be peered with this hub; it has to talk to its
 counterpart directly.
+
+
+## The web interface
+
+`Frontend/` - TypeScript and SCSS, bundled by webpack, embedded into the
+assembly by `RoamingHub.csproj` so that the hub is one thing to deploy. Built
+like the other components': one entry point, one sign-in at Hermod's HTTPExt
+API under `/ext`, and a menu down the left.
+
+What it opens on is the traffic, and that is the whole difference. The other
+components open on their configuration, because that is what somebody sets up
+once and then leaves alone. A hub is set up once and *watched*, and the
+question somebody walks up to it with is "are these two seeing each other?".
+
+```
+dotnet build                            builds the frontend when its inputs changed
+dotnet build -p:SkipFrontendBuild=true  backend only, reuses the existing dist/
+npm run watch                           in Frontend/, beside a hub started with
+                                        --frontend Frontend/dist
+```
+
+Building it needs Node.js; `SkipFrontendBuild` is there for a machine that has
+none, and `--frontend <dir>` serves the bundle off disk instead of out of the
+assembly, which is what makes `npm run watch` show up on a reload.
 
 
 ## The traffic, which is the point of a hub
@@ -99,7 +122,7 @@ configuration, one set per version, and reads them back at every start.
 ## The tests
 
 ```
-dotnet test HubTests
+dotnet test RoamingHubTests
 ```
 
 Both directions of the peering - a peer coming here, and this hub walking to a
