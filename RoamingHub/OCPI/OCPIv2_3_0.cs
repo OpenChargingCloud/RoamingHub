@@ -1,4 +1,4 @@
-/*
+﻿/*
  * Copyright (c) 2014-2026 GraphDefined GmbH <achim.friedland@graphdefined.com>
  * This file is part of RoamingHub <https://github.com/OpenChargingCloud/RoamingHub>
  *
@@ -83,6 +83,12 @@ namespace cloud.charging.open.RoamingHub.OCPI
 
                             BaseAPI:                   BaseAPI,
 
+                            // New in OCPI 2.3.0: every peer is told, in the
+                            // credentials, which hub it is behind. For a hub
+                            // that is itself - the field is "the hub party of
+                            // this platform".
+                            HubPartyId:                RoamingHub.PartyId,
+
                             // Only in the URLs it advertises, never in the paths
                             // it serves: see RoamingHub.OCPI.cs for why.
                             AdditionalURLPathPrefix:   RoamingHub.ExtAPI.RootPath,
@@ -114,6 +120,36 @@ namespace cloud.charging.open.RoamingHub.OCPI
             WireEvents();
 
         }
+
+        #endregion
+
+        #region (override) PublishClientInfo(PartyId, Role, Status, LastUpdated)
+
+        /// <summary>
+        /// Into the Common API's HubClientInfo store, which is what
+        /// GET ~/v2.3.0/hubclientinfo answers from.
+        /// </summary>
+        public override void PublishClientInfo(Party_Idv3      PartyId,
+                                               Role            Role,
+                                               PeerStatus      Status,
+                                               DateTimeOffset  LastUpdated)
+
+            => commonAPI.SetClientInfo(
+                   PartyId,
+                   Role,
+                   // The same four names on both sides, mapped rather than
+                   // cast: an enum that grew a value on one side and not the
+                   // other should fail to build, not silently mean something
+                   // else on the wire.
+                   Status switch {
+                       PeerStatus.CONNECTED  => V.ConnectionStatus.CONNECTED,
+                       PeerStatus.OFFLINE    => V.ConnectionStatus.OFFLINE,
+                       PeerStatus.PLANNED    => V.ConnectionStatus.PLANNED,
+                       PeerStatus.SUSPENDED  => V.ConnectionStatus.SUSPENDED,
+                       _                     => V.ConnectionStatus.OFFLINE
+                   },
+                   LastUpdated
+               );
 
         #endregion
 

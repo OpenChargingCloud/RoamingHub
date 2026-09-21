@@ -30,10 +30,11 @@ that somebody who has read one of them has read this one.
 | The peering | a peer added, a token handed out, and the credentials exchanged in **either** direction |
 | The traffic | every OCPI call that touched this hub, both ways, with the two parties of it - on its own page and its own stream |
 | The web interface | all of the above in a browser: the traffic as it happens, the peers, the configuration and the log |
+| HubClientInfo | who is on this hub and whether they can be reached, over OCPI and on the Peers page |
 
-**What is not here yet.** Forwarding what one peer sends to another, and the
-`hubclientinfo` module that would tell a peer who else is on the hub. Those
-are what makes a hub more than a directory, and they are the next thing.
+**What is not here yet.** Forwarding what one peer sends to another, which is
+what would make this hub more than a directory, and the push half of
+HubClientInfo - see below. Both are the next thing.
 
 **No OCPI 2.1.1, and there cannot be.** The hub role arrived with OCPI 2.2 and
 the library has no hub side for the version before it. A CPO or an EMSP that
@@ -63,6 +64,58 @@ npm run watch                           in Frontend/, beside a hub started with
 Building it needs Node.js; `SkipFrontendBuild` is there for a machine that has
 none, and `--frontend <dir>` serves the bundle off disk instead of out of the
 assembly, which is what makes `npm run watch` show up on a reload.
+
+
+## HubClientInfo: who is on the hub
+
+A peer that is peered is not the same as a peer that is *there*, and the
+difference is the question somebody actually walks up to a hub with. So every
+peer carries a connection status beside its registration:
+
+| | |
+|---|---|
+| `PLANNED` | peered, but the registration is not complete |
+| `CONNECTED` | heard from within the last five minutes |
+| `OFFLINE` | registered, and has gone quiet |
+| `SUSPENDED` | switched off here by an operator |
+
+Served at `GET ~/v2.3.0/hubclientinfo` to the peers, with `date_from`,
+`date_to`, `offset` and `limit`, and on the Peers page of the web interface
+for the people who run the hub. Both read the same answer.
+
+**Nothing is ever deleted**, and the specification is explicit about why: a
+ClientInfo object that simply vanished would leave every other peer holding a
+party the hub has forgotten, with no way to tell that from one that is merely
+quiet. A peer that is not to be talked to is set to `SUSPENDED` instead, and
+it then also leaves the `roles` this hub advertises in its credentials -
+nobody is invited to address a party the hub will not forward to.
+
+**How a status is decided: by not asking.** Every OCPI call a peer makes
+already passes the traffic recorder, which identifies it by its token - so a
+call *is* the liveness signal, and a hub whose peers are busy never has to
+check anything. A timer only catches the quiet ones. That is the specification's
+keepalive seen from the other side, and it costs no traffic at all.
+
+**Two things OCPI 2.3.0 changed** for a hub, both around this module and both
+implemented:
+
+- `hub_party_id` in the credentials, which a platform with hub message routing
+  SHALL set. A hub names itself.
+- The `roles` in a hub's credentials now list the parties reachable *through*
+  it, not only the hub itself, as they did in 2.2 and 2.2.1.
+
+**What is missing** is the push: the hub answers when asked, but does not yet
+`PUT` a changed ClientInfo to its peers' receiver endpoints. A peer therefore
+learns of a change by asking, which the specification allows for
+synchronisation but does not intend as the operational flow. It needs a
+`PutClientInfo` on the version client - the endpoint discovery it would use is
+already there in `GetVersionDetails` - and a fan-out that a dead peer cannot
+stall.
+
+**2.3.0 only.** The module is also in OCPI 2.2 and 2.2.1, but the store and
+the endpoint live in the library's 2.3.0 Common API; a hub offering 2.2.1
+keeps the status on its own page and has no OCPI endpoint for it. The hook
+each version fills is `OCPIVersion.PublishClientInfo`.
 
 
 ## The traffic, which is the point of a hub

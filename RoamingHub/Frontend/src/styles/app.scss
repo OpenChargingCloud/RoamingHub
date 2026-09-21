@@ -1444,3 +1444,23 @@ tr.dimmed td {
 .traffic-hint {
     margin-bottom: 0.6rem;
 }
+
+
+// Whether a peer can be reached: the OCPI HubClientInfo status.
+//
+// Four colours and not two, because the four mean genuinely different things
+// and an operator scanning the column needs to tell "has not registered yet"
+// from "registered and gone". Only OFFLINE is meant to catch the eye: it is
+// the one that is somebody's problem right now. PLANNED and SUSPENDED are
+// deliberately quiet - both are states somebody chose, and neither is news.
+.chip.conn {
+
+    font-weight:     600;
+    letter-spacing:  0.02em;
+
+    &.CONNECTED  { color: $color-ok;    border-color: #a7f3d0; background: #ecfdf5;        }
+    &.OFFLINE    { color: $color-error; border-color: #fecaca; background: $color-error-bg; }
+    &.PLANNED    { color: #1d4ed8;      border-color: #bfdbfe; background: #eff6ff;        }
+    &.SUSPENDED  { color: $color-muted; border-color: $color-border; background: $color-bg; }
+
+}

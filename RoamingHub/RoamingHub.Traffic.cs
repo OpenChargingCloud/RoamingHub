@@ -1,4 +1,4 @@
-/*
+﻿/*
  * Copyright (c) 2014-2026 GraphDefined GmbH <achim.friedland@graphdefined.com>
  * This file is part of RoamingHub <https://github.com/OpenChargingCloud/RoamingHub>
  *
@@ -97,7 +97,10 @@ namespace cloud.charging.open.RoamingHub
 
                 // Who it was, as this hub knows them; where the token was not
                 // one of ours, the socket is all there is.
-                Peer:                ReadPeer(Request),
+                // Who it was, and - where that is somebody - the cheapest
+                // liveness signal a hub has: a peer that is calling is a peer
+                // that is there. See RoamingHub.HubClientInfo.cs.
+                Peer:                SeenPeer(ReadPeer(Request)),
 
                 From:                ReadParty(Request, protocols.OCPI.HTTPHeaders.OCPI_From_Country_Code, protocols.OCPI.HTTPHeaders.OCPI_From_PartyId),
                 To:                  ReadParty(Request, protocols.OCPI.HTTPHeaders.OCPI_To_Country_Code,   protocols.OCPI.HTTPHeaders.OCPI_To_PartyId),
@@ -236,6 +239,38 @@ namespace cloud.charging.open.RoamingHub
             }
 
             return null;
+
+        }
+
+        #endregion
+
+        #region (private) SeenPeer(RemotePartyId)
+
+        /// <summary>
+        /// Pass the caller through, and mark it as having been heard from.
+        /// </summary>
+        /// <remarks>
+        /// Sitting in the middle of the traffic recorder rather than beside
+        /// it, because every OCPI call already comes through here with the
+        /// peer worked out. A hub whose peers are busy therefore never has to
+        /// ask anybody whether they are alive.
+        /// </remarks>
+        private String? SeenPeer(String? RemotePartyId)
+        {
+
+            if (RemotePartyId is not null)
+            {
+                try
+                {
+                    SeenFrom(RemotePartyId);
+                }
+                catch (Exception e)
+                {
+                    Log.Exception(e, "A peer could not be marked as seen.", "ocpi", "hubclientinfo");
+                }
+            }
+
+            return RemotePartyId;
 
         }
 

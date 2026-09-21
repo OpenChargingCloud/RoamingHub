@@ -1,4 +1,4 @@
-import { api, type LogEntry } from '../api/client';
+import { api, type LogEntry, type PeerPresence } from '../api/client';
 
 // The browser's copy of the hub's log, fed by two things: a snapshot from
 // the JSON API and the Server-Sent Events stream. Both carry ids from the same
@@ -47,13 +47,27 @@ export class LogStore {
     /** How many entries the hub keeps. */
     capacity = 0;
 
-    private source:              EventSource | null = null;
-    private readonly listeners = new Set<Listener>();
+    private source:                  EventSource | null = null;
+    private readonly listeners     = new Set<Listener>();
+    private readonly peerListeners = new Set<(peer: PeerPresence) => void>();
 
 
     onChange(listener: Listener): () => void {
         this.listeners.add(listener);
         return () => this.listeners.delete(listener);
+    }
+
+    /**
+     * A peer of this hub appeared or changed how it is doing.
+     *
+     * It arrives on the same stream as the log, so it is handed out from
+     * here rather than from a store of its own: one Server-Sent Events
+     * connection carries everything this hub decides, and a second one to
+     * the same URL would buy nothing but a second socket.
+     */
+    onPeer(listener: (peer: PeerPresence) => void): () => void {
+        this.peerListeners.add(listener);
+        return () => this.peerListeners.delete(listener);
     }
 
 
@@ -77,6 +91,21 @@ export class LogStore {
                 this.streamConnected = false;
                 this.emit({ type: 'stream' });
             }
+        });
+
+        source.addEventListener('peer', event => {
+
+            try
+            {
+                const peer = JSON.parse((event as MessageEvent<string>).data) as PeerPresence;
+                for (const listener of this.peerListeners)
+                    listener(peer);
+            }
+            catch (error)
+            {
+                console.warn('A peer event could not be read:', error);
+            }
+
         });
 
         source.addEventListener('log', event => {

@@ -1,9 +1,10 @@
 import { api, type Partner, type Partners, type PartnerSpec } from '../api/client';
 import { auth } from '../auth';
 import { html, must, render, type HTMLFragment } from '../html';
+import { logs } from '../logs/store';
 import type { Page } from '../router';
 import { shell } from '../shell';
-import { errorMessage, field, formatTimestamp } from '../ui';
+import { errorMessage, field, formatSince, formatTimestamp } from '../ui';
 
 /**
  * The peers: who may call this hub and be reached through it, on which OCPI
@@ -123,6 +124,15 @@ export const peersPage: Page = {
                         is on one OCPI version - the one it was added under, which is the one it registers on.
                     </p>
 
+                    <p class="hint">
+                        <b>Connection</b> and <b>Peering</b> answer different questions, and a peer can be
+                        <span class="badge ok">registered</span> and <span class="chip conn OFFLINE">OFFLINE</span>
+                        at the same time. Peering is what was agreed once; connection is what is happening now, and
+                        it is what this hub tells every other peer over <code>hubclientinfo</code>. A peer this hub
+                        has not heard from for five minutes is taken to be offline - it does not have to be asked,
+                        because every OCPI call it makes is the answer.
+                    </p>
+
                     ${partners.partners.length === 0
                           ? html`<p class="muted">No peer yet - this hub is a mesh of one.</p>`
                           : html`
@@ -133,6 +143,7 @@ export const peersPage: Page = {
                                               <th>Peer</th>
                                               <th>Role</th>
                                               <th>OCPI</th>
+                                              <th>Connection</th>
                                               <th>Peering</th>
                                               <th>Their token, our token</th>
                                               <th>Their versions URL</th>
@@ -174,6 +185,15 @@ export const peersPage: Page = {
                     <td>${partner.version}${partner.selectedVersion && partner.selectedVersion !== partner.version ? html`<div class="small muted">they chose ${partner.selectedVersion}</div>` : ''}</td>
 
                     <td>
+                        <span class="chip conn ${partner.connection}" title="${connectionTitle(partner)}">${partner.connection}</span>
+                        <div class="small muted">
+                            ${partner.lastSeen
+                                  ? html`seen ${formatSince(partner.lastSeen)}`
+                                  : html`never heard from`}
+                        </div>
+                    </td>
+
+                    <td>
                         ${peering}
                         <div class="small muted">
                             ${partner.status}${partner.remoteStatus ? ` · remote ${partner.remoteStatus}` : ''}
@@ -194,6 +214,15 @@ export const peersPage: Page = {
                             <button type="button" class="btn small partner-register" data-version="${partner.version}" data-id="${partner.id}"
                                     title="Fetch their versions with the token they handed out, and POST this hub's credentials to them">
                                 ${partner.registered ? 'Register again' : 'Register'}
+                            </button>
+                        ` : ''}
+                        ${mayManage ? html`
+                            <button type="button" class="btn small peer-suspension" data-party="${partner.countryCode}${partner.partyId}"
+                                    data-suspend="${partner.connection === 'SUSPENDED' ? 'no' : 'yes'}"
+                                    title="${partner.connection === 'SUSPENDED'
+                                                ? 'Talk to this peer again, and tell the others'
+                                                : 'Stop talking to this peer without forgetting it, and tell the others'}">
+                                ${partner.connection === 'SUSPENDED' ? 'Resume' : 'Suspend'}
                             </button>
                         ` : ''}
                         <button type="button" class="btn small danger partner-remove" data-version="${partner.version}" data-id="${partner.id}"
@@ -323,6 +352,14 @@ export const peersPage: Page = {
 
             content.querySelectorAll<HTMLButtonElement>('.partner-register').forEach(button => {
                 button.addEventListener('click', () => void register(button, button.dataset.version ?? '', button.dataset.id ?? ''));
+            });
+
+            content.querySelectorAll<HTMLButtonElement>('.peer-suspension').forEach(button => {
+                button.addEventListener('click', () => void setSuspension(
+                    button,
+                    button.dataset.party   ?? '',
+                    button.dataset.suspend === 'yes'
+                ));
             });
 
             const form = content.querySelector<HTMLFormElement>('#partner-form');
@@ -467,6 +504,63 @@ export const peersPage: Page = {
         }
 
 
+        /** Why a peer is in the status it is in, in a sentence. */
+        function connectionTitle(partner: Partner): string {
+
+            switch (partner.connection) {
+
+                case 'CONNECTED':
+                    return 'Heard from within the last five minutes';
+
+                case 'OFFLINE':
+                    return partner.lastSeen
+                               ? 'Registered, but has not called for over five minutes'
+                               : 'Registered, but has never called this hub';
+
+                case 'PLANNED':
+                    return 'Peered, but the registration is not complete yet';
+
+                case 'SUSPENDED':
+                    return 'Switched off here; the other peers have been told';
+
+            }
+
+        }
+
+
+        async function setSuspension(button: HTMLButtonElement, partyId: string, suspend: boolean): Promise<void> {
+
+            button.disabled = true;
+
+            try
+            {
+
+                const answer = suspend
+                                   ? await api.ocpi.partners.suspend(partyId)
+                                   : await api.ocpi.partners.resume (partyId);
+
+                if (cancelled)
+                    return;
+
+                store             = answer.partners;
+                lastRegistration  = { ok: answer.ok, message: answer.message };
+                justAdded         = null;
+
+                draw();
+
+            }
+            catch (problem)
+            {
+                if (!cancelled)
+                {
+                    window.alert(errorMessage(problem));
+                    void load();
+                }
+            }
+
+        }
+
+
         async function load(): Promise<void> {
 
             try
@@ -487,9 +581,21 @@ export const peersPage: Page = {
 
         }
 
+        // A peer going quiet is something this hub notices by itself, without
+        // anybody asking - so the page has to hear about it the same way. The
+        // whole list is re-read rather than patched in place: a status change
+        // is rare, and the alternative is a second copy of the merge rule.
+        const stopListening = logs.onPeer(() => {
+            if (!cancelled)
+                void load();
+        });
+
         void load();
 
-        return () => { cancelled = true; };
+        return () => {
+            cancelled = true;
+            stopListening();
+        };
 
     }
 

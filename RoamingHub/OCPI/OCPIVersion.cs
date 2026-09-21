@@ -1,4 +1,4 @@
-/*
+﻿/*
  * Copyright (c) 2014-2026 GraphDefined GmbH <achim.friedland@graphdefined.com>
  * This file is part of RoamingHub <https://github.com/OpenChargingCloud/RoamingHub>
  *
@@ -306,6 +306,28 @@ namespace cloud.charging.open.RoamingHub.OCPI
         /// The hub modules this version offers, by the name OCPI gives them.
         /// </summary>
         protected abstract IEnumerable<String>  Modules { get; }
+
+        #endregion
+
+        #region PublishClientInfo(PartyId, Role, Status, LastUpdated)
+
+        /// <summary>
+        /// Hand this version's Common API what the hub decided about a peer,
+        /// so that a peer asking over OCPI is told the same thing.
+        /// </summary>
+        /// <remarks>
+        /// Does nothing by default, and that is not an oversight: the
+        /// HubClientInfo module arrived in the OCPI library for 2.3.0 first,
+        /// and a version whose Common API has no store for it has nowhere to
+        /// put this. The hub's own answer - its page, its stream - is
+        /// unaffected either way; what a version without this loses is only
+        /// the OCPI endpoint.
+        /// </remarks>
+        public virtual void PublishClientInfo(Party_Idv3        PartyId,
+                                              Role              Role,
+                                              PeerStatus  Status,
+                                              DateTimeOffset    LastUpdated)
+        { }
 
         #endregion
 

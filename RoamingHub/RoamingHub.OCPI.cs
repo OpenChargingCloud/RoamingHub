@@ -1,4 +1,4 @@
-/*
+﻿/*
  * Copyright (c) 2014-2026 GraphDefined GmbH <achim.friedland@graphdefined.com>
  * This file is part of RoamingHub <https://github.com/OpenChargingCloud/RoamingHub>
  *
@@ -355,6 +355,38 @@ namespace cloud.charging.open.RoamingHub
 
         #endregion
 
+        #region (private) WithPresence(JSON, Party)
+
+        /// <summary>
+        /// Add what this hub knows about a peer's connection to what it knows
+        /// about its registration.
+        /// </summary>
+        /// <remarks>
+        /// Merged into the same object rather than served beside it, because
+        /// the two answer one question between them and a page that had to
+        /// fetch them separately could show a peer as registered and say
+        /// nothing about whether it is there. They are different kinds of
+        /// fact, though, and the page keeps them apart: registration is what
+        /// was agreed, connection is what is happening.
+        /// </remarks>
+        private JObject WithPresence(JObject JSON, RemotePartySummary Party)
+        {
+
+            var partyId = Party_Idv3.From(Party.CountryCode, Party.PartyId);
+
+            JSON["connection"]       = presence.TryGetValue(partyId, out var peer)
+                                           ? peer.Status.ToString()
+                                           : PeerStatus.PLANNED.ToString();
+
+            JSON["lastSeen"]         = peer?.LastSeen?.ToString("o");
+            JSON["connectionSince"]  = peer?.LastUpdated.ToString("o");
+
+            return JSON;
+
+        }
+
+        #endregion
+
         #region TryGetOCPIVersion(Label, out Version)
 
         /// <summary>
@@ -389,7 +421,7 @@ namespace cloud.charging.open.RoamingHub
                    new JProperty("partners",   new JArray(
                        ocpiVersions.SelectMany(version => version.RemoteParties).
                                     OrderBy   (party   => party.Id.ToString()).
-                                    Select    (party   => party.ToJSON(IncludeSecrets))
+                                    Select    (party   => WithPresence(party.ToJSON(IncludeSecrets), party))
                    )),
                    new JProperty("versions",   new JArray(ocpiVersions.Select(version => version.Label))),
                    new JProperty("roles",      new JArray("CPO", "EMSP", "HUB")),
@@ -536,6 +568,8 @@ namespace cloud.charging.open.RoamingHub
 
             var added = version.GetRemoteParty(spec.Id);
 
+            RefreshPresence();
+
             return OCPIOperationResult.Ok(
                        $"The peer '{spec.Id}' was added on OCPI {version.Label}.",
                        new JObject(
@@ -578,6 +612,11 @@ namespace cloud.charging.open.RoamingHub
             var started = TimeProvider.GetTimestamp();
 
             var result  = await version.Register(remotePartyId);
+
+            // Whether it worked or not: a registration that went through moves
+            // the peer out of PLANNED, and one that did not may still have
+            // changed what this hub holds about it.
+            RefreshPresence();
 
             Log.Log(
                 result.Success ? Logging.LogLevel.Notice : Logging.LogLevel.Warning,
@@ -625,6 +664,8 @@ namespace cloud.charging.open.RoamingHub
                 return OCPIOperationResult.Failed($"The peer '{remotePartyId}' could not be removed.");
 
             Log.Notice($"The peer '{remotePartyId}' was removed from OCPI {version.Label}; its token no longer opens this hub.", "ocpi", "partner");
+
+            RefreshPresence();
 
             return OCPIOperationResult.Ok($"The peer '{remotePartyId}' was removed.");
 

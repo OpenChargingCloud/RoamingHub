@@ -1,4 +1,4 @@
-/*
+﻿/*
  * Copyright (c) 2014-2026 GraphDefined GmbH <achim.friedland@graphdefined.com>
  * This file is part of RoamingHub <https://github.com/OpenChargingCloud/RoamingHub>
  *
@@ -20,6 +20,8 @@
 using Newtonsoft.Json.Linq;
 
 using org.GraphDefined.Vanaheimr.Hermod.HTTP;
+
+using cloud.charging.open.protocols.OCPI;
 
 using cloud.charging.open.RoamingHub.OCPI;
 using cloud.charging.open.RoamingHub.Web;
@@ -64,6 +66,11 @@ namespace cloud.charging.open.RoamingHub
             AddHandler(HTTPPath.Root + "v1/ocpi/partners",                         PostPartner,           HTTPMethod.POST);
             AddHandler(HTTPPath.Root + "v1/ocpi/partners/{version}/{id}/register", PostPartnerRegister,   HTTPMethod.POST);
             AddHandler(HTTPPath.Root + "v1/ocpi/partners/{version}/{id}",          DeletePartner,         HTTPMethod.DELETE);
+
+            // The HubClientInfo side of a peer: not whether it is peered, but
+            // whether this hub is willing to talk to it at all.
+            AddHandler(HTTPPath.Root + "v1/ocpi/peers/{partyId}/suspend",           PostPeerSuspend,       HTTPMethod.POST);
+            AddHandler(HTTPPath.Root + "v1/ocpi/peers/{partyId}/resume",            PostPeerResume,        HTTPMethod.POST);
 
 
         }
@@ -182,6 +189,76 @@ namespace cloud.charging.open.RoamingHub
                            new JProperty("ok",        result.Success),
                            new JProperty("message",   result.Message),
                            new JProperty("partners",  RoamingHub.RemotePartiesJSON(IncludeSecrets: true))
+                       )
+                   );
+
+        }
+
+        /// <summary>
+        /// POST /api/v1/ocpi/peers/{partyId}/suspend: stop talking to a peer
+        /// without forgetting it.
+        /// </summary>
+        /// <remarks>
+        /// The specification has no deletion in HubClientInfo, and this is
+        /// why: a peer that is switched off is still a peer every other one
+        /// has heard of, and they are told it is SUSPENDED rather than left
+        /// to wonder why it went quiet. Removing it altogether is the other
+        /// button, and it means something else.
+        /// </remarks>
+        private Task<HTTPResponse> PostPeerSuspend(HTTPRequest Request)
+            => SetPeerSuspension(Request, Suspend: true);
+
+        /// <summary>
+        /// POST /api/v1/ocpi/peers/{partyId}/resume: talk to it again.
+        /// </summary>
+        private Task<HTTPResponse> PostPeerResume(HTTPRequest Request)
+            => SetPeerSuspension(Request, Suspend: false);
+
+        /// <summary>
+        /// Both of the above, which differ by one word.
+        /// </summary>
+        private Task<HTTPResponse> SetPeerSuspension(HTTPRequest Request, Boolean Suspend)
+        {
+
+            if (!TryAuthorize(Request, Permissions.ManageRoamingPartners, true, out var user, out var refused))
+                return Task.FromResult(refused);
+
+            if (!Request.ParsedURLParameters.Any() ||
+                !Party_Idv3.TryParse(Request.ParsedURLParameters[0], out var partyId))
+            {
+                return Task.FromResult(
+                           JSONResponse(
+                               Request,
+                               HTTPStatusCode.BadRequest,
+                               new JObject(new JProperty("error", "A party identification of five characters is needed, e.g. 'DEGEF'."))
+                           )
+                       );
+            }
+
+            var ok = Suspend
+                         ? RoamingHub.SuspendPeer(partyId)
+                         : RoamingHub.ResumePeer (partyId);
+
+            if (!ok)
+                return Task.FromResult(
+                           JSONResponse(
+                               Request,
+                               HTTPStatusCode.NotFound,
+                               new JObject(new JProperty("error", $"This hub knows no peer '{partyId}'."))
+                           )
+                       );
+
+            Log.Info($"'{user.Id}' {(Suspend ? "suspended" : "resumed")} the peer '{partyId}'.", "ocpi", "hubclientinfo", "web");
+
+            return Task.FromResult(
+                       JSONResponse(
+                           Request,
+                           HTTPStatusCode.OK,
+                           new JObject(
+                               new JProperty("ok",        true),
+                               new JProperty("message",   $"'{partyId}' was {(Suspend ? "suspended" : "resumed")}."),
+                               new JProperty("partners",  RoamingHub.RemotePartiesJSON(IncludeSecrets: true))
+                           )
                        )
                    );
 

@@ -1,4 +1,4 @@
-/*
+﻿/*
  * Copyright (c) 2014-2026 GraphDefined GmbH <achim.friedland@graphdefined.com>
  * This file is part of RoamingHub <https://github.com/OpenChargingCloud/RoamingHub>
  *
@@ -726,6 +726,10 @@ namespace cloud.charging.open.RoamingHub
 
             StartCheckingTheClock();
 
+            // After the peers have been read back, because it seeds itself
+            // from them - see RoamingHub.HubClientInfo.cs.
+            StartWatchingThePeers();
+
             started = true;
 
             Log.Notice(WebInterface is not null
@@ -760,6 +764,9 @@ namespace cloud.charging.open.RoamingHub
 
             timeCheckTimer?.Dispose();
             timeCheckTimer = null;
+
+            presenceTimer?.Dispose();
+            presenceTimer = null;
 
             // Before the server, and that order is the whole point: every
             // browser with the Logs page open holds a request that is waiting

@@ -1,4 +1,4 @@
-/*
+﻿/*
  * Copyright (c) 2014-2026 GraphDefined GmbH <achim.friedland@graphdefined.com>
  * This file is part of RoamingHub <https://github.com/OpenChargingCloud/RoamingHub>
  *
@@ -68,6 +68,17 @@ namespace cloud.charging.open.RoamingHub
         /// The sub-event every log entry travels as.
         /// </summary>
         public const           String    LogEventName        = "log";
+
+        /// <summary>
+        /// A peer appeared on this hub, or changed how it is doing.
+        /// </summary>
+        /// <remarks>
+        /// On the same stream as the log rather than on the traffic's: it is
+        /// something this hub decided, not something that went between two
+        /// peers, and whoever has a page of this hub open wants it wherever
+        /// they are.
+        /// </remarks>
+        public const           String    PeerEventName       = "peer";
 
         /// <summary>
         /// The most log entries one request may ask for.
@@ -171,6 +182,8 @@ namespace cloud.charging.open.RoamingHub
                              );
 
             this.Log.OnLogged += entry => Publish(LogEventName, entry.ToJSON());
+
+            RoamingHub.OnPeerPresenceChanged += peer => Publish(PeerEventName, peer.ToJSON());
 
             RegisterURLTemplates();
 

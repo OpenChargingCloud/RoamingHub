@@ -287,6 +287,27 @@ export interface OCPIConfiguration {
 }
 
 /**
+ * Whether a peer can be reached, as OCPI writes it.
+ *
+ * PLANNED is a peer that is not registered yet - the contracts are not
+ * established. SUSPENDED is a decision somebody made and it sticks; the
+ * other three follow from what the hub observes.
+ */
+export type ConnectionStatus = 'CONNECTED' | 'OFFLINE' | 'PLANNED' | 'SUSPENDED';
+
+/** One peer of this hub, as the event stream announces a change to it. */
+export interface PeerPresence {
+    partyId:      string;
+    countryCode:  string;
+    party:        string;
+    role:         string;
+    status:       ConnectionStatus;
+    registered:   boolean;
+    lastUpdated:  string;
+    lastSeen:     string | null;
+}
+
+/**
  * One peer of this hub - a CPO, an EMSP, or another hub. The tokens are
  * present only for whoever may manage partners; everybody else sees that
  * there is one.
@@ -310,6 +331,19 @@ export interface Partner {
     selectedVersion:   string | null;
     /** Whether this hub holds a token of theirs and a place to send it. */
     canRegister:       boolean;
+    /**
+     * Whether this peer can be reached right now - the OCPI HubClientInfo
+     * status, and a different kind of fact from `registered` below.
+     *
+     * Registration is what was agreed, once; this is what is happening. A
+     * peer can be perfectly registered and OFFLINE, which is exactly the
+     * situation somebody walks up to a hub to ask about.
+     */
+    connection:        ConnectionStatus;
+    /** When this hub last heard from it, or null when it never has. */
+    lastSeen:          string | null;
+    /** Since when it has been in the status above. */
+    connectionSince:   string | null;
     /** Whether the peering is complete in both directions. */
     registered:        boolean;
     created:           string;
@@ -573,7 +607,24 @@ export const api = {
                                'POST', `/ocpi/partners/${encodeURIComponent(version)}/${encodeURIComponent(id)}/register`, {}),
 
             remove:    (version: string, id: string) =>
-                           request<Partners>('DELETE', `/ocpi/partners/${encodeURIComponent(version)}/${encodeURIComponent(id)}`)
+                           request<Partners>('DELETE', `/ocpi/partners/${encodeURIComponent(version)}/${encodeURIComponent(id)}`),
+
+            /**
+             * Stop talking to a peer, or start again.
+             *
+             * Not a deletion, and the OCPI specification is explicit that
+             * there is none here: a peer that simply vanished would leave
+             * every other peer holding a party the hub has forgotten, with
+             * no way to tell that from one that is merely quiet. So it is
+             * switched off, and everybody is told.
+             */
+            suspend:   (partyId: string) =>
+                           request<{ ok: boolean; message: string; partners: Partners }>(
+                               'POST', `/ocpi/peers/${encodeURIComponent(partyId)}/suspend`, {}),
+
+            resume:    (partyId: string) =>
+                           request<{ ok: boolean; message: string; partners: Partners }>(
+                               'POST', `/ocpi/peers/${encodeURIComponent(partyId)}/resume`, {})
 
         },
 
