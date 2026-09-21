@@ -1,9 +1,11 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <RootNamespace>cloud.charging.open.RoamingHub</RootNamespace>
+    <Version>0.1.0</Version>
   </PropertyGroup>
 
   <ItemGroup>
@@ -11,10 +13,20 @@
     <ProjectReference Include="..\..\Norn\Norn\Norn.csproj" />
     <ProjectReference Include="..\..\Styx\Styx\Styx.csproj" />
     <ProjectReference Include="..\..\Urdr\Urdr\Urdr.csproj" />
-    <ProjectReference Include="..\..\WWCP_OCPI\WWCP_OCPIv2.1.1\WWCP_OCPIv2.1.1.csproj" />
+    <ProjectReference Include="..\..\WWCP_OCPI\WWCP_OCPI_Common\WWCP_OCPI_Common.csproj" />
     <ProjectReference Include="..\..\WWCP_OCPI\WWCP_OCPIv2.2.1\WWCP_OCPIv2.2.1.csproj" />
     <ProjectReference Include="..\..\WWCP_OCPI\WWCP_OCPIv2.3.0\WWCP_OCPIv2.3.0.csproj" />
-    <ProjectReference Include="..\..\WWCP_OCPI\WWCP_OCPI_Common\WWCP_OCPI_Common.csproj" />
   </ItemGroup>
+
+  <!--
+    No 2.1.1, and not by omission: the hub role arrived with OCPI 2.2 and the
+    library has no hub side for the version before it. A CPO or an EMSP that
+    speaks only 2.1.1 cannot be peered with this hub at all.
+
+    No web interface yet either, so nothing here builds or embeds one. The
+    JSON API answers, the two event streams run, and a browser asking for "/"
+    is told there is nothing to render. When a frontend arrives it comes with
+    the same npm/webpack target the other four components have.
+  -->
 
 </Project>

@@ -1,2 +1,119 @@
-# Hub
-EV Roaming Hub
+# RoamingHub
+
+One OCPI roaming hub, with a JSON API in front of it: a C# HTTP backend built
+on [Hermod](https://github.com/Vanaheimr/Hermod) and the
+[OCPI library](https://github.com/OpenChargingCloud/WWCP_OCPI).
+
+A hub sits between the charge point operators and the e-mobility service
+providers so that they do not each have to be peered with all the others.
+Every one of them is peered with the hub instead, once, and the hub is what
+turns that into a mesh.
+
+```
+  CPO  ──OCPI 2.2.1──▶  RoamingHub  ◀──OCPI 2.2.1──  EMSP
+                        every call through it written down,
+                        with the two parties it was between
+```
+
+This is built the same way as
+[EMSP](https://github.com/OpenChargingCloud/EMSP) and the OCPI side of
+[CSMS](https://github.com/OpenChargingCloud/CSMS) - the same configuration
+file, the same accounts, the same event log, the same shape of peering - so
+that somebody who has read one of them has read this one.
+
+
+## What is here
+
+| | |
+|---|---|
+| The base | name resolution, the time source, the accounts, the event log, the JSON API and its event stream |
+| The peering | a peer added, a token handed out, and the credentials exchanged in **either** direction |
+| The traffic | every OCPI call that touched this hub, both ways, with the two parties of it - on its own page and its own stream |
+
+**What is not here yet.** Forwarding what one peer sends to another, and the
+`hubclientinfo` module that would tell a peer who else is on the hub. Those
+are what makes a hub more than a directory, and they are the next thing.
+There is no web interface either: the JSON API answers, the two event streams
+run, and a browser asking for `/` is told there is nothing to render.
+
+**No OCPI 2.1.1, and there cannot be.** The hub role arrived with OCPI 2.2 and
+the library has no hub side for the version before it. A CPO or an EMSP that
+speaks only 2.1.1 cannot be peered with this hub; it has to talk to its
+counterpart directly.
+
+
+## The traffic, which is the point of a hub
+
+Two peers that talk directly can each read their own log and compare them. The
+moment a hub is between them, neither can say what the other actually sent,
+and "it works for us" is an answer nobody can check. So every call is written
+down here:
+
+```
+GET /api/v1/traffic?limit=200&after=1234&peer=DE*GEF
+GET /api/v1/traffic/events                        ← the same, as it happens
+GET /api/v1/traffic/peers                         ← everyone seen, for a filter
+```
+
+A line says which way the call went, which peer was at the other end, the two
+parties out of the OCPI `from` and `to` headers, the version and module, the
+HTTP status **and** the OCPI status inside the envelope - because OCPI answers
+a refusal with `200` and a status code as readily as with a `4xx` - how long it
+took, and how big it was.
+
+The bodies are not kept unless `ocpi.logging.payloads` says so: what travels
+through a hub is a location somebody operates, a session somebody is having, a
+card somebody is holding, and none of it is the hub's to keep.
+
+It is in memory and nowhere else, because how long a hub may keep its peers'
+business is a question with a different answer in every jurisdiction. A
+deployment that has to keep more should read the stream and put it where it
+has decided to keep it.
+
+Reading it is its own permission - `readTraffic` - and not part of
+`readConfiguration`: the configuration is what this hub is, and the traffic is
+what its peers did through it.
+
+
+## What it can be told
+
+The `configuration.json` beside it, in the same shape as the EMSP's:
+
+| Section | |
+|---|---|
+| `dns` | the name servers and how they are asked |
+| `nts` | the time server and how often the clock is checked |
+| `ocpi` | who this hub is - country code, party identification, name - and which versions it offers |
+
+Everything in `dns` and `nts` takes effect the moment it is saved. The `ocpi`
+section is read once at the start and deliberately not changeable while
+running: it is what every peer wrote into its credentials, and changing it
+under a live registration would not rename the hub, it would make it a second
+one nobody is peered with.
+
+The peers themselves are in none of it. The OCPI library keeps them in
+append-only files of its own below an `ocpi/` directory beside the
+configuration, one set per version, and reads them back at every start.
+
+
+## The tests
+
+```
+dotnet test HubTests
+```
+
+Both directions of the peering - a peer coming here, and this hub walking to a
+peer that handed out a token and a versions URL - against a stub with the three
+routes the credentials handshake touches. And the traffic: what a call is
+written down as, what a stranger's refused call is written down as, that the
+hub's own JSON API is not traffic, the filter, catching up with `after`, the
+permission, and a call arriving on the stream while it is open.
+
+
+## Your participation
+
+This software is Open Source under the **Affero GPL 3.0 license**.
+We appreciate your participation in this ongoing project, and your help to
+improve it and the e-mobility ICT in general. If you find bugs, want to
+request a feature or send us a pull request, feel free to use the normal
+GitHub features to do so.
