@@ -137,19 +137,84 @@ namespace cloud.charging.open.RoamingHub.OCPI
             => commonAPI.SetClientInfo(
                    PartyId,
                    Role,
-                   // The same four names on both sides, mapped rather than
-                   // cast: an enum that grew a value on one side and not the
-                   // other should fail to build, not silently mean something
-                   // else on the wire.
-                   Status switch {
-                       PeerStatus.CONNECTED  => V.ConnectionStatus.CONNECTED,
-                       PeerStatus.OFFLINE    => V.ConnectionStatus.OFFLINE,
-                       PeerStatus.PLANNED    => V.ConnectionStatus.PLANNED,
-                       PeerStatus.SUSPENDED  => V.ConnectionStatus.SUSPENDED,
-                       _                     => V.ConnectionStatus.OFFLINE
-                   },
+                   StatusOf(Status),
                    LastUpdated
                );
+
+        #endregion
+
+        #region (override) PushClientInfo(Target, Subject, CancellationToken)
+
+        /// <summary>
+        /// PUT the subject to one peer's HubClientInfo receiver endpoint.
+        /// </summary>
+        /// <remarks>
+        /// The client works out where that endpoint is from the peer's own
+        /// version details - see CommonHTTPClient.PutClientInfo - so a peer
+        /// that does not offer the module needs no special case here.
+        /// </remarks>
+        public override async Task<String?> PushClientInfo(RemoteParty_Id     Target,
+                                                           PeerPresence       Subject,
+                                                           CancellationToken  CancellationToken   = default)
+        {
+
+            if (!commonAPI.TryGetRemoteParty(Target, out var party))
+                return $"There is no peer '{Target}' on OCPI {Label}.";
+
+            if (!party.RemoteAccessInfos.Any())
+                return $"'{Target}' has not handed out a token and a versions URL, so there is nowhere to push to.";
+
+            // Built from the peer, the same way Register does and for the same
+            // reason: a hub talks to a CPO where an EMSP would, and what is
+            // asked of the client here lives on the client both of those are.
+            using var client = new V.CommonHTTPClient(
+                                   CommonAPI:    commonAPI,
+                                   RemoteParty:  party,
+                                   DNSClient:    RoamingHub.DNSClient
+                               );
+
+            var response = await client.PutClientInfo(
+                                     ClientInfoOf(Subject),
+                                     CancellationToken: CancellationToken
+                                 );
+
+            return response.StatusCode == protocols.OCPI.StatusCode.Success
+                       ? null
+                       : response.StatusMessage ?? "The peer refused the push without saying why.";
+
+        }
+
+        #endregion
+
+        #region (private) ClientInfoOf(Peer)
+
+        /// <summary>
+        /// One peer of this hub, as OCPI 2.3.0 writes it.
+        /// </summary>
+        private static V.ClientInfo ClientInfoOf(PeerPresence Peer)
+
+            => new (
+                   Peer.PartyId.CountryCode,
+                   Peer.PartyId.PartyId,
+                   Peer.Role,
+                   StatusOf(Peer.Status),
+                   Peer.LastUpdated
+               );
+
+        /// <summary>
+        /// The same four names on both sides, mapped rather than cast: an enum
+        /// that grew a value on one side and not the other should fail to
+        /// build, not silently mean something else on the wire.
+        /// </summary>
+        private static V.ConnectionStatus StatusOf(PeerStatus Status)
+
+            => Status switch {
+                   PeerStatus.CONNECTED  => V.ConnectionStatus.CONNECTED,
+                   PeerStatus.OFFLINE    => V.ConnectionStatus.OFFLINE,
+                   PeerStatus.PLANNED    => V.ConnectionStatus.PLANNED,
+                   PeerStatus.SUSPENDED  => V.ConnectionStatus.SUSPENDED,
+                   _                     => V.ConnectionStatus.OFFLINE
+               };
 
         #endregion
 

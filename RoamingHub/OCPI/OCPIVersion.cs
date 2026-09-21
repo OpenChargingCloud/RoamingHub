@@ -323,11 +323,38 @@ namespace cloud.charging.open.RoamingHub.OCPI
         /// unaffected either way; what a version without this loses is only
         /// the OCPI endpoint.
         /// </remarks>
-        public virtual void PublishClientInfo(Party_Idv3        PartyId,
-                                              Role              Role,
-                                              PeerStatus  Status,
-                                              DateTimeOffset    LastUpdated)
+        public virtual void PublishClientInfo(Party_Idv3      PartyId,
+                                              Role            Role,
+                                              PeerStatus      Status,
+                                              DateTimeOffset  LastUpdated)
         { }
+
+        #endregion
+
+        #region PushClientInfo   (Target, Subject, CancellationToken)
+
+        /// <summary>
+        /// Tell one peer what became of another: PUT the subject to the
+        /// target's HubClientInfo receiver endpoint.
+        /// </summary>
+        /// <remarks>
+        /// Answers with null where the peer was told, and with a sentence
+        /// where it was not. Not with an exception: one peer that cannot be
+        /// reached is the normal state of affairs on a hub, and it must not
+        /// stop the other peers from being told.
+        ///
+        /// Whom to tell is not decided here. The hub owns that, because it is
+        /// the hub that knows which peers are themselves reachable, and the
+        /// specification asks that nothing be queued for one that is not.
+        /// </remarks>
+        /// <param name="Target">The peer to tell.</param>
+        /// <param name="Subject">The peer it is being told about.</param>
+        /// <param name="CancellationToken">A cancellation token to cancel the operation.</param>
+        public virtual Task<String?> PushClientInfo(RemoteParty_Id     Target,
+                                                    PeerPresence       Subject,
+                                                    CancellationToken  CancellationToken   = default)
+
+            => Task.FromResult<String?>($"OCPI {Label} has no HubClientInfo push.");
 
         #endregion
 

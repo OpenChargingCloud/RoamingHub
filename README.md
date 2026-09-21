@@ -33,8 +33,7 @@ that somebody who has read one of them has read this one.
 | HubClientInfo | who is on this hub and whether they can be reached, over OCPI and on the Peers page |
 
 **What is not here yet.** Forwarding what one peer sends to another, which is
-what would make this hub more than a directory, and the push half of
-HubClientInfo - see below. Both are the next thing.
+what would make this hub more than a directory. That is the next thing.
 
 **No OCPI 2.1.1, and there cannot be.** The hub role arrived with OCPI 2.2 and
 the library has no hub side for the version before it. A CPO or an EMSP that
@@ -104,13 +103,24 @@ implemented:
 - The `roles` in a hub's credentials now list the parties reachable *through*
   it, not only the hub itself, as they did in 2.2 and 2.2.1.
 
-**What is missing** is the push: the hub answers when asked, but does not yet
-`PUT` a changed ClientInfo to its peers' receiver endpoints. A peer therefore
-learns of a change by asking, which the specification allows for
-synchronisation but does not intend as the operational flow. It needs a
-`PutClientInfo` on the version client - the endpoint discovery it would use is
-already there in `GetVersionDetails` - and a fan-out that a dead peer cannot
-stall.
+**Both halves are here.** A peer can ask, and it is also told: when a status
+changes, the hub `PUT`s the new ClientInfo to every other peer's receiver
+endpoint. Where that endpoint is comes out of the peer's own version details,
+so a peer that does not offer the module needs no configuring - it is simply
+not told.
+
+Three peers are skipped, and each for its own reason: the subject, which
+already knows; one that has handed out nothing to call it with; and one that
+is itself `OFFLINE` or `SUSPENDED`, because the specification asks that
+nothing be queued for it, and because news about a third party is not worth
+waiting out a timeout for.
+
+The push runs off the thread that caused it, and that is not an optimisation.
+A status changes inside the traffic recorder - a peer's own call is what
+reveals it - so pushing inline would make one peer's OCPI request wait on an
+HTTP round trip to every other peer, with the unreachable ones slowest of all.
+One push at a time, ten seconds per peer, and a hub that is shutting down
+does not wait for any of it.
 
 **2.3.0 only.** The module is also in OCPI 2.2 and 2.2.1, but the store and
 the endpoint live in the library's 2.3.0 Common API; a hub offering 2.2.1

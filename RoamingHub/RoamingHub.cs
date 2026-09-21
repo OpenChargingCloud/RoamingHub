@@ -768,6 +768,12 @@ namespace cloud.charging.open.RoamingHub
             presenceTimer?.Dispose();
             presenceTimer = null;
 
+            // Before the sockets close: a push in flight holds one, and a hub
+            // that waited for it would take its shutdown from whoever it was
+            // talking to.
+            if (!pushShutdown.IsCancellationRequested)
+                pushShutdown.Cancel();
+
             // Before the server, and that order is the whole point: every
             // browser with the Logs page open holds a request that is waiting
             // for the next log entry rather than for its socket, and the HTTP

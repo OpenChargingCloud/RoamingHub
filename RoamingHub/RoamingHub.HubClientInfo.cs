@@ -84,9 +84,32 @@ namespace cloud.charging.open.RoamingHub
         /// </remarks>
         public static readonly TimeSpan  PresenceCheckEvery    = TimeSpan.FromMinutes(1);
 
+        /// <summary>
+        /// How long one peer may take to accept a push before the next one is
+        /// got on with.
+        /// </summary>
+        /// <remarks>
+        /// Short, and deliberately so: the thing being delivered is that
+        /// somebody is unreachable, and a hub that spent a minute per peer
+        /// discovering that would deliver the news long after it mattered.
+        /// </remarks>
+        public static readonly TimeSpan  PushTimeout           = TimeSpan.FromSeconds(10);
+
         private readonly ConcurrentDictionary<Party_Idv3, PeerPresence>  presence = [];
 
         private          ITimer?                                         presenceTimer;
+
+        /// <summary>
+        /// One push at a time, so that a burst of changes does not open a
+        /// connection to every peer several times over.
+        /// </summary>
+        private readonly SemaphoreSlim                                   pushLock = new (1, 1);
+
+        /// <summary>
+        /// Cancelled when this hub shuts down, so that a push in flight does
+        /// not keep it up.
+        /// </summary>
+        private readonly CancellationTokenSource                         pushShutdown = new ();
 
         #endregion
 
@@ -296,12 +319,12 @@ namespace cloud.charging.open.RoamingHub
         /// Write a peer's state down, tell everybody when it moved, and hand
         /// it to every OCPI version so that a peer asking gets the same answer.
         /// </summary>
-        private void SetPresence(Party_Idv3        PartyId,
-                                 Role              Role,
-                                 PeerStatus  Status,
-                                 Boolean           Registered,
-                                 DateTimeOffset?   LastSeen,
-                                 Boolean           Quiet        = false)
+        private void SetPresence(Party_Idv3       PartyId,
+                                 Role             Role,
+                                 PeerStatus       Status,
+                                 Boolean          Registered,
+                                 DateTimeOffset?  LastSeen,
+                                 Boolean          Quiet        = false)
         {
 
             var now       = TimeProvider.GetUtcNow();
@@ -333,6 +356,10 @@ namespace cloud.charging.open.RoamingHub
 
             Log.Notice($"HubClientInfo: '{PartyId}' is {Status}.", "ocpi", "hubclientinfo");
 
+            // The other half of the module: the peers are told rather than
+            // left to ask. Off this thread - see PushToPeers.
+            PushToPeers(updated);
+
             try
             {
                 OnPeerPresenceChanged?.Invoke(updated);
@@ -341,6 +368,98 @@ namespace cloud.charging.open.RoamingHub
             {
                 Log.Exception(e, "A peer presence listener failed.", "ocpi", "hubclientinfo");
             }
+
+        }
+
+        #endregion
+
+        #region (private) PushToPeers(Subject)
+
+        /// <summary>
+        /// Tell everybody else what became of one peer.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// Off the caller's thread, and that is not an optimisation. A status
+        /// changes inside <c>SetPresence</c>, which is reached from the
+        /// traffic recorder - so pushing synchronously would make one peer's
+        /// OCPI call wait on an HTTP round trip to every other peer, and a
+        /// peer that had gone offline would be the slowest of them.
+        /// </para>
+        /// <para>
+        /// Not told: the subject itself, which already knows; a peer that has
+        /// handed out nothing to talk to it with; and a peer that is itself
+        /// OFFLINE or SUSPENDED, because the specification asks that nothing
+        /// be queued for one - and because news of a third party is not worth
+        /// waiting out a timeout for.
+        /// </para>
+        /// </remarks>
+        private void PushToPeers(PeerPresence Subject)
+        {
+
+            if (pushShutdown.IsCancellationRequested)
+                return;
+
+            _ = Task.Run(async () => {
+
+                try
+                {
+
+                    await pushLock.WaitAsync(pushShutdown.Token);
+
+                    try
+                    {
+                        foreach (var version in ocpiVersions)
+                        {
+                            foreach (var target in version.RemoteParties)
+                            {
+
+                                var targetId = Party_Idv3.From(target.CountryCode, target.PartyId);
+
+                                if (targetId == Subject.PartyId)
+                                    continue;
+
+                                if (presence.TryGetValue(targetId, out var targetPeer) &&
+                                    targetPeer.Status is PeerStatus.OFFLINE or PeerStatus.SUSPENDED)
+                                {
+                                    continue;
+                                }
+
+                                using var deadline = CancellationTokenSource.CreateLinkedTokenSource(pushShutdown.Token);
+
+                                deadline.CancelAfter(PushTimeout);
+
+                                var problem = await version.PushClientInfo(target.Id, Subject, deadline.Token);
+
+                                if (problem is null)
+                                    Log.Debug($"HubClientInfo: '{target.Id}' was told that '{Subject.PartyId}' is {Subject.Status}.", "ocpi", "hubclientinfo");
+
+                                else
+                                    // Debug and not a warning: a peer that
+                                    // offers no receiver endpoint, or that is
+                                    // simply down, is the ordinary state of a
+                                    // hub - and this is a hub talking about
+                                    // somebody else's choice, once per status
+                                    // change, for every peer it has.
+                                    Log.Debug($"HubClientInfo: '{target.Id}' could not be told about '{Subject.PartyId}': {problem}", "ocpi", "hubclientinfo");
+
+                            }
+                        }
+                    }
+                    finally
+                    {
+                        pushLock.Release();
+                    }
+
+                }
+                catch (OperationCanceledException)
+                { }
+                catch (Exception e)
+                {
+                    Log.Exception(e, "The peers could not be told about a change.", "ocpi", "hubclientinfo");
+                }
+
+            });
 
         }
 
@@ -517,12 +636,12 @@ namespace cloud.charging.open.RoamingHub
     /// <param name="Registered">Whether the peering is complete in both directions.</param>
     /// <param name="LastUpdated">When the status last moved.</param>
     /// <param name="LastSeen">When this hub last heard from it, or null when it never has.</param>
-    public sealed record PeerPresence(Party_Idv3        PartyId,
-                                      Role              Role,
-                                      PeerStatus  Status,
-                                      Boolean           Registered,
-                                      DateTimeOffset    LastUpdated,
-                                      DateTimeOffset?   LastSeen)
+    public sealed record PeerPresence(Party_Idv3       PartyId,
+                                      Role             Role,
+                                      PeerStatus       Status,
+                                      Boolean          Registered,
+                                      DateTimeOffset   LastUpdated,
+                                      DateTimeOffset?  LastSeen)
     {
 
         public JObject ToJSON()

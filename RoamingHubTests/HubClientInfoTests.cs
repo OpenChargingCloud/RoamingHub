@@ -246,6 +246,98 @@ namespace cloud.charging.open.RoamingHub.Tests
 
         #endregion
 
+        #region TheHubPushesAChangeToTheOtherPeers()
+
+        /// <summary>
+        /// The other half of the module: a peer does not have to ask. When
+        /// something becomes of one party, everybody else is told.
+        /// </summary>
+        /// <remarks>
+        /// Against a peer that is listening on a real socket and offers the
+        /// receiver endpoint in its own version details - which is where the
+        /// hub looks for it, so a peer that offers none is simply not told.
+        /// </remarks>
+        [Test]
+        public async Task TheHubPushesAChangeToTheOtherPeers()
+        {
+
+            using var admin = await SignedIn();
+
+            // One peer that can be pushed to ...
+            await using var listener = await StubPeer.Start(
+                                                 PartyId:            "LIS",
+                                                 Version:            "2.3.0",
+                                                 WithHubClientInfo:  true
+                                             );
+
+            var (listenerId, _, _) = await AddPeer(
+                                               admin,
+                                               PartyId:      "LIS",
+                                               TheirToken:   StubPeer.TokenA,
+                                               VersionsURL:  listener.VersionsURL
+                                           );
+
+            // ... and a second one, which is what there is to tell it about.
+            await AddPeer(admin, PartyId: "GEF");
+
+            listener.ClientInfosPushed.Clear();
+
+            #region Suspend the second one
+
+            var suspended = await admin.PostAsync("/api/v1/ocpi/peers/DEGEF/suspend", EmptyBody);
+
+            Assert.That(suspended.StatusCode, Is.EqualTo(HttpStatusCode.OK),
+                        await suspended.Content.ReadAsStringAsync());
+
+            #endregion
+
+            #region The first one is told, off the caller's thread
+
+            // The push does not hold up the request that caused it - see
+            // PushToPeers - so this waits for it rather than assuming it has
+            // already happened.
+            //
+            // And it waits for the suspension in particular, not merely for
+            // something about GEF: adding GEF pushed it as PLANNED a moment
+            // earlier, and a test that took the first thing to arrive would
+            // be asserting against whichever of the two won a race.
+            var pushed = await Eventually(() => listener.ClientInfosPushed.LastOrDefault(
+                                                    info => info.Value<String>("party_id") == "GEF" &&
+                                                            info.Value<String>("status")   == "SUSPENDED"
+                                                ));
+
+            Assert.That(pushed, Is.Not.Null,
+                        "A peer was suspended and the other peers were never told.");
+
+            Assert.Multiple(() => {
+
+                Assert.That(pushed!.Value<String>("country_code"),        Is.EqualTo("DE"));
+                Assert.That(pushed!.Value<String>("party_id"),            Is.EqualTo("GEF"));
+                Assert.That(pushed!.Value<String>("role"),                Is.EqualTo("CPO"));
+                Assert.That(pushed!.Value<String>("status"),              Is.EqualTo("SUSPENDED"));
+
+                // The party is in the path as well as in the body, and a hub
+                // that sent them apart would be telling the receiver two
+                // different things at once.
+                Assert.That(pushed!.Value<String>("_path_country_code"),  Is.EqualTo("DE"));
+                Assert.That(pushed!.Value<String>("_path_party_id"),      Is.EqualTo("GEF"));
+
+            });
+
+            #endregion
+
+            #region Nobody is told about themselves
+
+            Assert.That(listener.ClientInfosPushed.Any(info => info.Value<String>("party_id") == "LIS"),
+                        Is.False,
+                        "A peer was told about itself, which it already knew.");
+
+            #endregion
+
+        }
+
+        #endregion
+
         #region AStrangerIsRefusedTheList()
 
         /// <summary>
@@ -287,19 +379,28 @@ namespace cloud.charging.open.RoamingHub.Tests
         private async Task<(String Id, String Token, JObject Answer)> AddPeer(HttpClient  HTTP,
                                                                               String      Role          = "CPO",
                                                                               String      CountryCode   = "DE",
-                                                                              String      PartyId       = "GEF")
+                                                                              String      PartyId       = "GEF",
+                                                                              String?     TheirToken    = null,
+                                                                              String?     VersionsURL   = null)
         {
+
+            var body = new List<JProperty> {
+                           new ("version",      "2.3.0"),
+                           new ("countryCode",  CountryCode),
+                           new ("partyId",      PartyId),
+                           new ("role",         Role),
+                           new ("name",         "Test CPO")
+                       };
+
+            // Both or neither: with both, this hub holds what it takes to
+            // call the peer, which is what a push needs.
+            if (TheirToken  is not null)  body.Add(new ("theirToken",   TheirToken));
+            if (VersionsURL is not null)  body.Add(new ("versionsURL",  VersionsURL));
 
             var response = await HTTP.PostAsync(
                                      "/api/v1/ocpi/partners",
                                      new StringContent(
-                                         new JObject(
-                                             new JProperty("version",      "2.3.0"),
-                                             new JProperty("countryCode",  CountryCode),
-                                             new JProperty("partyId",      PartyId),
-                                             new JProperty("role",         Role),
-                                             new JProperty("name",         "Test CPO")
-                                         ).ToString(),
+                                         new JObject([.. body]).ToString(),
                                          Encoding.UTF8,
                                          "application/json"
                                      )
@@ -396,6 +497,35 @@ namespace cloud.charging.open.RoamingHub.Tests
 
         private static StringContent EmptyBody
             => new ("{}", Encoding.UTF8, "application/json");
+
+        /// <summary>
+        /// Wait for something that happens off the thread that caused it.
+        /// </summary>
+        /// <remarks>
+        /// Polled rather than awaited on an event, because what is being
+        /// waited for is an HTTP request arriving at a stub in another
+        /// process-worth of plumbing, and there is nothing to hand back a
+        /// task. A generous ceiling and a short step: a passing test spends
+        /// the step, and only a failing one spends the ceiling.
+        /// </remarks>
+        private static async Task<T?> Eventually<T>(Func<T?> Get) where T : class
+        {
+
+            var deadline = DateTimeOffset.UtcNow.AddSeconds(10);
+
+            while (DateTimeOffset.UtcNow < deadline)
+            {
+
+                if (Get() is { } found)
+                    return found;
+
+                await Task.Delay(50);
+
+            }
+
+            return Get();
+
+        }
 
         #endregion
 
