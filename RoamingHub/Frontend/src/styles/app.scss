@@ -103,6 +103,16 @@ h1, h2 {
         cursor:   default;
     }
 
+    // The hidden attribute is a rule of the browser's own stylesheet, and any
+    // rule in this one beats it - so the display above quietly puts a button
+    // that has set hidden back on the screen while the attribute goes on
+    // saying it is gone. Said again here, with the attribute in the selector,
+    // it wins on specificity and means what it says. Anything else this
+    // stylesheet gives a display to needs the same line of its own.
+    &[hidden] {
+        display:  none;
+    }
+
     &.primary {
         background:    $color-accent;
         border-color:  $color-accent;
