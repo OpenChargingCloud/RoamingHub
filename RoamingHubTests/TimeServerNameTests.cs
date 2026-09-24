@@ -27,7 +27,8 @@ namespace cloud.charging.open.RoamingHub.Tests
 {
 
     /// <summary>
-    /// The time server, wherever somebody reads its name.
+    /// The time server, wherever somebody reads its name, and what the
+    /// overview says about the last synchronisation.
     /// </summary>
     /// <remarks>
     /// A DomainName prints itself absolutely, with the root label on the end.
@@ -125,18 +126,26 @@ namespace cloud.charging.open.RoamingHub.Tests
 
         #endregion
 
-        #region TheOverviewNamesTheServerAsItIsRead()
+        #region TheOverviewNamesTheServerAndSaysWhenItWasLastSynchronised()
 
         /// <summary>
-        /// The overview's time card.
+        /// The overview's time card: the server as it is read, and the last
+        /// synchronisation - there and empty while there has been none, so that
+        /// the card says "-" rather than leaving the line out.
         /// </summary>
         [Test]
-        public void TheOverviewNamesTheServerAsItIsRead()
+        public void TheOverviewNamesTheServerAndSaysWhenItWasLastSynchronised()
         {
 
             hub = TestRoamingHubs.New(directory, TimeClientOn);
 
-            Assert.That((hub.ConfigurationJSON()["time"] as JObject)?.Value<String>("nts"),  Is.EqualTo("ptbtime1.ptb.de"));
+            var time = hub.ConfigurationJSON()["time"] as JObject;
+
+            Assert.Multiple(() => {
+                Assert.That(time?.Value<String>("nts"),          Is.EqualTo("ptbtime1.ptb.de"));
+                Assert.That(time?["lastSync"]?.      Type,       Is.EqualTo(JTokenType.Null));
+                Assert.That(time?["lastSyncResult"]?.Type,       Is.EqualTo(JTokenType.Null));
+            });
 
         }
 
