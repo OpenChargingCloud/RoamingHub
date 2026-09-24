@@ -177,7 +177,7 @@ The `configuration.json` beside it, in the same shape as the EMSP's:
 | Section | |
 |---|---|
 | `dns` | the name servers and how they are asked |
-| `nts` | the time server and how often the clock is checked |
+| `nts` | the time servers, the rules for believing them, and how often the clock is checked |
 | `ocpi` | who this hub is - country code, party identification, name - and which versions it offers |
 
 Everything in `dns` and `nts` takes effect the moment it is saved. The `ocpi`
@@ -193,7 +193,9 @@ configuration, one set per version, and reads them back at every start.
 ```json
 {
   "dns": { "enabled": true, "servers": [ { "address": "9.9.9.9" } ], "useCache": true },
-  "nts": { "enabled": true, "hostname": "ptbtime1.ptb.de" }
+  "nts": { "enabled": true, "servers": [ "ptbtime1.ptb.de", "ptbtime2.ptb.de",
+                                         "ptbtime3.ptb.de", "ptbtime4.ptb.de" ],
+           "minServers": 2 }
 }
 ```
 
@@ -217,23 +219,71 @@ refuses it the same way.
 
 ### NTS
 
-One time server, whose time is measured against this hub's clock and never
-set from it. Every key of the `nts` section, and what it is when absent:
+**It asks a group, not a server.** `nts.servers` is a list, and by default it
+is the PTB's four, of which `nts.minServers` - two - have to answer before the
+group has a time at all. One host being rebooted does not leave this hub
+without a check, and two servers that agree catch what one server cannot: one
+that is wrong rather than absent. What the check reports is what the servers
+that answered and authenticated agree on, with a line for each of them, so a
+failure says which of the four failed and how. The time is measured against
+this hub's clock and never set from it.
+
+Every key of the `nts` section, and what it is when absent:
 
 | Key | Default | |
 |---|---|---|
 | `enabled` | `true` | whether to ask at all |
-| `hostname` | `ptbtime1.ptb.de` | the server |
-| `ntsKEPort`, `ntpPort` | `4460`, `123` | where its key exchange and its time are asked |
-| `timeoutSeconds` | `10` | per exchange |
+| `servers` | the PTB's four | a list, see below |
+| `minServers` | `2`, or all of them when fewer | how many must answer for the group to have a time |
+| `maxDeviationSeconds` | `60` | how far apart they may be before it is written down |
+| `hostname` | - | one server instead of a list |
+| `ntsKEPort`, `ntpPort` | `4460`, `123` | for that one server |
+| `timeoutSeconds` | `10` | per request of a server's test |
 | `checkEverySeconds` | `900` | how often the clock is checked |
-| `legalTimeAuthority` | - | who the operator says stands behind the server's time |
-| `legalTimeToleranceSeconds` | `1` | how far off the clock may be and still count |
-| `legalTimeMaxAgeSeconds` | `3600` | how old the last check may be and still count |
+| `legalTimeAuthority` | - | who the operator says stands behind it |
+| `legalTimeToleranceSeconds` | `1` | how far off the clock may be |
+| `legalTimeMaxAgeSeconds` | `3600` | how old the last check may be |
 
-A name written back into the file keeps its root dot - `ptbtime1.ptb.de.` is
-the name exactly - while everything printed for somebody to read, the log,
-the banner and the pages, leaves it out.
+Servers sharing a priority are **one band** and are asked together; a lower
+priority is asked first. The four it asks by default share one, because they
+are peers - putting them in separate bands would say something about them that
+is not true. An entry may be a bare host name or an object saying more:
+`{ "hostname": "time.local", "priority": 0, "ntsKEPort": 4460, "enabled": true }`.
+
+Servers that disagree by more than `nts.maxDeviationSeconds` are written down
+rather than acted on. The disagreement belongs in the log, and the time is
+still a time.
+
+A section naming a single `hostname` and no list becomes a group of one, which
+is what every file written before there were groups says, and it keeps working.
+A group of one is held to a quorum of one, and a section asking two of it is
+refused. A list without `minServers` is held to two, as the default four are,
+or to all of its servers when it has fewer switched on.
+
+A section mentioning neither leaves the servers alone rather than quietly
+reducing four to one, and one mentioning nothing but `minServers` or
+`maxDeviationSeconds` holds the servers the hub already has to it. A quorum
+those servers could never reach is refused: at the start, before anything is
+asked, and over the API, before anything is written into the file.
+
+The NTS page lists every server of the group with a Test of its own - the
+name, the TLS handshake and what the server's certificate claims, down to the
+root CA it ends at and that root's SHA-256 fingerprint, the key exchange and
+the authenticated request, each step timed - and an Edit, and below them what
+the group is held to. "Sync now" asks the group the way the clock check does.
+Neither steps the clock.
+
+The check runs by itself every `nts.checkEverySeconds`, the first one a minute
+after starting. A new interval, and switching NTS off or on, reach a running
+check at once. What the clock is worth - the time, against which group it was
+checked and how many of it had to answer, how long ago and how far off, and
+whether all of that adds up to legal time and why not - is served at
+`GET /api/v1/configuration/time`, and is the first card of the NTS page.
+
+A host name written back into the file carries the root label -
+`ptbtime1.ptb.de.` - because that is the absolute form it was parsed into, and
+not a stray character. What the hub prints for somebody to read - the log, the
+banner and the pages - drops it again.
 
 
 ## At a console somebody types at
@@ -252,6 +302,8 @@ roamingHub.ShareConsoleWith(cli.WriteBlock);   // line off, entry whole, line ba
 
 ```
 dotnet test RoamingHubTests
+npm test                     in RoamingHub/Frontend: node --test over src/**/*.test.ts
+npm run typecheck:test       the same files, typechecked as the page is
 ```
 
 Both directions of the peering - a peer coming here, and this hub walking to a
@@ -263,11 +315,17 @@ permission, and a call arriving on the stream while it is open.
 
 Beside those: the forms a name server takes in the file and the ones it is
 refused in, with a sentence rather than an exception; the log handing an entry
-to whoever holds the console; the NTS line under a German culture; the time
-server named without its root dot wherever somebody reads it; and both event
-streams as a proxy sees them. None of them asks a name server or a time
-server anything - the tests that need the time client switched on start the
-hub on a clock whose timers never fire.
+to whoever holds the console; the group of time servers - what the section
+takes and refuses, what is in effect after a start and after a save, the test
+of one server and what it says of the certificate, and the NTS lines under a
+German culture; the time servers named without their root dots wherever
+somebody reads them; and both event streams as a proxy sees them. None of them
+asks a name server or a time server anything - name resolution is switched
+off where a server is tested, and the tests that need the time client switched
+on start the hub on a clock whose timers never fire.
+
+The web interface has tests of its own, for what the NTS page sends when one
+server of the list is changed.
 
 
 ## Your participation
