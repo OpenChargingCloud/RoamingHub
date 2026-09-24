@@ -181,9 +181,10 @@ namespace cloud.charging.open.RoamingHub.OCPI
     #endregion
 
 
-    /// One OCPI version this hub speaks: the library's Common API and hub API
-    /// for that version, behind one shape the rest of this hub can talk to
-    /// without knowing which version it is holding.
+    /// <summary>
+    /// One OCPI version this hub speaks: the library's Common API for that
+    /// version, behind one shape the rest of this hub can talk to without
+    /// knowing which version it is holding.
     /// </summary>
     /// <remarks>
     /// <para>
@@ -194,10 +195,13 @@ namespace cloud.charging.open.RoamingHub.OCPI
     /// the same questions, and the hub puts the answers side by side.
     /// </para>
     /// <para>
-    /// Peers and nothing else, for now. A hub in OCPI also forwards what one
-    /// peer sends to another and answers "who else is here" out of the
-    /// hubclientinfo module; none of that is here yet, and the shape below
-    /// says so by having nothing in it but the peering.
+    /// Peers, and who else is on the hub. A hub in OCPI also forwards what
+    /// one peer sends to another; that is not here yet, and there is nothing
+    /// for it in the shape below. Who else is on the hub is the hub's to
+    /// decide and a version's only to hand on - see
+    /// <see cref="PublishClientInfo"/> and <see cref="PushClientInfo"/>,
+    /// which only a version whose library has the hubclientinfo module fills
+    /// in.
     /// </para>
     /// <para>
     /// There is no 2.1.1 binding and cannot be: the hub role arrived with

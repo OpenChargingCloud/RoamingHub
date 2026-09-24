@@ -42,8 +42,9 @@ using cloud.charging.open.RoamingHub.Web;
 namespace cloud.charging.open.RoamingHub
 {
 
+    /// <summary>
     /// One OCPI roaming hub: the endpoints its peers call, the HTTP server in
-    /// front of them, and the JSON API at "/api".
+    /// front of them, the JSON API at "/api" and the web interface at "/".
     /// </summary>
     /// <remarks>
     /// <para>
@@ -56,9 +57,10 @@ namespace cloud.charging.open.RoamingHub
     /// <b>What is here so far.</b> The base every one of these programs has -
     /// its name resolution, its time source, its accounts, its event log -
     /// and the peering: a peer added, a token handed out, and the credentials
-    /// exchanged in either direction. Forwarding what one peer sends to
-    /// another is not here yet, and neither is the hubclientinfo module that
-    /// would tell a peer who else is on the hub.
+    /// exchanged in either direction. And the one module a hub has of its
+    /// own: hubclientinfo, which tells the peers who else is on this hub and
+    /// whether they can be reached right now - see RoamingHub.HubClientInfo.cs.
+    /// Forwarding what one peer sends to another is not here yet.
     /// </para>
     /// <para>
     /// <b>What is here that the others do not have.</b> A record of every
@@ -69,8 +71,12 @@ namespace cloud.charging.open.RoamingHub
     /// say what the other actually sent, and that is the hub's to answer.
     /// </para>
     /// <para>
-    /// No web interface yet. The JSON API answers, the event stream runs, and
-    /// a browser asking for "/" is told there is nothing to render.
+    /// The web interface is a bundle of HTML, CSS and JavaScript built by
+    /// webpack from Frontend/ and embedded into this assembly - see
+    /// <see cref="HTTPRoot"/> - so that a hub needs nothing installed beside
+    /// it to be looked at in a browser. The browser and the hub talk over the
+    /// JSON API and its Server-Sent Events streams; nothing is rendered on
+    /// the server.
     /// </para>
     /// </remarks>
     public partial class RoamingHub : IAsyncDisposable
@@ -79,15 +85,15 @@ namespace cloud.charging.open.RoamingHub
         #region Data
 
         /// <summary>
-        /// The manifest resource prefix a frontend bundle would be embedded
-        /// under, the way the other four components embed theirs.
+        /// The manifest resource prefix the frontend bundle is embedded under
+        /// (see the EmbedFrontend target of RoamingHub.csproj).
         /// </summary>
         /// <remarks>
-        /// Nothing is embedded under it yet: this hub has no web interface.
-        /// The name is here rather than invented later so that a frontend,
-        /// when it arrives, lands where a reader of the other four would
-        /// look for it - and so that --frontend can point at a directory on
-        /// disk in the meantime.
+        /// Named the way the other four components name theirs, so that the
+        /// bundle is where a reader of any of them would look for it. The
+        /// build stops rather than make this assembly without one, so a hub
+        /// always has a web interface to serve - unless --frontend points it
+        /// at a directory on disk instead.
         /// </remarks>
         public const String  HTTPRoot            = "cloud.charging.open.RoamingHub.HTTPRoot.";
 
@@ -712,13 +718,13 @@ namespace cloud.charging.open.RoamingHub
 
             }
 
-            // Not an error here, unlike in the four components that have one:
-            // this hub has no web interface yet, and saying so at every start
-            // in red would be crying about a thing nobody has built.
+            // An error, as in the other components that have a web interface.
+            // The build embeds one and stops when there is none to embed, so
+            // this is a hub handed a frontend directory without a bundle in it.
             else
-                this.Log.Info(
-                    $"No web interface ({this.Frontend.Description}): the JSON API answers and a browser asking for '/' gets nothing. " +
-                    "Point this hub at a directory of one with --frontend, or read it with curl - see /api/v1/status.",
+                this.Log.Error(
+                    $"No web interface to serve ({this.Frontend.Description}): the JSON API answers, the browser gets nothing. " +
+                    "Build the frontend (npm run build in Frontend/) or point the hub at a directory with --frontend.",
                     "web"
                 );
 
@@ -930,7 +936,7 @@ namespace cloud.charging.open.RoamingHub
                                               I18NString.Create(Languages.en, DefaultOrganization)
                                           );
 
-                if (organization is not Organization emspOrganization)
+                if (organization is not Organization hubOrganization)
                     throw new InvalidOperationException("The organization of this RoamingHub could not be created, and an account outside one cannot sign in.");
 
                 // CreateUser rather than AddUser: the password is set from
@@ -942,7 +948,7 @@ namespace cloud.charging.open.RoamingHub
                                           I18NString.Create(Languages.en, DefaultAdminUser),
                                           SimpleEMailAddress.Parse($"{DefaultAdminUser}@localhost"),
                                           User2OrganizationEdgeLabel.IsAdmin,
-                                          emspOrganization,
+                                          hubOrganization,
                                           Password:                  password,
                                           SkipDefaultNotifications:  true,
                                           SkipNewUserEMail:          true,

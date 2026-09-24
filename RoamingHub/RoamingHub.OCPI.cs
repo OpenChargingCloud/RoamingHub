@@ -47,10 +47,11 @@ namespace cloud.charging.open.RoamingHub
     /// the Host header and its own path prefix, as if that HTTPExt API sat at
     /// the root of the server. Here it sits at "/ext". So the OCPI endpoints
     /// are registered directly below the HTTPExt API ("/ext/versions",
-    /// "/ext/v2.2.1/credentials", "/ext/v2.2.1/emsp/locations"), and the
-    /// HTTPExt API's own root path is handed to the library as the prefix it
-    /// puts into the URLs it advertises. Both then agree, which is what a
-    /// partner that follows the versions list needs.
+    /// "/ext/v2.2.1/credentials", "/ext/v2.3.0/hubclientinfo" - the first
+    /// version the library serves that module for), and the HTTPExt API's
+    /// own root path is handed to the library as the prefix it puts into the
+    /// URLs it advertises. Both then agree, which is what a partner that
+    /// follows the versions list needs.
     /// </para>
     /// <para>
     /// <b>What is per version.</b> The library keeps peers, tokens
@@ -241,8 +242,8 @@ namespace cloud.charging.open.RoamingHub
                           AdditionalURLPathPrefix:   ExtAPI.RootPath,
 
                           ExternalDNSName:           externalDNSName,
-                          HTTPServerName:            $"OpenChargingCloud EMSP v{Version}",
-                          HTTPServiceName:           $"OpenChargingCloud EMSP v{Version}",
+                          HTTPServerName:            $"OpenChargingCloud RoamingHub v{Version}",
+                          HTTPServiceName:           $"OpenChargingCloud RoamingHub v{Version}",
 
                           // What a CPO pushed into this hub is the CPO's,
                           // and whether it may be handed on to anybody who

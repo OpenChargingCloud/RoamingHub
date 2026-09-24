@@ -46,7 +46,7 @@ namespace cloud.charging.open.RoamingHub.Configuration
     /// mid-session.
     /// </remarks>
     /// <param name="CountryCode">The ISO 3166-1 alpha-2 country code of this hub, e.g. "DE".</param>
-    /// <param name="PartyId">The three-character party identification, e.g. "GDF".</param>
+    /// <param name="PartyId">The three-character party identification, e.g. "GDH".</param>
     /// <param name="Name">The business name of this hub, as its partners see it in the credentials.</param>
     /// <param name="Website">Its website, or null when it has none to give.</param>
     /// <param name="Versions">Which OCPI versions are offered; every one this hub knows when nothing is said.</param>
@@ -179,7 +179,7 @@ namespace cloud.charging.open.RoamingHub.Configuration
 
             if (partyId is not null && (partyId.Length != 3 || !partyId.All(Char.IsAsciiLetterOrDigit)))
             {
-                Error = $"'{SectionName}.partyId' must be three letters or digits, e.g. \"GDF\".";
+                Error = $"'{SectionName}.partyId' must be three letters or digits, e.g. \"GDH\".";
                 return false;
             }
 
@@ -220,7 +220,7 @@ namespace cloud.charging.open.RoamingHub.Configuration
                 if (!Uri.TryCreate(externalURL, UriKind.Absolute, out var uri) ||
                     (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
                 {
-                    Error = $"'{SectionName}.externalURL' must be an absolute http or https URL, e.g. \"https://emsp.example.org\".";
+                    Error = $"'{SectionName}.externalURL' must be an absolute http or https URL, e.g. \"https://hub.example.org\".";
                     return false;
                 }
 

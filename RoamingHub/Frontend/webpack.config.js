@@ -46,7 +46,7 @@ module.exports = (env, argv) => {
             assetModuleFilename:  'assets/[name].[contenthash][ext]',
             // Relative, and the <base href> in index.html is what they resolve
             // against - so a deep page URL like /logs still finds the bundle,
-            // and so does the same bundle mounted below /EV or /EMSP. An
+            // and so does the same bundle mounted below /RoamingHub. An
             // absolute '/' worked only at the root.
             publicPath:           'auto',
             clean:                true

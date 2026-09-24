@@ -195,6 +195,58 @@ namespace cloud.charging.open.RoamingHub.Tests
 
         #endregion
 
+        #region TheServerHeaderNamesThisHub()
+
+        /// <summary>
+        /// What a peer's HTTP client is told it reached, in the Server header
+        /// of every answer on its way to the credentials: this hub, by the
+        /// name its HTTP server and its JSON API already give.
+        /// </summary>
+        /// <remarks>
+        /// Three answers rather than one, because two parts of the OCPI
+        /// library give them and each is handed a name of its own: the
+        /// versions list comes from the Common HTTP API every version hangs
+        /// off, the version details and the credentials from the Common API
+        /// of the version. The first of those said "EMSP", a leftover of the
+        /// program this hub was derived from - and it is the first thing a
+        /// peer asks, so every peering began with this hub introducing itself
+        /// as an EMSP.
+        /// </remarks>
+        [Test]
+        public async Task TheServerHeaderNamesThisHub()
+        {
+
+            using var admin = await SignedIn();
+
+            var (_, token, _) = await AddPeer(admin);
+
+            using var peer = Peer(token);
+
+            var versions     = await peer.GetAsync("/ext/versions");
+            var details      = await peer.GetAsync("/ext/versions/2.2.1");
+            var credentials  = await peer.GetAsync("/ext/v2.2.1/credentials");
+
+            var thisHub      = $"OpenChargingCloud RoamingHub v{RoamingHub.Version}";
+
+            Assert.Multiple(() => {
+
+                // Answered by the OCPI library, and not by the server turning
+                // the request away: a 404 carries the server's own name, which
+                // is the right one already, and would prove nothing.
+                Assert.That(versions.   StatusCode, Is.EqualTo(HttpStatusCode.OK));
+                Assert.That(details.    StatusCode, Is.EqualTo(HttpStatusCode.OK));
+                Assert.That(credentials.StatusCode, Is.EqualTo(HttpStatusCode.OK));
+
+                Assert.That(versions.   Headers.Server.ToString(), Is.EqualTo(thisHub), "The versions list names somebody else.");
+                Assert.That(details.    Headers.Server.ToString(), Is.EqualTo(thisHub), "The version details name somebody else.");
+                Assert.That(credentials.Headers.Server.ToString(), Is.EqualTo(thisHub), "The credentials name somebody else.");
+
+            });
+
+        }
+
+        #endregion
+
         #region BothKindsOfPeerAreTakenAndNothingElseIs()
 
         /// <summary>

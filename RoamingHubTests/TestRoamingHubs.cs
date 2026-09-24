@@ -33,7 +33,7 @@ namespace cloud.charging.open.RoamingHub.Tests
 {
 
     /// <summary>
-    /// Building EMSPs to test against.
+    /// Building hubs to test against.
     /// </summary>
     /// <remarks>
     /// Its own class rather than a few protected methods on the fixture base,

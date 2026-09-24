@@ -262,19 +262,13 @@ __pycache__/
 
 .claude
 
-# The PKI this EMSP generates for itself at the first start:
-# private keys for a simulator, but private keys all the same.
-/pki/
-
-# The accounts and the configuration this EMSP writes beside itself.
-/data/
-/configuration.json
-
-# The meter writes these beside itself when it runs from a build directory.
-/data/
-/logs/
+# What a hub writes beside itself when it is started from here: its accounts
+# - password hashes, and the cookies of whoever is signed in - what it is
+# configured as, and the OCPI library's files about its peers and the tokens
+# exchanged with them. Records of one installation, not of the source.
+/accounts/
 configuration.json
-web-login.json
+/ocpi/
 
 # The frontend: what npm installs is already ignored above; this is what
 # webpack emits. Built by the project file, so a checkout needs node and not
