@@ -190,6 +190,51 @@ The peers themselves are in none of it. The OCPI library keeps them in
 append-only files of its own below an `ocpi/` directory beside the
 configuration, one set per version, and reads them back at every start.
 
+```json
+{
+  "dns": { "enabled": true, "servers": [ { "address": "9.9.9.9" } ], "useCache": true },
+  "nts": { "enabled": true, "hostname": "ptbtime1.ptb.de" }
+}
+```
+
+What a section does not mention is left as it is, and a section that is
+missing leaves everything as the hub was built.
+
+### DNS
+
+An entry of `dns.servers` is an address or a host name, as a string or as the
+object the example above uses - which may say more, and is the form the DNS
+page writes the list back in:
+
+```json
+{ "address": "9.9.9.9", "port": 853, "transport": "TLS", "queryTimeoutSeconds": 2 }
+```
+
+Without a port, the transport's own is used. `udp://9.9.9.9:53` is how the log
+and the banner name a name server, and not a form the file takes: a file saying
+it is refused at the start, with the file and the entry named, and the page
+refuses it the same way.
+
+### NTS
+
+One time server, whose time is measured against this hub's clock and never
+set from it. Every key of the `nts` section, and what it is when absent:
+
+| Key | Default | |
+|---|---|---|
+| `enabled` | `true` | whether to ask at all |
+| `hostname` | `ptbtime1.ptb.de` | the server |
+| `ntsKEPort`, `ntpPort` | `4460`, `123` | where its key exchange and its time are asked |
+| `timeoutSeconds` | `10` | per exchange |
+| `checkEverySeconds` | `900` | how often the clock is checked |
+| `legalTimeAuthority` | - | who the operator says stands behind the server's time |
+| `legalTimeToleranceSeconds` | `1` | how far off the clock may be and still count |
+| `legalTimeMaxAgeSeconds` | `3600` | how old the last check may be and still count |
+
+A name written back into the file keeps its root dot - `ptbtime1.ptb.de.` is
+the name exactly - while everything printed for somebody to read, the log,
+the banner and the pages, leaves it out.
+
 
 ## At a console somebody types at
 
@@ -215,6 +260,14 @@ routes the credentials handshake touches. And the traffic: what a call is
 written down as, what a stranger's refused call is written down as, that the
 hub's own JSON API is not traffic, the filter, catching up with `after`, the
 permission, and a call arriving on the stream while it is open.
+
+Beside those: the forms a name server takes in the file and the ones it is
+refused in, with a sentence rather than an exception; the log handing an entry
+to whoever holds the console; the NTS line under a German culture; the time
+server named without its root dot wherever somebody reads it; and both event
+streams as a proxy sees them. None of them asks a name server or a time
+server anything - the tests that need the time client switched on start the
+hub on a clock whose timers never fire.
 
 
 ## Your participation
