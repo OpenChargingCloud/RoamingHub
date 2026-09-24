@@ -273,12 +273,16 @@ namespace cloud.charging.open.RoamingHub.OCPI
         /// What a peer is told this hub serves.
         /// </summary>
         /// <remarks>
-        /// Only the module a hub has of its own for now. The modules it would
-        /// forward between its peers are not wired up, and advertising an
-        /// endpoint that answers nothing is worse than not advertising it.
+        /// Nothing beyond the credentials. The one module a hub has of its
+        /// own, hubclientinfo, arrived in the OCPI library for 2.3.0: its 2.2.1
+        /// Common API neither serves it nor names it in the version details,
+        /// so a row for it on the page would answer 404. A peer on 2.2.1 is on
+        /// the hub all the same - the peers on 2.3.0 are told about it - it
+        /// only cannot ask who else is. The modules a hub would forward
+        /// between its peers are not wired up on any version.
         /// </remarks>
         protected override IEnumerable<String> Modules
-            => [ "hubclientinfo" ];
+            => [];
 
         #endregion
 

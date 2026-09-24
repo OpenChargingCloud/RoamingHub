@@ -286,8 +286,12 @@ namespace cloud.charging.open.RoamingHub.OCPI
         /// Computed here rather than read back from the library, because the
         /// library builds them per request from the Host header, and a page
         /// has no request to hand it. The shape is the library's: the version
-        /// details at "versions/2.2.1", the credentials at
-        /// "v2.2.1/credentials", the modules at "v2.2.1/hub/{module}".
+        /// details at "versions/2.3.0", and what they name directly below the
+        /// version - the credentials at "v2.3.0/credentials", a module at
+        /// "v2.3.0/{module}". Not below "v2.3.0/hub/": that is where the
+        /// library's hub API would put what a hub forwards, and it is not
+        /// built here - see the constructors of the versions. The one module a
+        /// hub has of its own is on the Common API, beside the credentials.
         /// </remarks>
         public JObject EndpointsJSON()
         {
@@ -300,7 +304,7 @@ namespace cloud.charging.open.RoamingHub.OCPI
                        new JProperty("details",       $"{baseURL}/versions/{Label}"),
                        new JProperty("credentials",   $"{prefix}/credentials"),
                        new JProperty("modules",       new JObject(
-                           Modules.Select(module => new JProperty(module, $"{prefix}/hub/{module}"))
+                           Modules.Select(module => new JProperty(module, $"{prefix}/{module}"))
                        ))
                    );
 
@@ -309,6 +313,12 @@ namespace cloud.charging.open.RoamingHub.OCPI
         /// <summary>
         /// The hub modules this version offers, by the name OCPI gives them.
         /// </summary>
+        /// <remarks>
+        /// Kept by hand, and it has to agree with the library: only what the
+        /// version details of this version name, because the page lists every
+        /// one of them as an endpoint a peer can call. A module the library
+        /// does not serve for the version is a row that answers 404.
+        /// </remarks>
         protected abstract IEnumerable<String>  Modules { get; }
 
         #endregion

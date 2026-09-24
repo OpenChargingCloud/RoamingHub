@@ -100,8 +100,9 @@ export const ocpiPage: Page = {
                     <section class="card wide">
                         <h2><i class="fa-solid fa-diagram-project"></i> Endpoints, per version</h2>
                         <p class="hint">
-                            What a peer is told when it asks for the version details. Every module here is served
-                            by this hub; a peer needs the token it was given to call any of them.
+                            What a peer is told when it follows the versions list: where the version details are,
+                            and the endpoints they name. Every one of them is served by this hub, and hubclientinfo
+                            answers only a peer holding a token this hub gave out.
                         </p>
                         ${ocpi.endpoints.byVersion.map(version => html`
                             <h3>OCPI ${version.version}</h3>
