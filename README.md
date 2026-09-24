@@ -319,7 +319,9 @@ to whoever holds the console; the group of time servers - what the section
 takes and refuses, what is in effect after a start and after a save, the test
 of one server and what it says of the certificate, and the NTS lines under a
 German culture; the time servers named without their root dots wherever
-somebody reads them; and both event streams as a proxy sees them. None of them
+somebody reads them; both event streams as a proxy sees them; and what the
+hub says it was built from - its own assembly stamped, one line per
+repository, and two repositories of one name kept apart. None of them
 asks a name server or a time server anything - name resolution is switched
 off where a server is tested, and the tests that need the time client switched
 on start the hub on a clock whose timers never fire.
