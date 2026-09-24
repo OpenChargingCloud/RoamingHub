@@ -73,7 +73,7 @@ export const dnsPage: Page = {
                     </div>
                 `}
 
-                <div class="cards">
+                <div class="cards stacked">
 
                     <section class="card">
 
@@ -436,6 +436,12 @@ export const dnsPage: Page = {
                 return;
             }
 
+            // The last answer goes the moment the next question is asked.
+            // Left standing under "Asking ...", it read as the answer to the
+            // new one - and when that one never came back, as it did not while
+            // a log entry was waiting for a key at a Linux console, it went on
+            // reading that way.
+            result  = null;
             testing = true;
             draw();
 

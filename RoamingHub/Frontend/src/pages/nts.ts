@@ -50,7 +50,11 @@ export const ntsPage: Page = {
                 return;
 
             const configuration = current;
-            const sync          = configuration.result ?? configuration.lastSync;
+
+            // Nothing of the last synchronisation while the next one is being
+            // asked for. Left standing under the spinning button, it read as
+            // the new answer.
+            const sync          = syncing ? null : configuration.result ?? configuration.lastSync;
 
             render(content, html`
 
