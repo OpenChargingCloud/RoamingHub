@@ -122,8 +122,11 @@ namespace cloud.charging.open.RoamingHub
                                  TimeCheckEvery
                              );
 
+            // Trimmed, because this is a sentence somebody reads. The root dot
+            // belongs on a name going back into a file and not in the middle of
+            // a line of prose, where it reads as a typing mistake.
             Log.Info(
-                $"The clock of this RoamingHub will be checked against {ntsClient.Hostname} every {TimeCheckEvery.TotalMinutes:F0} minute(s)" +
+                $"The clock of this RoamingHub will be checked against {ntsClient.Hostname.Trimmed} every {TimeCheckEvery.TotalMinutes:F0} minute(s)" +
                 (LegalTimeAuthority is not null ? $", which the operator says is {LegalTimeAuthority}." : "."),
                 "nts", "clock"
             );
@@ -208,7 +211,7 @@ namespace cloud.charging.open.RoamingHub
 
                        new JProperty("nts",             new JObject(
                            new JProperty("enabled",       NTSEnabled),
-                           new JProperty("server",        NTSEnabled ? ntsClient.Hostname.ToString() : null),
+                           new JProperty("server",        NTSEnabled ? ntsClient.Hostname.Trimmed : null),
                            new JProperty("lastServer",    lastTimeCheckServer),
                            new JProperty("checkedAt",     checkedAt?.ToString("o")),
                            new JProperty("ageSeconds",    age.HasValue ? Math.Round(age.Value.TotalSeconds, 1) : null),

@@ -1,4 +1,4 @@
-/*
+﻿/*
  * Copyright (c) 2014-2026 GraphDefined GmbH <achim.friedland@graphdefined.com>
  * This file is part of RoamingHub <https://github.com/OpenChargingCloud/RoamingHub>
  *
@@ -19,6 +19,7 @@
 
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
+using System.Globalization;
 
 using Newtonsoft.Json.Linq;
 
@@ -270,7 +271,13 @@ namespace cloud.charging.open.RoamingHub
             var client     = ntsClient;
             var stopwatch  = Stopwatch.StartNew();
 
-            Log.Info($"NTS: key exchange with {client.Hostname}:{client.NTSKE_Port} ...", "nts", "ntske", "test");
+            // The name as people read it, for every sentence below and for
+            // what the page shows: without the root's dot. "ptbtime1.ptb.de."
+            // is the name exactly, and in the middle of a line it reads like a
+            // typing mistake. The configuration file keeps it.
+            var name       = client.Hostname.Trimmed;
+
+            Log.Info($"NTS: key exchange with {name}:{client.NTSKE_Port} ...", "nts", "ntske", "test");
 
             try
             {
@@ -283,7 +290,7 @@ namespace cloud.charging.open.RoamingHub
                 {
 
                     Log.Error(
-                        $"NTS: the key exchange with {client.Hostname} failed after {stopwatch.ElapsedMilliseconds} ms " +
+                        $"NTS: the key exchange with {name} failed after {stopwatch.ElapsedMilliseconds} ms " +
                         $"({keyExchange.ErrorCategory}): {keyExchange.ErrorMessage}",
                         "nts", "ntske", "test"
                     );
@@ -297,10 +304,10 @@ namespace cloud.charging.open.RoamingHub
                 var response = keyExchange.Response;
 
                 foreach (var warning in response.WarningMessages)
-                    Log.Warning($"NTS: the key exchange with {client.Hostname} warned: {warning}", "nts", "ntske", "test");
+                    Log.Warning($"NTS: the key exchange with {name} warned: {warning}", "nts", "ntske", "test");
 
                 Log.Info(
-                    $"NTS: the key exchange with {client.Hostname} succeeded in {stopwatch.ElapsedMilliseconds} ms - " +
+                    $"NTS: the key exchange with {name} succeeded in {stopwatch.ElapsedMilliseconds} ms - " +
                     $"{response.AEADAlgorithm}, {response.Cookies.Count()} cookie(s)" +
                     (response.NTPv4ServerNames.Any()
                          ? $", NTP server(s): {String.Join(", ", response.NTPv4ServerNames)}"
@@ -318,7 +325,7 @@ namespace cloud.charging.open.RoamingHub
 
                 var afterKeyExchange = stopwatch.ElapsedMilliseconds;
 
-                Log.Info($"NTS: authenticated NTP request to {client.Hostname}:{client.NTP_Port} ...", "nts", "ntp", "test");
+                Log.Info($"NTS: authenticated NTP request to {name}:{client.NTP_Port} ...", "nts", "ntp", "test");
 
                 var query = await client.QueryTime(CancellationToken: CancellationToken);
 
@@ -328,7 +335,7 @@ namespace cloud.charging.open.RoamingHub
                 {
 
                     Log.Error(
-                        $"NTS: the NTP request to {client.Hostname} failed after {stopwatch.ElapsedMilliseconds} ms " +
+                        $"NTS: the NTP request to {name} failed after {stopwatch.ElapsedMilliseconds} ms " +
                         $"({query.ErrorCategory}): {query.ErrorMessage}",
                         "nts", "ntp", "test"
                     );
@@ -357,20 +364,17 @@ namespace cloud.charging.open.RoamingHub
 
                 lastTimeCheck        = TimeProvider.GetUtcNow();
                 lastTimeCheckOffset  = offset;
-                lastTimeCheckServer  = client.Hostname.ToString();
+                lastTimeCheckServer  = name;
 
                 Log.Notice(
-                    $"NTS: {client.Hostname} answered in {stopwatch.ElapsedMilliseconds} ms" +
-                    (offset.HasValue ? $", this RoamingHub's clock is {offset.Value.TotalMilliseconds:+0.0;-0.0;0} ms off" : "") +
-                    (roundTrip.HasValue ? $" (round trip {roundTrip.Value.TotalMilliseconds:F1} ms)" : "") +
-                    $", {query.RemainingCookiesAfterQuery} cookie(s) left.",
+                    AnsweredLine(client.Hostname, stopwatch.ElapsedMilliseconds, offset, roundTrip, query.RemainingCookiesAfterQuery),
                     "nts", "ntp", "test"
                 );
 
                 return Remember(new JObject(
 
                            new JProperty("ok",             true),
-                           new JProperty("server",         client.Hostname.ToString()),
+                           new JProperty("server",         name),
                            new JProperty("remote",         query.RemoteDescription),
                            new JProperty("at",             TimeProvider.GetUtcNow().ToString("o")),
                            new JProperty("runtime_ms",     stopwatch.ElapsedMilliseconds),
@@ -401,7 +405,7 @@ namespace cloud.charging.open.RoamingHub
 
                 stopwatch.Stop();
 
-                Log.Error($"NTS: the exchange with {client.Hostname} failed after {stopwatch.ElapsedMilliseconds} ms: {e.Message}", "nts", "test");
+                Log.Error($"NTS: the exchange with {name} failed after {stopwatch.ElapsedMilliseconds} ms: {e.Message}", "nts", "test");
 
                 return Remember(Failed(e.Message));
 
@@ -413,7 +417,7 @@ namespace cloud.charging.open.RoamingHub
 
                 var json = new JObject(
                                new JProperty("ok",      false),
-                               new JProperty("server",  ntsClient.Hostname.ToString()),
+                               new JProperty("server",  ntsClient.Hostname.Trimmed),
                                new JProperty("at",      TimeProvider.GetUtcNow().ToString("o")),
                                new JProperty("error",   Error)
                            );
@@ -432,6 +436,40 @@ namespace cloud.charging.open.RoamingHub
             }
 
         }
+
+        #endregion
+
+
+        #region (static) AnsweredLine(Hostname, Milliseconds, Offset, RoundTrip, CookiesLeft)
+
+        /// <summary>
+        /// The line a synchronisation that produced a time is logged with.
+        /// </summary>
+        /// <remarks>
+        /// Invariant, so that a decimal point stays a point: this sentence is
+        /// English, and under a German culture it read "clock is +702,4 ms off
+        /// (round trip 12,3 ms)" - in a log whose numbers then changed their
+        /// punctuation with the machine that wrote them. And the server by the
+        /// name it is read by, without the root's dot, which in the middle of a
+        /// sentence reads as a typing mistake.
+        /// </remarks>
+        /// <param name="Hostname">The time server that was asked.</param>
+        /// <param name="Milliseconds">How long asking it took.</param>
+        /// <param name="Offset">How far this hub's clock is from what the server said, when it said something to take that from.</param>
+        /// <param name="RoundTrip">How long the NTP request took on the wire.</param>
+        /// <param name="CookiesLeft">How many cookies the next requests can still spend.</param>
+        public static String AnsweredLine(DomainName  Hostname,
+                                          Int64       Milliseconds,
+                                          TimeSpan?   Offset,
+                                          TimeSpan?   RoundTrip,
+                                          Int32       CookiesLeft)
+
+            => String.Concat(
+                   String.Create(CultureInfo.InvariantCulture, $"NTS: {Hostname.Trimmed} answered in {Milliseconds} ms"),
+                   Offset.   HasValue ? String.Create(CultureInfo.InvariantCulture, $", this RoamingHub's clock is {Offset.Value.TotalMilliseconds:+0.0;-0.0;0} ms off") : "",
+                   RoundTrip.HasValue ? String.Create(CultureInfo.InvariantCulture, $" (round trip {RoundTrip.Value.TotalMilliseconds:F1} ms)")                    : "",
+                   String.Create(CultureInfo.InvariantCulture, $", {CookiesLeft} cookie(s) left.")
+               );
 
         #endregion
 

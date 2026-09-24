@@ -995,8 +995,9 @@ namespace cloud.charging.open.RoamingHub
                        new JProperty("tags",           new JArray(Log.KnownTags))
                    )),
 
+                   // The server as it is read, without its root dot.
                    new JProperty("time",       new JObject(
-                       new JProperty("nts",            ntsClient.Hostname.ToString()),
+                       new JProperty("nts",            ntsClient.Hostname.Trimmed),
                        new JProperty("now",            TimeProvider.GetUtcNow().ToString("o"))
                    )),
 

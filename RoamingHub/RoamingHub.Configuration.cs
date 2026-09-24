@@ -436,7 +436,7 @@ namespace cloud.charging.open.RoamingHub
                 // longer asks.
                 lastTimeSync = null;
 
-                changed.Add($"server = {hostname}:{ntsKE} (NTS-KE), :{ntp} (NTP)");
+                changed.Add($"server = {hostname.Trimmed}:{ntsKE} (NTS-KE), :{ntp} (NTP)");
 
             }
 
