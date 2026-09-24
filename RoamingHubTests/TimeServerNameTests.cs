@@ -27,7 +27,7 @@ namespace cloud.charging.open.RoamingHub.Tests
 {
 
     /// <summary>
-    /// The time server, wherever somebody reads its name, and what the
+    /// The time servers, wherever somebody reads their names, and what the
     /// overview says about the last synchronisation.
     /// </summary>
     /// <remarks>
@@ -45,6 +45,12 @@ namespace cloud.charging.open.RoamingHub.Tests
 
         private String       directory   = default!;
         private RoamingHub?  hub;
+
+        /// <summary>
+        /// The PTB's four, which a hub nobody has told otherwise asks, in the
+        /// order they are asked and as somebody reads them.
+        /// </summary>
+        private static readonly String[] ThePTBsFour = [ "ptbtime1.ptb.de", "ptbtime2.ptb.de", "ptbtime3.ptb.de", "ptbtime4.ptb.de" ];
 
         /// <summary>
         /// A hub whose time client is on, and whose file says nothing else.
@@ -83,7 +89,7 @@ namespace cloud.charging.open.RoamingHub.Tests
         #endregion
 
 
-        #region TheStartNamesTheServerAsItIsRead()
+        #region TheStartNamesTheServersAsTheyAreRead()
 
         /// <summary>
         /// The line a start writes about the clock check.
@@ -93,7 +99,7 @@ namespace cloud.charging.open.RoamingHub.Tests
         /// line announces never asks the PTB for anything.
         /// </remarks>
         [Test]
-        public async Task TheStartNamesTheServerAsItIsRead()
+        public async Task TheStartNamesTheServersAsTheyAreRead()
         {
 
             hub = TestRoamingHubs.New(directory, TimeClientOn, ClockWithoutTimers.Instance);
@@ -102,39 +108,39 @@ namespace cloud.charging.open.RoamingHub.Tests
 
             var said = hub.Log.Recent(500).Select(entry => entry.Message).Where(message => message.Contains("will be checked against")).ToArray();
 
-            Assert.That(said, Has.Some.Contains("will be checked against ptbtime1.ptb.de every"));
+            Assert.That(said, Has.Some.Contains($"will be checked against {String.Join(", ", ThePTBsFour)} every"));
 
         }
 
         #endregion
 
-        #region TheClockNamesTheServerAsItIsRead()
+        #region TheClockNamesTheServersAsTheyAreRead()
 
         /// <summary>
-        /// The clock's JSON, which the NTS page shows as the server the clock
+        /// The clock's JSON, which the NTS page shows as the servers the clock
         /// is checked against.
         /// </summary>
         [Test]
-        public void TheClockNamesTheServerAsItIsRead()
+        public void TheClockNamesTheServersAsTheyAreRead()
         {
 
             hub = TestRoamingHubs.New(directory, TimeClientOn);
 
-            Assert.That(hub.ClockJSON()["nts"]?.Value<String>("server"),  Is.EqualTo("ptbtime1.ptb.de"));
+            Assert.That(hub.ClockJSON()["nts"]?["servers"]?.Values<String>(),  Is.EqualTo(ThePTBsFour));
 
         }
 
         #endregion
 
-        #region TheOverviewNamesTheServerAndSaysWhenItWasLastSynchronised()
+        #region TheOverviewNamesTheServersAndSaysWhenItWasLastSynchronised()
 
         /// <summary>
-        /// The overview's time card: the server as it is read, and the last
+        /// The overview's time card: the servers as they are read, and the last
         /// synchronisation - there and empty while there has been none, so that
         /// the card says "-" rather than leaving the line out.
         /// </summary>
         [Test]
-        public void TheOverviewNamesTheServerAndSaysWhenItWasLastSynchronised()
+        public void TheOverviewNamesTheServersAndSaysWhenItWasLastSynchronised()
         {
 
             hub = TestRoamingHubs.New(directory, TimeClientOn);
@@ -142,7 +148,7 @@ namespace cloud.charging.open.RoamingHub.Tests
             var time = hub.ConfigurationJSON()["time"] as JObject;
 
             Assert.Multiple(() => {
-                Assert.That(time?.Value<String>("nts"),          Is.EqualTo("ptbtime1.ptb.de"));
+                Assert.That(time?.Value<String>("timeServers"),  Is.EqualTo(String.Join(", ", ThePTBsFour)));
                 Assert.That(time?["lastSync"]?.      Type,       Is.EqualTo(JTokenType.Null));
                 Assert.That(time?["lastSyncResult"]?.Type,       Is.EqualTo(JTokenType.Null));
             });
@@ -169,7 +175,10 @@ namespace cloud.charging.open.RoamingHub.Tests
 
             var said = hub.Log.Recent(500).Select(entry => entry.Message).Where(message => message.StartsWith("NTS configuration changed")).ToArray();
 
-            Assert.That(said, Has.Some.Contains("server = time.example.org:4460 (NTS-KE)"));
+            Assert.Multiple(() => {
+                Assert.That(said, Has.Some.Contains("time servers = time.example.org"),  String.Join(" | ", said));
+                Assert.That(said, Has.None.Contains("time.example.org."),                String.Join(" | ", said));
+            });
 
         }
 

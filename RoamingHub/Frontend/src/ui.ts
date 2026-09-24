@@ -11,6 +11,65 @@ export function safeNext(value: string | null): string | null {
                : null;
 }
 
+/**
+ * Anything on a page that can be typed into or pressed.
+ *
+ * Kept as one type because the only thing wanted of them here is that they can
+ * all be switched off and on again.
+ */
+type Control = HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement | HTMLButtonElement;
+
+/** What a page says while it is telling the RoamingHub. */
+export const beingSaved = 'Saving ...';
+
+/**
+ * Hold a page still while the RoamingHub is being told, and say so.
+ *
+ * Measured on the charging station, whose pages this comes from, on a link
+ * that took two seconds to answer: an operator pressed Save and carried on
+ * working, the answer arrived, the page redrew itself from it, and what had
+ * been typed in the meantime was simply gone - under "Saved, and in effect.".
+ * Holding the page still makes that impossible rather than unlikely: what
+ * cannot be typed in those seconds cannot be thrown away by the answer.
+ *
+ * Controls that were already switched off stay off afterwards: a role that may
+ * look but not change must not be handed a live form by a save that failed.
+ *
+ * Read every field BEFORE calling this, never inside Doing. The form is
+ * switched off before Doing runs, and FormData leaves a disabled control out
+ * of the form entirely.
+ */
+export async function whileSaving<T>(Page:    HTMLElement,
+                                     Saying:  HTMLElement | null,
+                                     Doing:   () => Promise<T>): Promise<T> {
+
+    const controls      = [...Page.querySelectorAll<Control>('input, select, textarea, button')];
+    const alreadyOff    = new Set(controls.filter(control => control.disabled));
+
+    for (const control of controls)
+        control.disabled = true;
+
+    if (Saying !== null)
+        Saying.textContent = beingSaved;
+
+    try
+    {
+        return await Doing();
+    }
+    finally
+    {
+        for (const control of controls)
+            if (!alreadyOff.has(control))
+                control.disabled = false;
+
+        // Whatever happened, it is no longer happening. What it turned into -
+        // "Saved", or a sentence about why not - is the page's to say.
+        if (Saying !== null)
+            Saying.textContent = '';
+    }
+
+}
+
 /** Read a form field as a trimmed string. */
 export function field(form: HTMLFormElement, name: string, trim = true): string {
     const value = String(new FormData(form).get(name) ?? '');

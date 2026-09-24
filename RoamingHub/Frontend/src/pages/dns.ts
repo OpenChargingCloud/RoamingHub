@@ -69,7 +69,7 @@ export const dnsPage: Page = {
                 ${mayChange ? '' : html`
                     <div class="notice">
                         Signed in as ${auth.user?.roles.join(', ') ?? 'somebody'}, which may look at the name
-                        resolution but not change it. That needs the CPO or the system administrator role.
+                        resolution but not change it. That needs the hub or the system administrator role.
                     </div>
                 `}
 
@@ -218,7 +218,7 @@ export const dnsPage: Page = {
                             <span class="hint">
                                 ${mayTest
                                       ? html`Every step is written to the log, so the Logs page of anybody watching shows it too.`
-                                      : html`Running a query needs the CPO or the system administrator role.`}
+                                      : html`Running a query needs the hub or the system administrator role.`}
                             </span>
 
                         </form>

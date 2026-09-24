@@ -18,11 +18,13 @@
 #region Usings
 
 using System.Diagnostics.CodeAnalysis;
+using System.Security.Cryptography.X509Certificates;
 
 using Newtonsoft.Json.Linq;
 
 using org.GraphDefined.Vanaheimr.Hermod.DNS;
 using org.GraphDefined.Vanaheimr.Norn.NTS;
+using org.GraphDefined.Vanaheimr.Norn.TimeSync;
 
 using cloud.charging.open.RoamingHub.Configuration;
 
@@ -286,41 +288,35 @@ namespace cloud.charging.open.RoamingHub
         /// Where this RoamingHub gets the time from, and how the key exchange
         /// behind it is doing.
         /// </summary>
+        /// <remarks>
+        /// The group, and nothing about the single client the detailed test
+        /// starts from. This answer used to carry that client's host, its
+        /// cookie pool and its last key exchange as "server", "cookies" and
+        /// "keyExchange" - which read as the RoamingHub's time server and the
+        /// cookies it checks its clock with, and were neither: the group asks
+        /// its servers with key exchanges of its own, one per server, and those
+        /// are what each server's entry below reports.
+        /// </remarks>
         public JObject NTSConfigurationJSON()
         {
-
-            var pool = ntsClient.CookiePoolDiagnostics;
-            var last = ntsClient.LastNTSKEResponse;
 
             return new JObject(
 
                        new JProperty("enabled",      NTSEnabled),
 
-                       new JProperty("server",       new JObject(
-                           new JProperty("hostname",              ntsClient.Hostname.ToString()),
-                           new JProperty("ntsKEPort",             ntsClient.NTSKE_Port.ToUInt16()),
-                           new JProperty("ntpPort",               ntsClient.NTP_Port.  ToUInt16()),
-                           new JProperty("ipVersionPreference",   ntsClient.IPVersionPreference.ToString()),
-                           new JProperty("clientId",              ntsClient.Id)
-                       )),
-
+                       // What may be changed about the group and the test, as
+                       // it is in effect. The quorum is the one this RoamingHub
+                       // was told; the group's own, below, can be lower when it
+                       // has fewer servers switched on.
                        new JProperty("settings",     new JObject(
-                           new JProperty("timeoutSeconds",        ntsClient.Timeout?.TotalSeconds)
+                           new JProperty("timeoutSeconds",        ntsClient.Timeout?.TotalSeconds),
+                           new JProperty("checkEverySeconds",     TimeCheckEvery.TotalSeconds),
+                           new JProperty("minServers",            ntsQuorum),
+                           new JProperty("maxDeviationSeconds",   timeSources.MaxDeviation.TotalSeconds)
                        )),
 
-                       new JProperty("cookies",      new JObject(
-                           new JProperty("available",             pool.AvailableCookieCount),
-                           new JProperty("maxPoolSize",           pool.MaxCookiePoolSize),
-                           new JProperty("lowWatermark",          pool.LowWatermark),
-                           new JProperty("seeded",                pool.SeededCookieCount),
-                           new JProperty("received",              pool.CookiesReceived),
-                           new JProperty("consumed",              pool.CookiesConsumed),
-                           new JProperty("dropped",               pool.DroppedCookieCount),
-                           new JProperty("isLow",                 pool.IsLow),
-                           new JProperty("isEmpty",               pool.IsEmpty),
-                           new JProperty("isFull",                pool.IsFull)
-                       )),
-
+                       // What any new client starts with, the group's and the
+                       // test's alike.
                        new JProperty("policy",       new JObject(
                            new JProperty("targetCookieCount",             ntsClient.CookiePoolPolicy.TargetCookieCount),
                            new JProperty("maxPlaceholders",               ntsClient.CookiePoolPolicy.MaxPlaceholders),
@@ -328,23 +324,52 @@ namespace cloud.charging.open.RoamingHub
                            new JProperty("minimumRenegotiationInterval",  ntsClient.CookiePoolPolicy.MinimumRenegotiationInterval.ToString())
                        )),
 
-                       new JProperty("keyExchange",  new JObject(
-                           new JProperty("automatic",                 ntsClient.AutomaticKeyExchanges),
-                           new JProperty("aeadAlgorithms",            new JArray(ntsClient.OfferedAEADAlgorithms.Select(algorithm => algorithm.ToString()))),
-                           new JProperty("compliantExporterContext",  ntsClient.CompliantAES128GCMSIVExporterContext),
-                           new JProperty("lastExchange",              last is null
-                                                                          ? null
-                                                                          : new JObject(
-                                                                                new JProperty("error",     last.ErrorMessage),
-                                                                                new JProperty("warnings",  new JArray(last.WarningMessages)),
-                                                                                new JProperty("servers",   new JArray(last.NTPv4ServerNames))
-                                                                            ))
+                       // What the group is actually doing, which is what
+                       // checks this RoamingHub's clock: each server's key
+                       // exchange and the cookies left from it are what a
+                       // check spends.
+                       //
+                       // Every server, in the order they were configured, the
+                       // switched-off ones included: this is the list the page
+                       // edits and sends back whole, and a server missing from it
+                       // because it was switched off would be deleted by the next
+                       // save of anything else.
+                       new JProperty("timeSources",  new JArray(
+                           timeSources.Sources.Select(source => {
+
+                               var held = timeEngine.KeyExchanges.TryGetValue(source.Hostname, out var state) ? state : null;
+
+                               return new JObject(
+                                          new JProperty("hostname",       source.Hostname.ToString()),
+                                          new JProperty("priority",       source.Priority),
+                                          new JProperty("ntsKEPort",      source.NTSKEPort.ToUInt16()),
+                                          new JProperty("ntpPort",        source.NTPPort.  ToUInt16()),
+                                          new JProperty("enabled",        source.Enabled),
+                                          new JProperty("cookies",        held?.RemainingCookies),
+                                          new JProperty("lastExchange",   held?.LastRefreshed.ToString("o")),
+                                          new JProperty("aeadAlgorithm",  held?.NTSKEResponse?.AEADAlgorithm.ToString()),
+                                          new JProperty("rootCA",         RootCAJSON(held?.NTSKEResponse?.TLSInfo))
+                                      );
+
+                           })
+                       )),
+
+                       new JProperty("group",        new JObject(
+                           new JProperty("name",                 timeSources.Name),
+                           new JProperty("minServers",           timeSources.MinServers),
+                           new JProperty("maxDeviationSeconds",  timeSources.MaxDeviation.TotalSeconds)
                        )),
 
                        new JProperty("lastSync",     lastTimeSync),
 
                        new JProperty("limits",       new JObject(
-                           new JProperty("maxTimeout",  NTSConfiguration.MaxTimeoutSeconds)
+                           new JProperty("maxTimeout",         NTSConfiguration.MaxTimeoutSeconds),
+                           new JProperty("minCheckEvery",      NTSConfiguration.MinCheckEverySeconds),
+                           new JProperty("maxCheckEvery",      NTSConfiguration.MaxCheckEverySeconds),
+                           new JProperty("minDeviation",       NTSConfiguration.MinDeviationSeconds),
+                           new JProperty("maxDeviation",       NTSConfiguration.MaxDeviationSeconds),
+                           new JProperty("defaultNTSKEPort",   NTSClient.DefaultNTSKE_Port.ToUInt16()),
+                           new JProperty("defaultNTPPort",     NTSClient.DefaultNTP_Port.  ToUInt16())
                        )),
 
                        new JProperty("file",         ConfigFile.Path)
@@ -379,6 +404,26 @@ namespace cloud.charging.open.RoamingHub
             try
             {
 
+                // Before the file, so that what is refused is not written down
+                // either - and inside the lock, because the servers a quorum on
+                // its own is checked against are the ones in effect.
+                if (!TryCheckNTSQuorum(configuration, out Error))
+                    return false;
+
+                // And the file as the next start will read it. Each half can
+                // be fine and the two together not: the quorum the file holds
+                // and a list saved now that is shorter than it would be a
+                // section the next start refuses, and a RoamingHub that does not
+                // start because of a save that was accepted.
+                if (!ConfigFile.TryPreviewSection(NTSConfiguration.SectionName, configuration.ToJSON(), out var merged, out Error))
+                    return false;
+
+                if (!NTSConfiguration.TryParse(merged, out _, out var mergedError))
+                {
+                    Error = $"{mergedError} Nothing was changed.";
+                    return false;
+                }
+
                 if (!ConfigFile.TryMergeSection(NTSConfiguration.SectionName, configuration.ToJSON(), out Error))
                     return false;
 
@@ -391,6 +436,162 @@ namespace cloud.charging.open.RoamingHub
             {
                 reconfigureLock.Release();
             }
+
+        }
+
+        #endregion
+
+        #region (static) RootCAJSON(TLS)
+
+        /// <summary>
+        /// The root CA a key exchange's certificate chain ended at, for the NTS
+        /// page's list: a name to call it by, its whole subject, and its SHA-256
+        /// fingerprint - or null where there was no key exchange yet.
+        /// </summary>
+        /// <remarks>
+        /// The end of the chain this machine built, not of the one the server
+        /// sent, because that is the root the certificate was judged by - and
+        /// the one a pinned root would be compared with, by this fingerprint.
+        /// The name is the root's common name: "ISRG Root X1" says which root
+        /// it is, where its whole subject is mostly the organisation again.
+        ///
+        /// From the group's own exchanges - "Sync now" and the clock check -
+        /// because they are what the synchronisation relies on. A server's
+        /// Test asks with a client of its own and leaves this alone.
+        /// </remarks>
+        /// <param name="TLS">What a key exchange kept of its TLS session.</param>
+        public static JObject? RootCAJSON(NTSKE_TLSInfo? TLS)
+        {
+
+            var root = TLS?.ValidatedChain.LastOrDefault();
+
+            return root is null
+                       ? null
+                       : new JObject(
+                             new JProperty("name",         CommonNameOf(root)),
+                             new JProperty("subject",      root.Subject),
+                             new JProperty("fingerprint",  ThumbprintOf(root))
+                         );
+
+        }
+
+        #endregion
+
+        #region (private static) CommonNameOf(Certificate)
+
+        /// <summary>
+        /// What a certificate is called: its common name, or its whole subject
+        /// where it has none.
+        /// </summary>
+        private static String CommonNameOf(X509Certificate2 Certificate)
+        {
+
+            var common = Certificate.GetNameInfo(X509NameType.SimpleName, forIssuer: false);
+
+            return common is { Length: > 0 }
+                       ? common
+                       : Certificate.Subject;
+
+        }
+
+        #endregion
+
+        #region (private static) Described(Group)
+
+        /// <summary>
+        /// A group of time servers as a log line names it: every server in the
+        /// order configured, with whatever about it is not the usual.
+        /// </summary>
+        /// <remarks>
+        /// All of them, and all of that, because this is also what a change is
+        /// found by. It used to be the names of the servers switched on, in the
+        /// order they are asked: a server given another priority or a port of
+        /// its own was a change the log book never heard of, and one switched
+        /// off simply went missing from the line.
+        /// </remarks>
+        private static String Described(TimeSourceGroup Group)
+
+            => String.Join(", ", Group.Sources.Select(source => {
+
+                   var unusual = new List<String>();
+
+                   if (source.Priority  != 0)                            unusual.Add($"priority {source.Priority}");
+                   if (source.NTSKEPort != NTSClient.DefaultNTSKE_Port)  unusual.Add($"NTS-KE port {source.NTSKEPort}");
+                   if (source.NTPPort   != NTSClient.DefaultNTP_Port)    unusual.Add($"NTP port {source.NTPPort}");
+                   if (!source.Enabled)                                  unusual.Add("switched off");
+
+                   return unusual.Count == 0
+                              ? source.Hostname.Trimmed
+                              : $"{source.Hostname.Trimmed} ({String.Join(", ", unusual)})";
+
+               }));
+
+        #endregion
+
+        #region (private static) LastSyncSaid(Sync)
+
+        /// <summary>
+        /// How the last synchronisation went, in a few words: that it
+        /// succeeded and how far off the clock was, or why it did not.
+        /// </summary>
+        /// <remarks>
+        /// Said beside when it happened, because the moment alone reads as a
+        /// success: a synchronisation that found no server has a time just as
+        /// much as one that set the record straight.
+        /// </remarks>
+        /// <param name="Sync">The last synchronisation, or null while there has been none.</param>
+        private static String? LastSyncSaid(JObject? Sync)
+        {
+
+            if (Sync is null)
+                return null;
+
+            if (Sync.Value<Boolean>("ok"))
+                return Sync.Value<Double?>("offset_ms") is Double offset
+                           ? String.Format(System.Globalization.CultureInfo.InvariantCulture,
+                                           "succeeded, the clock is {0:+0.0;-0.0;0.0} ms off", offset)
+                           : "succeeded";
+
+            return $"failed: {Sync.Value<String>("error") ?? "no reason was given"}";
+
+        }
+
+        #endregion
+
+        #region (private) TryCheckNTSQuorum(Configuration, out Error)
+
+        /// <summary>
+        /// Whether a quorum named on its own can be met by the servers this
+        /// RoamingHub asks.
+        /// </summary>
+        /// <remarks>
+        /// A section naming its servers as well had its quorum checked against
+        /// them when it was read. One naming only the quorum is about the
+        /// servers in effect, which the section cannot know and this RoamingHub
+        /// does.
+        /// </remarks>
+        private Boolean TryCheckNTSQuorum(NTSConfiguration                  Configuration,
+                                          [NotNullWhen(false)] out String?  Error)
+        {
+
+            Error = null;
+
+            if (Configuration.MinServers is Byte quorum &&
+                Configuration.Servers    is null        &&
+                Configuration.Hostname   is null)
+            {
+
+                var asked = timeSources.Sources.Count(source => source.Enabled);
+
+                if (quorum > asked)
+                {
+                    Error = $"'nts.minServers' is {quorum}, which is more servers than the {asked} this RoamingHub asks.";
+                    return false;
+                }
+
+            }
+
+            return true;
 
         }
 
@@ -409,9 +610,69 @@ namespace cloud.charging.open.RoamingHub
             // it, and the other half - how often to check, and what the
             // operator claims about the server - is read from elsewhere and
             // much later. See RoamingHub.Clock.cs.
-            ntsSettings = Configuration;
+            //
+            // Laid over what was kept rather than put in its place. A save sends
+            // part of the section - the switch on the page sends "enabled" and
+            // nothing else - and replaced by that, how often to check and who
+            // stands behind the time went back to their defaults until the
+            // next start read them from the file again.
+            var wasCheckingEvery  = TimeCheckEvery;
+            var wasEnabled        = NTSEnabled;
+
+            ntsSettings = ntsSettings?.OverriddenBy(Configuration) ?? Configuration;
 
             var changed  = new List<String>();
+
+            #region The group of time servers
+
+            var wasServers    = Described(timeSources);
+            var wasQuorum     = timeSources.MinServers;
+            var wasDeviation  = timeSources.MaxDeviation;
+
+            if (Configuration.MinServers.HasValue)
+                ntsQuorum = Configuration.MinServers.Value;
+
+            // The servers only when the section says something about them. That
+            // is this method's rule everywhere else, and it earns its place here
+            // now that the servers have a default worth keeping: a section
+            // mentioning nothing but "enabled" would otherwise quietly reduce
+            // four servers to one.
+            //
+            // Rebuilt from the section rather than patched when it does: it is a
+            // list, and working out which entry changed in order to report it
+            // would say less than naming the servers, which is what happens
+            // below.
+            var sources       = Configuration.Servers  is not null ||
+                                Configuration.Hostname is not null
+                                    ? Configuration.ToGroup(Configuration.Hostname ?? ntsClient.Hostname).Sources
+                                    : timeSources.Sources;
+
+            // The quorum and the deviation by the same rule, and on their own as
+            // well. They used to count only beside a list or a hostname, so a
+            // section saying nothing but "minServers": 3 was read, reported as
+            // NTS configuration, and changed nothing; and a list without a
+            // quorum was held to one, whatever had been agreed before - and it
+            // is this group that decides whether the RoamingHub may say it has
+            // legal time.
+            timeSources       = new TimeSourceGroup(
+                                    timeSources.Name,
+                                    sources,
+                                    NTSConfiguration.QuorumFor(ntsQuorum, sources),
+                                    Configuration.MaxDeviation ?? timeSources.MaxDeviation
+                                );
+
+            var nowServers    = Described(timeSources);
+
+            if (wasServers != nowServers)
+                changed.Add($"time servers = {nowServers}");
+
+            if (wasQuorum != timeSources.MinServers)
+                changed.Add($"quorum = {timeSources.MinServers}");
+
+            if (wasDeviation != timeSources.MaxDeviation)
+                changed.Add($"agreed deviation = {timeSources.MaxDeviation.TotalSeconds.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture)} s");
+
+            #endregion
 
             var hostname = Configuration.Hostname  ?? ntsClient.Hostname;
             var ntsKE    = Configuration.NTSKEPort ?? ntsClient.NTSKE_Port;
@@ -452,8 +713,22 @@ namespace cloud.charging.open.RoamingHub
                 changed.Add(NTSEnabled ? "switched on" : "switched off");
             }
 
+            if (TimeCheckEvery != wasCheckingEvery)
+                changed.Add($"clock checked every {TimeCheckEvery.TotalSeconds.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture)} s");
+
             if (changed.Count > 0)
                 Log.Notice($"NTS configuration changed: {String.Join(", ", changed)}.", "nts", "config");
+
+            // The clock is checked on a timer set when the RoamingHub started, so
+            // whether and how often it is checked has to be put into that timer
+            // here - otherwise the page says "in effect" about something that
+            // waits for the next start. Before the start there is no timer yet,
+            // and the start sets one from what this left behind.
+            if (started &&
+               (TimeCheckEvery != wasCheckingEvery || NTSEnabled != wasEnabled))
+            {
+                StartCheckingTheClock();
+            }
 
         }
 

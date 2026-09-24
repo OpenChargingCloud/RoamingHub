@@ -122,11 +122,14 @@ namespace cloud.charging.open.RoamingHub
                                  TimeCheckEvery
                              );
 
-            // Trimmed, because this is a sentence somebody reads. The root dot
-            // belongs on a name going back into a file and not in the middle of
-            // a line of prose, where it reads as a typing mistake.
+            // Named rather than counted, because this is written once at a
+            // start and somebody reading it is checking that the file took
+            // effect. "4 time servers" would not tell them which four.
+            var asking = CheckedAgainst();
+
             Log.Info(
-                $"The clock of this RoamingHub will be checked against {ntsClient.Hostname.Trimmed} every {TimeCheckEvery.TotalMinutes:F0} minute(s)" +
+                $"The clock of this RoamingHub will be checked against {String.Join(", ", asking)} every {TimeCheckEvery.TotalMinutes:F0} minute(s)" +
+                (asking.Length > 1 ? $", at least {timeSources.MinServers} of which must answer" : "") +
                 (LegalTimeAuthority is not null ? $", which the operator says is {LegalTimeAuthority}." : "."),
                 "nts", "clock"
             );
@@ -171,6 +174,25 @@ namespace cloud.charging.open.RoamingHub
 
         #endregion
 
+        #region (private) CheckedAgainst()
+
+        /// <summary>
+        /// The time servers the clock check asks: those switched on, in the
+        /// order their bands are asked in.
+        /// </summary>
+        /// <remarks>
+        /// Trimmed, because both places this goes are read by somebody: a
+        /// sentence in the log, and the clock's JSON for a screen. The root dot
+        /// belongs on a name going back into a file - see how the configuration
+        /// is written - and not in the middle of prose, where it reads as a
+        /// typing mistake.
+        /// </remarks>
+        private String[] CheckedAgainst()
+
+            => [.. timeSources.Bands().SelectMany(band => band).Select(source => source.Hostname.Trimmed)];
+
+        #endregion
+
         #region ClockJSON()
 
         /// <summary>
@@ -209,10 +231,21 @@ namespace cloud.charging.open.RoamingHub
                        // clock, and the check below did not set it.
                        new JProperty("source",          "system"),
 
+                       // Against whom: the group the check asks, named as the
+                       // log line at the start names it, and how many of it have
+                       // to answer - nobody while NTS is switched off. This used
+                       // to be "server" as well, with the host of the single
+                       // client that is only there for a server's detailed test:
+                       // one name, with its root dot, for a check that has asked
+                       // the whole group since there were groups.
                        new JProperty("nts",             new JObject(
                            new JProperty("enabled",       NTSEnabled),
-                           new JProperty("server",        NTSEnabled ? ntsClient.Hostname.Trimmed : null),
+                           new JProperty("group",         NTSEnabled ? timeSources.Name : null),
+                           new JProperty("servers",       NTSEnabled ? new JArray(CheckedAgainst()) : null),
+                           new JProperty("minServers",    NTSEnabled ? timeSources.MinServers : null),
                            new JProperty("lastServer",    lastTimeCheckServer),
+                           new JProperty("asked",         lastTimeCheckAsked),
+                           new JProperty("answered",      lastTimeCheckAnswered),
                            new JProperty("checkedAt",     checkedAt?.ToString("o")),
                            new JProperty("ageSeconds",    age.HasValue ? Math.Round(age.Value.TotalSeconds, 1) : null),
                            new JProperty("offset_ms",     offset.HasValue ? Math.Round(offset.Value.TotalMilliseconds, 1) : null),

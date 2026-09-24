@@ -23,6 +23,8 @@ using Newtonsoft.Json.Linq;
 
 using org.GraphDefined.Vanaheimr.Hermod;
 using org.GraphDefined.Vanaheimr.Hermod.DNS;
+using org.GraphDefined.Vanaheimr.Norn.Monitoring;
+using org.GraphDefined.Vanaheimr.Norn.TimeSync;
 
 #endregion
 
@@ -46,15 +48,21 @@ namespace cloud.charging.open.RoamingHub.Configuration
     /// <param name="LegalTimeAuthority">Who stands behind that server's time, e.g. "PTB" - the operator saying so, because this RoamingHub cannot find out by itself.</param>
     /// <param name="LegalTimeTolerance">How far this RoamingHub's own clock may be from it and still count.</param>
     /// <param name="LegalTimeMaxAge">How old the last check may be and still count.</param>
-    public sealed record NTSConfiguration(Boolean?     Enabled               = null,
-                                          DomainName?  Hostname              = null,
-                                          IPPort?      NTSKEPort             = null,
-                                          IPPort?      NTPPort               = null,
-                                          TimeSpan?    Timeout               = null,
-                                          TimeSpan?    CheckEvery            = null,
-                                          String?      LegalTimeAuthority    = null,
-                                          TimeSpan?    LegalTimeTolerance    = null,
-                                          TimeSpan?    LegalTimeMaxAge       = null)
+    /// <param name="Servers">Every time server of this RoamingHub, or none to ask only the one named by Hostname.</param>
+    /// <param name="MinServers">How many of them must answer before their time counts.</param>
+    /// <param name="MaxDeviation">How far their answers may be apart before the disagreement is written down.</param>
+    public sealed record NTSConfiguration(Boolean?                              Enabled               = null,
+                                          DomainName?                           Hostname              = null,
+                                          IPPort?                               NTSKEPort             = null,
+                                          IPPort?                               NTPPort               = null,
+                                          TimeSpan?                             Timeout               = null,
+                                          TimeSpan?                             CheckEvery            = null,
+                                          String?                               LegalTimeAuthority    = null,
+                                          TimeSpan?                             LegalTimeTolerance    = null,
+                                          TimeSpan?                             LegalTimeMaxAge       = null,
+                                          IEnumerable<NTSServerConfiguration>?  Servers               = null,
+                                          Byte?                                 MinServers            = null,
+                                          TimeSpan?                             MaxDeviation          = null)
     {
 
         #region Data
@@ -102,10 +110,56 @@ namespace cloud.charging.open.RoamingHub.Configuration
         public const String  DefaultHostname      = "ptbtime1.ptb.de";
 
         /// <summary>
+        /// The time servers this RoamingHub asks when its configuration names none.
+        /// </summary>
+        /// <remarks>
+        /// All four of the PTB's, as one band: they are peers, not a first
+        /// choice and a fallback, and putting them in separate bands would say
+        /// something about them that is not true.
+        ///
+        /// Four rather than one because one host being rebooted should not
+        /// leave this RoamingHub without a clock, and because two servers that agree
+        /// catch what one server cannot: a server that is wrong rather than
+        /// absent.
+        ///
+        /// <see cref="DefaultHostname"/> is the first of them, and is what a
+        /// single-server client still uses.
+        /// </remarks>
+        public static readonly IReadOnlyList<String>  DefaultHostnames = [
+                                                          "ptbtime1.ptb.de",
+                                                          "ptbtime2.ptb.de",
+                                                          "ptbtime3.ptb.de",
+                                                          "ptbtime4.ptb.de"
+                                                      ];
+
+        /// <summary>
+        /// How many of them have to answer, when the configuration says
+        /// nothing: two, so that one host being away is survivable and one
+        /// host being wrong is visible.
+        /// </summary>
+        public const Byte  DefaultMinServers = 2;
+
+        /// <summary>
         /// The longest an exchange may be allowed to take, in seconds. An hour
         /// is not a timeout any more, and zero is not one either.
         /// </summary>
         public const Double  MaxTimeoutSeconds    = 3600;
+
+        /// <summary>
+        /// How often the clock may be checked at most and at least, in seconds:
+        /// ten seconds, which is already more than a time server asks to be
+        /// bothered, and once a day.
+        /// </summary>
+        public const Double  MinCheckEverySeconds = 10;
+        public const Double  MaxCheckEverySeconds = 86400;
+
+        /// <summary>
+        /// The disagreement between time servers that may be agreed on before
+        /// it is written down, in seconds: a millisecond at the least, an hour
+        /// at the most.
+        /// </summary>
+        public const Double  MinDeviationSeconds  = 0.001;
+        public const Double  MaxDeviationSeconds  = 3600;
 
         #endregion
 
@@ -128,13 +182,69 @@ namespace cloud.charging.open.RoamingHub.Configuration
                 !ConfigurationReader.TryReadPort   (JSON, "ntsKEPort",       "nts",      out var ntsKEPort, out Error) ||
                 !ConfigurationReader.TryReadPort   (JSON, "ntpPort",         "nts",      out var ntpPort,   out Error) ||
                 !ConfigurationReader.TryReadSeconds(JSON, "timeoutSeconds",  "nts", 0.1, MaxTimeoutSeconds, out var timeout, out Error) ||
-                !ConfigurationReader.TryReadSeconds(JSON, "checkEverySeconds", "nts", 10, 86400, out var checkEvery, out Error) ||
+                !ConfigurationReader.TryReadSeconds(JSON, "checkEverySeconds", "nts", MinCheckEverySeconds, MaxCheckEverySeconds, out var checkEvery, out Error) ||
                 !ConfigurationReader.TryReadSeconds(JSON, "legalTimeToleranceSeconds", "nts", 0.001, 60, out var tolerance, out Error) ||
                 !ConfigurationReader.TryReadSeconds(JSON, "legalTimeMaxAgeSeconds", "nts", 10, 86400, out var maxAge, out Error) ||
-                !ConfigurationReader.TryReadString (JSON, "legalTimeAuthority", "nts", MaxAuthorityLength, out var authority, out Error))
+                !ConfigurationReader.TryReadString (JSON, "legalTimeAuthority", "nts", MaxAuthorityLength, out var authority, out Error) ||
+                !ConfigurationReader.TryReadByte   (JSON, "minServers",          "nts",                     out var minServers, out Error) ||
+                !ConfigurationReader.TryReadSeconds(JSON, "maxDeviationSeconds", "nts", MinDeviationSeconds, MaxDeviationSeconds, out var maxDeviation, out Error))
             {
                 return false;
             }
+
+            #region The servers, when there is a list of them
+
+            List<NTSServerConfiguration>? servers = null;
+
+            if (JSON.TryGetValue("servers", out var serversToken))
+            {
+
+                if (serversToken is not JArray serverArray)
+                {
+                    Error = "'nts.servers' must be a list!";
+                    return false;
+                }
+
+                servers = [];
+
+                for (var i = 0; i < serverArray.Count; i++)
+                {
+
+                    if (!NTSServerConfiguration.TryParse(serverArray[i], i, out var server, out Error))
+                        return false;
+
+                    servers.Add(server);
+
+                }
+
+                // An empty list is not the same as no list: it says "ask
+                // nobody", which is what switching NTS off is for and is almost
+                // certainly a mistake here.
+                if (servers.Count == 0)
+                {
+                    Error = "'nts.servers' is empty: name a server, or set 'nts.enabled' to false.";
+                    return false;
+                }
+
+                if (minServers > servers.Count(server => server.Enabled))
+                {
+                    Error = $"'nts.minServers' is {minServers}, which is more servers than 'nts.servers' has switched on.";
+                    return false;
+                }
+
+            }
+
+            // A lone hostname is a group of one (see ToGroup), and the same holds
+            // for it as for a list: a quorum it can never reach is worth saying
+            // while somebody is reading the file, not at the first
+            // synchronisation, which could only ever report one server short.
+            else if (hostname is not null && minServers > 1)
+            {
+                Error = $"'nts.minServers' is {minServers}, which is more servers than a lone 'nts.hostname' is.";
+                return false;
+            }
+
+            #endregion
 
             DomainName? domainName = null;
 
@@ -153,12 +263,121 @@ namespace cloud.charging.open.RoamingHub.Configuration
                                 checkEvery,
                                 authority,
                                 tolerance,
-                                maxAge
+                                maxAge,
+                                servers,
+                                minServers,
+                                maxDeviation
                             );
 
             return true;
 
         }
+
+        #endregion
+
+        #region (static) DefaultGroup()
+
+        /// <summary>
+        /// The group a RoamingHub asks when nothing has said otherwise.
+        /// </summary>
+        public static TimeSourceGroup DefaultGroup()
+
+            => new ("legal",
+                    DefaultHostnames.Select(hostname => new NTSServerEndpoint(DomainName.Parse(hostname))),
+                    DefaultMinServers);
+
+        #endregion
+
+        #region ToGroup(FallbackHostname)
+
+        /// <summary>
+        /// The time servers of this RoamingHub as a group that can be asked.
+        /// </summary>
+        /// <remarks>
+        /// Called "legal" after the white paper's well-known group, because
+        /// this is the clock a charge is billed by. A RoamingHub asking a second
+        /// group for load balancing would name that one "local"; there is no
+        /// such group yet and inventing one now would be naming something
+        /// nobody asks for.
+        ///
+        /// A section that names a single hostname and no list becomes a group
+        /// of one. That is a worse arrangement than four servers and it is the
+        /// one every existing configuration file already has, so it keeps
+        /// working rather than becoming an error at the next start.
+        ///
+        /// A section that names no quorum is held to two, as the default group
+        /// is - or to all of its servers, when it has fewer switched on. It used
+        /// to be held to one, so that writing out the PTB's four, which are the
+        /// default, made a group that believed whichever of them answered.
+        /// </remarks>
+        /// <param name="FallbackHostname">The server to use when the section names none at all.</param>
+        public TimeSourceGroup ToGroup(DomainName FallbackHostname)
+        {
+
+            NTSServerEndpoint[] sources = Servers is not null
+                                              ? [.. Servers.Select(server => server.ToEndpoint())]
+                                              : [ new NTSServerEndpoint(
+                                                      Hostname ?? FallbackHostname,
+                                                      NTSKEPort,
+                                                      NTPPort
+                                                  ) ];
+
+            return new ("legal",
+                        sources,
+                        MinServers ?? QuorumFor(DefaultMinServers, sources),
+                        MaxDeviation);
+
+        }
+
+        #endregion
+
+        #region OverriddenBy(Update)
+
+        /// <summary>
+        /// This section with another laid over it: the other's value for each
+        /// key it names, and this one's for each key it does not.
+        /// </summary>
+        /// <remarks>
+        /// What a save that sends part of the section amounts to, and what the
+        /// file says once that part is merged into it. The list of servers is
+        /// one value and is replaced whole, as it is in the file.
+        /// </remarks>
+        /// <param name="Update">The section laid over this one.</param>
+        public NTSConfiguration OverriddenBy(NTSConfiguration Update)
+
+            => new (Update.Enabled             ?? Enabled,
+                    Update.Hostname            ?? Hostname,
+                    Update.NTSKEPort           ?? NTSKEPort,
+                    Update.NTPPort             ?? NTPPort,
+                    Update.Timeout             ?? Timeout,
+                    Update.CheckEvery          ?? CheckEvery,
+                    Update.LegalTimeAuthority  ?? LegalTimeAuthority,
+                    Update.LegalTimeTolerance  ?? LegalTimeTolerance,
+                    Update.LegalTimeMaxAge     ?? LegalTimeMaxAge,
+                    Update.Servers             ?? Servers,
+                    Update.MinServers          ?? MinServers,
+                    Update.MaxDeviation        ?? MaxDeviation);
+
+        #endregion
+
+        #region (static) QuorumFor(Wanted, Servers)
+
+        /// <summary>
+        /// The quorum a group of these servers can be held to: the one wanted,
+        /// or all of them when fewer are switched on.
+        /// </summary>
+        /// <remarks>
+        /// Lowered rather than refused, because this is for a quorum nobody
+        /// named in the section at hand - the default, or one an earlier section
+        /// set. A quorum a section names itself is checked against its servers
+        /// when it is read, and refused there.
+        /// </remarks>
+        /// <param name="Wanted">The quorum wanted.</param>
+        /// <param name="Servers">The servers of the group, switched on or not.</param>
+        public static Byte QuorumFor(Byte                            Wanted,
+                                     IEnumerable<NTSServerEndpoint>  Servers)
+
+            => (Byte) Math.Max(1, Math.Min(Wanted, Servers.Count(server => server.Enabled)));
 
         #endregion
 
@@ -175,6 +394,9 @@ namespace cloud.charging.open.RoamingHub.Configuration
 
             if (Enabled.HasValue)      json.Add("enabled",         Enabled.  Value);
             if (Hostname is not null)  json.Add("hostname",        Hostname. ToString());
+            if (Servers  is not null)  json.Add("servers",         new JArray(Servers.Select(server => server.ToJSON())));
+            if (MinServers.HasValue)   json.Add("minServers",      MinServers.Value);
+            if (MaxDeviation.HasValue) json.Add("maxDeviationSeconds", MaxDeviation.Value.TotalSeconds);
             if (NTSKEPort.HasValue)    json.Add("ntsKEPort",       NTSKEPort.Value.ToUInt16());
             if (NTPPort.  HasValue)    json.Add("ntpPort",         NTPPort.  Value.ToUInt16());
             if (Timeout.  HasValue)    json.Add("timeoutSeconds",  Timeout.  Value.TotalSeconds);

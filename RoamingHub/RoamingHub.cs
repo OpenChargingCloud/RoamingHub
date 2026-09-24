@@ -24,7 +24,9 @@ using org.GraphDefined.Vanaheimr.Hermod;
 using org.GraphDefined.Vanaheimr.Hermod.DNS;
 using org.GraphDefined.Vanaheimr.Hermod.HTTP;
 using org.GraphDefined.Vanaheimr.Hermod.Mail;
+using org.GraphDefined.Vanaheimr.Norn.Monitoring;
 using org.GraphDefined.Vanaheimr.Norn.NTS;
+using org.GraphDefined.Vanaheimr.Norn.TimeSync;
 
 // Only the mailer, not the namespace: Hermod.SMTP carries a LogLevel of its
 // own, and importing it would make every LogLevel in this file ambiguous with
@@ -165,6 +167,45 @@ namespace cloud.charging.open.RoamingHub
         private           NTSClient                       ntsClient;
 
         /// <summary>
+        /// Every time server of this RoamingHub, and the rules for believing them.
+        /// </summary>
+        /// <remarks>
+        /// Beside the single client rather than instead of it, because the two
+        /// answer different questions. The group answers "what is the time",
+        /// which several servers should agree on before a RoamingHub believes it.
+        /// The client answers "what is that one server doing", which is what
+        /// the detailed test on the page asks and which a group would only
+        /// blur, having four of everything.
+        /// </remarks>
+        private           TimeSourceGroup                 timeSources;
+
+        /// <summary>
+        /// How many of those servers this RoamingHub was told must answer: by the
+        /// last section that named "minServers", or the default of two.
+        /// </summary>
+        /// <remarks>
+        /// Kept apart from the group's own quorum, which cannot be more than the
+        /// servers it has switched on. A lone hostname holds a group to one, and
+        /// if that one were all that was remembered, a list of four arriving
+        /// afterwards would be held to one as well - where the same file, read
+        /// at the next start, holds it to two.
+        /// </remarks>
+        private           Byte                            ntsQuorum           = NTSConfiguration.DefaultMinServers;
+
+        /// <summary>
+        /// What does the asking.
+        /// </summary>
+        /// <remarks>
+        /// One engine for the life of this RoamingHub, and that is not tidiness:
+        /// it holds the key exchange of each server between rounds, and a new
+        /// engine per check would pay a TLS handshake to every server every
+        /// time and throw the cookies away unspent. It refreshes an exchange
+        /// when it is older than half an hour or down to its last cookie, which
+        /// is the same discipline the single client follows.
+        /// </remarks>
+        private readonly  MeasurementEngine               timeEngine;
+
+        /// <summary>
         /// The name servers this RoamingHub would ask, whether or not name
         /// resolution is switched on at the moment.
         /// </summary>
@@ -183,7 +224,16 @@ namespace cloud.charging.open.RoamingHub
         private           TimeSpan?                       lastTimeCheckOffset;
         private           String?                         lastTimeCheckServer;
 
-        private           ITimer?                         timeCheckTimer;
+        /// <remarks>
+        /// The server is a host name only where there is one of them. A group
+        /// of four is counted instead, in numbers, because the display puts
+        /// this behind "checked against" in whichever language it is showing
+        /// and a phrase assembled here would arrive in the wrong one.
+        /// </remarks>
+        private           Int32?                          lastTimeCheckAsked;
+        private           Int32?                          lastTimeCheckAnswered;
+
+        private           ITimer?                       timeCheckTimer;
 
         private           NTSConfiguration?               ntsSettings;
 
@@ -223,6 +273,12 @@ namespace cloud.charging.open.RoamingHub
         /// </summary>
         public NTSClient              NTSClient
             => ntsClient;
+
+        /// <summary>
+        /// The time servers of this RoamingHub, as a group.
+        /// </summary>
+        public TimeSourceGroup        TimeSources
+            => timeSources;
 
         /// <summary>
         /// Whether this RoamingHub resolves names at all.
@@ -467,6 +523,30 @@ namespace cloud.charging.open.RoamingHub
                                                      TimeProvider:    this.TimeProvider
                                                  );
 
+            this.timeEngine    = new MeasurementEngine(
+                                     new MonitoringConfig {
+                                         DroneId       = "roamingHub",
+                                         NTPTimeout    = TimeSpan.FromSeconds(5),
+                                         NTSKETimeout  = TimeSpan.FromSeconds(10)
+                                     },
+                                     this.TimeProvider
+                                 );
+
+            // The four this RoamingHub asks when nobody says otherwise - but only
+            // when nobody handed it a client either. A caller that named its
+            // own server means that server, and a group naming four others
+            // beside it would be a report about somebody else's clock.
+            this.timeSources   = NTSClient is null
+                                     ? NTSConfiguration.DefaultGroup()
+                                     : new TimeSourceGroup(
+                                           "legal",
+                                           [ new NTSServerEndpoint(
+                                                 ntsClient.Hostname,
+                                                 ntsClient.NTSKE_Port,
+                                                 ntsClient.NTP_Port
+                                             ) ]
+                                       );
+
             // Last, and that is the whole precedence rule: what this
             // constructor was handed holds until the file says otherwise, and
             // what the file does not mention is left exactly as it was.
@@ -474,7 +554,17 @@ namespace cloud.charging.open.RoamingHub
                 ApplyDNSConfiguration(configuration.DNS);
 
             if (configuration?.NTS is not null)
+            {
+
+                // Checked here rather than when the file was read: a quorum
+                // on its own is about the servers in effect, and which those
+                // are is only known now.
+                if (!TryCheckNTSQuorum(configuration.NTS, out var quorumError))
+                    throw new InvalidOperationException($"{quorumError} Repair or remove '{this.ConfigFile.Path}' and start again.");
+
                 ApplyNTSConfiguration(configuration.NTS);
+
+            }
 
             this.ntsSettings = configuration?.NTS;
 
@@ -995,12 +1085,19 @@ namespace cloud.charging.open.RoamingHub
                        new JProperty("tags",           new JArray(Log.KnownTags))
                    )),
 
-                   // The server as it is read, without its root dot. And the last
-                   // synchronisation - the button's, the prompt's or the clock
-                   // check's - when it happened and how it went, or nothing while
-                   // there has been none.
+                   // The group, which is what the clock is checked against, with
+                   // its servers named the way the log names them when they
+                   // change - without their root dots, and with every server that
+                   // is switched off.
+                   //
+                   // And the last synchronisation - the button's, the prompt's or
+                   // the clock check's - when it happened and how it went, or
+                   // nothing while there has been none.
                    new JProperty("time",       new JObject(
-                       new JProperty("nts",            ntsClient.Hostname.Trimmed),
+                       new JProperty("ntsEnabled",     NTSEnabled),
+                       new JProperty("timeServers",    Described(timeSources)),
+                       new JProperty("minServers",     timeSources.MinServers),
+                       new JProperty("checkedEvery",   TimeCheckEvery.ToString()),
                        new JProperty("lastSync",       lastTimeSync?.Value<String>("at")),
                        new JProperty("lastSyncResult", LastSyncSaid(lastTimeSync)),
                        new JProperty("now",            TimeProvider.GetUtcNow().ToString("o"))
@@ -1053,36 +1150,6 @@ namespace cloud.charging.open.RoamingHub
                        new JProperty("assembly",  assembly.Name),
                        new JProperty("version",   assembly.Version?.ToString(3))
                    );
-
-        }
-
-        #endregion
-
-        #region (private static) LastSyncSaid(Sync)
-
-        /// <summary>
-        /// How the last synchronisation went, in a few words: that it
-        /// succeeded and how far off the clock was, or why it did not.
-        /// </summary>
-        /// <remarks>
-        /// Said beside when it happened, because the moment alone reads as a
-        /// success: a synchronisation that reached no server has a time just as
-        /// much as one that set the record straight.
-        /// </remarks>
-        /// <param name="Sync">The last synchronisation, or null while there has been none.</param>
-        private static String? LastSyncSaid(JObject? Sync)
-        {
-
-            if (Sync is null)
-                return null;
-
-            if (Sync.Value<Boolean>("ok"))
-                return Sync.Value<Double?>("offset_ms") is Double offset
-                           ? String.Format(System.Globalization.CultureInfo.InvariantCulture,
-                                           "succeeded, the clock is {0:+0.0;-0.0;0.0} ms off", offset)
-                           : "succeeded";
-
-            return $"failed: {Sync.Value<String>("error") ?? "no reason was given"}";
 
         }
 

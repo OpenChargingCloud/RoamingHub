@@ -659,6 +659,214 @@ input, textarea, select {
 
 }
 
+// What a form says after a save: that it took, or why not. Every page has
+// these next to its Save, and without a colour a refusal read like one more
+// hint under the fields.
+.form-notice { color: $color-ok;    }
+.form-error  { color: $color-error; }
+
+// A path in a sentence, which has no spaces for a line to break at and would
+// otherwise run out of its card.
+.path {
+    overflow-wrap:  anywhere;
+}
+
+// The time servers of the NTS page.
+//
+// "Sync now" first and big, because asking all of them is what the page is
+// mostly for; then one row per server, with what it said the last time it was
+// asked and the two things that can be done with it on the right.
+.btn.large {
+    padding:    0.65rem 1.3rem;
+    font-size:  1.05rem;
+}
+
+.sync-bar {
+
+    display:      flex;
+    align-items:  center;
+    gap:          1rem;
+    flex-wrap:    wrap;
+
+    .hint {
+        flex:  1 1 18rem;
+    }
+
+}
+
+.sync-verdict {
+    margin-top:  0.75rem;
+}
+
+// Measured by its own width rather than the window's, which is what the rows
+// below lay themselves out by: the same window leaves this list more room
+// with the menu along the top than beside it.
+.time-server-list {
+    display:         flex;
+    flex-direction:  column;
+    margin:          0 0 0.25rem;
+    container-type:  inline-size;
+}
+
+.time-server-row {
+
+    display:                grid;
+    grid-template-columns:  minmax(10rem, 1fr) minmax(12rem, 1.3fr) minmax(14rem, 1.3fr) auto;
+    grid-template-areas:    "who said root actions";
+    gap:                    0.4rem 1rem;
+    align-items:            center;
+    padding:                0.6rem 0.25rem;
+
+    + .time-server-row {
+        border-top: 1px solid $color-border;
+    }
+
+    .who, .said, .root-ca {
+        display:         flex;
+        flex-direction:  column;
+        gap:             0.1rem;
+        min-width:       0;
+    }
+
+    .who      { grid-area: who;     }
+    .said     { grid-area: said;    }
+    .root-ca  { grid-area: root;    }
+    .actions  { grid-area: actions; }
+
+    // The root CA's fingerprint is compared character by character with a
+    // pinned one, so it is shown whole - in a typewriter face, and allowed to
+    // break anywhere, because 64 characters have nowhere else to break.
+    .fingerprint {
+        font-family:    $font-mono;
+        font-size:      0.75rem;
+        color:          $color-muted;
+        overflow-wrap:  anywhere;
+    }
+
+    .name {
+        font-weight:  600;
+        word-break:   break-all;
+    }
+
+    .answer.ok  { color: $color-ok;    }
+    .answer.bad { color: $color-error; }
+
+    .actions {
+        display:  flex;
+        gap:      0.4rem;
+    }
+
+    // Still in the list, and not asked: there, but quieter.
+    &.off .name {
+        color:            $color-muted;
+        text-decoration:  line-through;
+    }
+
+}
+
+// Narrower, the root CA goes under what the server said rather than pushing
+// the buttons out of the card - measured on the vehicle at 1100 pixels, where
+// four columns did exactly that.
+@container (max-width: 56rem) {
+    .time-server-row {
+        grid-template-columns:  minmax(10rem, 1fr) minmax(12rem, 1.6fr) auto;
+        grid-template-areas:    "who said actions"
+                                "who root actions";
+    }
+}
+
+// On a phone the row stacks: name, what it said, the root CA, then the buttons.
+@container (max-width: 34rem) {
+    .time-server-row {
+        grid-template-columns:  1fr;
+        grid-template-areas:    "who" "said" "root" "actions";
+    }
+}
+
+// The dialog a time server's test happens in.
+//
+// A dialog rather than a panel on the page: a test takes seconds and says a
+// dozen things, and the one question somebody has while it runs is "what is
+// it doing" - which is hard to ask of a box competing with four other cards.
+// It is modal for the same reason, and it closes only when somebody closes it,
+// because the log is the point.
+.test-dialog {
+
+    width:            min(46rem, 92vw);
+    max-height:       82vh;
+    overflow-y:       auto;
+    border:           1px solid $color-border;
+    border-radius:    $radius;
+    padding:          1.1rem 1.25rem;
+    background:       $color-surface;
+    color:            $color-text;
+    box-shadow:       0 12px 40px rgba(0, 0, 0, 0.22);
+
+    &::backdrop {
+        background:   rgba(15, 23, 42, 0.45);
+    }
+
+    h2 {
+        margin:       0 0 0.15rem;
+        font-size:    1.05rem;
+    }
+
+    > .hint {
+        margin:       0 0 0.85rem;
+        word-break:   break-all;
+    }
+
+}
+
+// What happened, in the order it happened. The elapsed time is on the left in
+// one column so that a step that took a second is visible as a gap rather
+// than as a number somebody has to subtract.
+.test-log {
+
+    list-style:       none;
+    margin:           0.85rem 0 0;
+    padding:          0;
+    font-size:        0.85rem;
+
+    li {
+
+        display:      grid;
+        grid-template-columns: 5.5rem 1fr;
+        gap:          0.6rem;
+        padding:      0.3rem 0.45rem;
+        border-left:  3px solid transparent;
+        border-radius: 0 $radius $radius 0;
+
+        + li {
+            border-top: 1px solid $color-border;
+        }
+
+    }
+
+    .at {
+        color:        $color-muted;
+        font-family:  $font-mono;
+        font-size:    0.78rem;
+        text-align:   right;
+        white-space:  nowrap;
+    }
+
+    .text {
+        word-break:   break-word;
+    }
+
+    .level-notice   { border-left-color: $color-accent; }
+    .level-warning  { border-left-color: #f59e0b; background: $color-warn-bg;  }
+    .level-error    { border-left-color: $color-error; background: $color-error-bg; }
+
+}
+
+// The dialog a time server is added, changed or deleted in: the test's dialog,
+// narrower, because it holds a form and not a log.
+.server-dialog {
+    width:  min(30rem, 92vw);
+}
+
 // Asking a name server something, and what it said.
 .query-form {
 

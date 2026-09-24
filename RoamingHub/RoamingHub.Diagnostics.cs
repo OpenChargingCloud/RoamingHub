@@ -20,10 +20,15 @@
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
+using System.Net.Security;
+using System.Security.Cryptography;
+using System.Security.Cryptography.X509Certificates;
 
 using Newtonsoft.Json.Linq;
 
 using org.GraphDefined.Vanaheimr.Hermod.DNS;
+using org.GraphDefined.Vanaheimr.Norn.NTS;
+using org.GraphDefined.Vanaheimr.Norn.TimeSync;
 
 #endregion
 
@@ -244,20 +249,547 @@ namespace cloud.charging.open.RoamingHub
         #endregion
 
 
-        #region SyncTimeAsync(CancellationToken = default)
+        #region (static) TLSSteps(TLS, Now)
 
         /// <summary>
-        /// Ask the time server what time it is: the key exchange first, then
-        /// one authenticated NTP request, with every step in the log.
+        /// What a time server's TLS session and certificate say, and whether that
+        /// held up - as steps of a server's test, from the session to the verdict.
         /// </summary>
         /// <remarks>
-        /// The clock of this RoamingHub is not set from the answer, and
-        /// that is deliberate: this says whether the time source can be reached
-        /// and what it thinks of the local clock, which is what somebody
-        /// pressing a button called "Sync now" in a web interface actually
-        /// wants to know. Stepping the clock of a running RoamingHub is a
-        /// different thing - everything below it reads the time from here - and
-        /// it is not something a button does by surprise.
+        /// Every certificate of the chain with both ends of its validity and the
+        /// days that are left: the root's as much as the server's. A root can be
+        /// pinned, and a pinned root that runs out stops whatever relies on it,
+        /// however new the server's certificate is. The root also comes with its
+        /// SHA-256 fingerprint, which is what a pin is compared with.
+        ///
+        /// The chain is the one this RoamingHub built, not the one the server sent -
+        /// see NTSKE_TLSInfo.ValidatedChain. Where none was built, the server's
+        /// certificates are shown as they came.
+        ///
+        /// The verdict is Norn's, taken from what its validation decided; the
+        /// reasons are its chain's, in words, because the platform's own texts
+        /// for them are in whatever language the machine speaks.
+        /// </remarks>
+        /// <param name="TLS">What the key exchange kept of its TLS session.</param>
+        /// <param name="Now">The moment the days that are left are counted from.</param>
+        public static IEnumerable<(String Level, String Text)> TLSSteps(NTSKE_TLSInfo   TLS,
+                                                                         DateTimeOffset  Now)
+        {
+
+            var session = new[] {
+                              TLS.NegotiatedTLSVersion,
+                              TLS.NegotiatedCipherSuite,
+                              TLS.NegotiatedApplicationProtocol is String protocol ? $"ALPN {protocol}" : null
+                          }.Where(part => part is not null).ToArray();
+
+            if (session.Length > 0)
+                yield return ("info", $"{String.Join(", ", session)}.");
+
+            if (TLS.ServerCertificate is null)
+                yield break;
+
+            IReadOnlyList<X509Certificate2> chain = TLS.ValidatedChain.  Count > 0 ? TLS.ValidatedChain
+                                                  : TLS.CertificateChain.Count > 0 ? TLS.CertificateChain
+                                                  : [ TLS.ServerCertificate ];
+
+            for (var position = 0; position < chain.Count; position++)
+            {
+
+                var certificate = chain[position];
+                var selfSigned  = certificate.SubjectName.RawData.AsSpan().SequenceEqual(certificate.IssuerName.RawData);
+                var last        = position == chain.Count - 1;
+
+                var what        = position == 0  ? selfSigned ? "Server certificate, self-signed" : "Server certificate"
+                                : !last          ? "Intermediate CA"
+                                : selfSigned     ? "Root CA"
+                                :                  "Last in the chain, and no root";
+
+                var (level, validity) = Validity(certificate, Now);
+
+                yield return (level,
+                              String.Concat(
+                                  $"{what}: {certificate.Subject}",
+                                  position == 0 && NamesOf(certificate) is String names ? $", for {names}"               : "",
+                                  last && !selfSigned                                   ? $", issued by {certificate.Issuer}" : "",
+                                  $"; {KeyAlgorithmOf(certificate)}, {certificate.SignatureAlgorithm.FriendlyName ?? certificate.SignatureAlgorithm.Value}",
+                                  $"; {validity}."
+                              ));
+
+                // What a pin is compared with - for the certificate the chain
+                // ends at, which is the server's own when it signed itself.
+                if (last && selfSigned)
+                    yield return ("info", $"{(position == 0 ? "Its" : "The root's")} SHA-256 fingerprint: {ThumbprintOf(certificate)}.");
+
+            }
+
+            var host   = TLS.CheckedHostname?.Trimmed;
+            var errors = TLS.CertificatePolicyErrors ?? SslPolicyErrors.None;
+
+            if (errors == SslPolicyErrors.None)
+                yield return ("notice", String.Concat(
+                                            "Validated: the chain ends at a root this machine trusts",
+                                            TLS.RevocationMode == X509RevocationMode.Online ? ", nothing in it is revoked (asked online)"                : "",
+                                            host is not null                                ? $", and '{host}' is one of the server certificate's names" : "",
+                                            "."
+                                        ));
+
+            else
+            {
+
+                var reasons = TLS.ChainStatus.Select(ReasonFor).Distinct().ToList();
+
+                if (errors.HasFlag(SslPolicyErrors.RemoteCertificateChainErrors) && reasons.Count == 0)
+                    reasons.Add("its chain did not validate");
+
+                if (errors.HasFlag(SslPolicyErrors.RemoteCertificateNameMismatch))
+                    reasons.Add(host is not null
+                                    ? $"'{host}' is not one of the server certificate's names"
+                                    : "it was issued for another name");
+
+                if (errors.HasFlag(SslPolicyErrors.RemoteCertificateNotAvailable))
+                    reasons.Add("no certificate came");
+
+                yield return ("error", $"Not validated: {String.Join("; ", reasons)}.");
+
+            }
+
+        }
+
+        /// <summary>
+        /// Both ends of a certificate's validity, and where the given moment is
+        /// between them - with the level that deserves.
+        /// </summary>
+        /// <remarks>
+        /// A week's warning, as Norn's monitoring gives by default. Inside its
+        /// validity is information; outside it, on either side, is an error.
+        /// </remarks>
+        private static (String Level, String Text) Validity(X509Certificate2  Certificate,
+                                                            DateTimeOffset    Now)
+        {
+
+            var notBefore  = new DateTimeOffset(Certificate.NotBefore.ToUniversalTime());
+            var notAfter   = new DateTimeOffset(Certificate.NotAfter. ToUniversalTime());
+            var span       = String.Create(CultureInfo.InvariantCulture, $"valid {notBefore:yyyy-MM-dd HH:mm:ss} to {notAfter:yyyy-MM-dd HH:mm:ss} UTC");
+
+            if (Now < notBefore)
+                return ("error",   $"{span}, not valid for another {Days(notBefore - Now)} day(s)");
+
+            if (Now > notAfter)
+                return ("error",   $"{span}, expired {Days(Now - notAfter)} day(s) ago");
+
+            var left = Days(notAfter - Now);
+
+            return (left <= 7 ? "warning" : "info",
+                    $"{span}, {left} day(s) left");
+
+            static Int32 Days(TimeSpan Span)
+                => (Int32) Math.Floor(Span.TotalDays);
+
+        }
+
+        /// <summary>
+        /// The names a certificate is for - its subject alternative names, which
+        /// are the only ones a host name is matched against - or null when it
+        /// names none.
+        /// </summary>
+        private static String? NamesOf(X509Certificate2 Certificate)
+        {
+
+            var alternative = Certificate.Extensions.OfType<X509SubjectAlternativeNameExtension>().FirstOrDefault();
+
+            if (alternative is null)
+                return null;
+
+            var names = alternative.EnumerateDnsNames().
+                            Concat(alternative.EnumerateIPAddresses().Select(address => address.ToString())).
+                            ToArray();
+
+            return names.Length == 0 ? null
+                 : names.Length <= 4 ? String.Join(", ", names)
+                 :                     $"{String.Join(", ", names.Take(4))} and {names.Length - 4} more";
+
+        }
+
+        /// <summary>
+        /// Why a chain did not validate, in words.
+        /// </summary>
+        private static String ReasonFor(X509ChainStatusFlags Status)
+
+            => Status switch {
+                   X509ChainStatusFlags.UntrustedRoot            => "its root is not one this machine trusts",
+                   X509ChainStatusFlags.PartialChain             => "no chain up to a root could be built",
+                   X509ChainStatusFlags.NotTimeValid             => "a certificate in it is outside its validity",
+                   X509ChainStatusFlags.Revoked                  => "a certificate in it has been revoked",
+                   X509ChainStatusFlags.RevocationStatusUnknown  => "whether a certificate in it is revoked could not be found out",
+                   X509ChainStatusFlags.OfflineRevocation        => "the revocation lists could not be reached",
+                   X509ChainStatusFlags.NotSignatureValid        => "a signature in it does not verify",
+                   X509ChainStatusFlags.NotValidForUsage         => "a certificate in it is not meant for this use",
+                   X509ChainStatusFlags.Cyclic                   => "the chain runs in a circle",
+                   _                                             => Status.ToString()
+               };
+
+        /// <summary>
+        /// What kind of key a certificate carries, written the way somebody
+        /// comparing it against a specification would write it: the curve
+        /// named, and not only its size.
+        /// </summary>
+        private static String KeyAlgorithmOf(X509Certificate2 Certificate)
+        {
+
+            using var ecdsa = Certificate.GetECDsaPublicKey();
+
+            if (ecdsa is not null)
+            {
+
+                var curve = ecdsa.KeySize switch {
+                                256  => "P-256",
+                                384  => "P-384",
+                                521  => "P-521",
+                                _    => $"{ecdsa.KeySize}-bit"
+                            };
+
+                return $"ECDSA {curve}";
+
+            }
+
+            using var rsa = Certificate.GetRSAPublicKey();
+
+            return rsa is not null
+                       ? $"RSA {rsa.KeySize}-bit"
+                       : Certificate.PublicKey.Oid.FriendlyName ?? Certificate.PublicKey.Oid.Value ?? "unknown";
+
+        }
+
+        /// <summary>
+        /// A certificate's SHA-256 fingerprint, in lower-case hexadecimal -
+        /// SHA-256 rather than X509Certificate2.Thumbprint, which is SHA-1 and
+        /// has no business identifying anything in 2026.
+        /// </summary>
+        private static String ThumbprintOf(X509Certificate2 Certificate)
+
+            => Convert.ToHexString(SHA256.HashData(Certificate.RawData)).ToLowerInvariant();
+
+        #endregion
+
+
+        #region SyncTimeAsync(CancellationToken = default)
+
+        #region TestTimeServerAsync(Host = null, CancellationToken = default)
+
+        /// <summary>
+        /// Ask one time server everything there is to ask, and write down each
+        /// answer as it comes.
+        /// </summary>
+        /// <remarks>
+        /// "Sync now" says whether the whole thing worked. This says where it
+        /// got to: the name resolved to these addresses, the TCP connection
+        /// took this long, the TLS handshake that long, the key exchange
+        /// agreed on this algorithm and handed over that many cookies and
+        /// named these NTP servers, and the authenticated NTP request went to
+        /// this endpoint and came back that far off. A server that fails does
+        /// so at one of those, and which one is the whole of what somebody
+        /// needs.
+        ///
+        /// <b>Two kinds of "which server".</b> A name that is not the
+        /// configured one is treated as a time server in its own right: its own
+        /// key exchange, its own time request. An address is treated as one of
+        /// the servers the configured exchange named - the key exchange happens
+        /// where it must, with the host that has a certificate, and the
+        /// authenticated request is then directed at that address with the
+        /// cookies that exchange issued. Which is what RFC 8915 section 4.1.7
+        /// describes: the negotiated server is the one "that will accept the
+        /// supplied cookies".
+        ///
+        /// An address cannot have a key exchange of its own - the TLS
+        /// certificate has to be checked against a name - and a key exchange
+        /// very commonly names addresses, so this is the ordinary case rather
+        /// than the awkward one.
+        ///
+        /// The clock of this RoamingHub is not stepped by any of it, the same as
+        /// "Sync now".
+        /// </remarks>
+        /// <param name="Host">
+        /// Which time server: a name to ask in its own right, an address to ask
+        /// among the ones the configured exchange named, or nothing for the
+        /// configured server itself.
+        /// </param>
+        public async Task<JObject> TestTimeServerAsync(String?            Host                = null,
+                                                       CancellationToken  CancellationToken   = default)
+        {
+
+            var clock  = Stopwatch.StartNew();
+            var steps  = new JArray();
+
+            void Step(String Level, String Text)
+                => steps.Add(new JObject(
+                       new JProperty("at_ms",  clock.ElapsedMilliseconds),
+                       new JProperty("level",  Level),
+                       new JProperty("text",   Text)
+                   ));
+
+            JObject Done(String Where, Boolean OK)
+            {
+                clock.Stop();
+                return new JObject(
+                           new JProperty("host",        Where),
+                           new JProperty("ok",          OK),
+                           new JProperty("runtime_ms",  clock.ElapsedMilliseconds),
+                           new JProperty("steps",       steps)
+                       );
+            }
+
+            #region Which server, and with which settings
+
+            if (!NTSEnabled)
+            {
+                Step("error", "Time synchronisation is switched off on this RoamingHub, so nothing was asked.");
+                return Done(Host ?? "", false);
+            }
+
+            var configured  = ntsClient;
+            var wanted      = Host?.Trim();
+            var host        = configured.Hostname;
+
+            /// Set when the time request is to go somewhere other than the host
+            /// the key exchange happens with.
+            String? directedAt = null;
+
+            if (!String.IsNullOrEmpty(wanted) &&
+                !String.Equals(wanted.TrimEnd('.'), host.ToString().TrimEnd('.'), StringComparison.OrdinalIgnoreCase))
+            {
+
+                if (System.Net.IPAddress.TryParse(wanted.Trim('[', ']'), out _))
+                    // An address cannot have a key exchange of its own: the TLS
+                    // certificate is issued for a name. So the exchange stays
+                    // with the configured host, and the time request is
+                    // directed at this address with the cookies that exchange
+                    // issued - which is what a negotiated server is for.
+                    directedAt = wanted.Trim('[', ']');
+
+                else if (!DomainName.TryParse(wanted.TrimEnd('.'), out var other, out _))
+                {
+                    Step("error", $"'{wanted}' is neither a name nor an address that can be asked.");
+                    return Done(wanted, false);
+                }
+
+                else
+                    host = other;
+
+            }
+
+            var where = directedAt ?? $"{host}";
+
+            // The name as people read it, for every sentence below - the steps
+            // and the log alike. Without the root's dot: "ptbtime1.ptb.de." is
+            // the name exactly, and in the middle of a line it reads like a
+            // typing mistake, which is why everything else this RoamingHub prints
+            // leaves it out.
+            var name  = host.Trimmed;
+
+            // A server of the group is asked on its own ports, which need not
+            // be those of the client above: the page tests each server from
+            // its own row, and a server with a port of its own was asked on
+            // the usual one and reported as not answering.
+            var entry      = directedAt is null
+                                 ? timeSources.Sources.FirstOrDefault(source => source.Hostname.Equals(host))
+                                 : null;
+
+            var ntsKEPort  = entry?.NTSKEPort ?? configured.NTSKE_Port;
+            var ntpPort    = entry?.NTPPort   ?? configured.NTP_Port;
+
+            Step("info", directedAt is null
+                             ? String.Format(System.Globalization.CultureInfo.InvariantCulture,
+                                             "Asking {0}: key exchange on port {1}, time on port {2}, {3:0.#} second(s) allowed.",
+                                             name, ntsKEPort, ntpPort, configured.Timeout?.TotalSeconds ?? 0)
+                             : $"Asking {directedAt} for the time, with cookies from a key exchange with {name} - " +
+                                "an address cannot have a key exchange of its own, because the TLS certificate is " +
+                                "issued for a name.");
+
+            Log.Info($"NTS test: asking {name} ...", "nts", "test");
+
+            #endregion
+
+            #region Does the name resolve
+
+            if (!System.Net.IPAddress.TryParse(host.ToString().TrimEnd('.'), out _))
+            {
+                try
+                {
+
+                    var lookedUp  = await dnsClient.Query(
+                                              DNSServiceName.Parse(host.ToString()),
+                                              [ DNSResourceRecordTypes.A, DNSResourceRecordTypes.AAAA ],
+                                              CancellationToken: CancellationToken
+                                          );
+
+                    // The address and not the whole record. A resource
+                    // record writes itself out with its class, its time to
+                    // live and the moment it expires, which in a line that is
+                    // about "does this name resolve" is four facts nobody
+                    // asked for and one they did.
+                    var addresses = lookedUp.Answers.Take(8).
+                                        Select(record => (record.RText ?? record.ToString()).Split(',')[0].Trim()).
+                                        ToArray();
+
+                    Step(addresses.Length > 0 ? "info" : "warning",
+                         addresses.Length > 0
+                             ? $"'{name}' resolves to {String.Join(", ", addresses)}."
+                             : $"'{name}' resolved to nothing ({lookedUp.ResponseCode}).");
+
+                }
+                catch (Exception e)
+                {
+                    Step("warning", $"'{name}' could not be looked up here: {e.Message}. Asking anyway.");
+                }
+            }
+
+            #endregion
+
+            var asking = new NTSClient(
+                             host,
+                             NTSKE_Port:    ntsKEPort,
+                             NTP_Port:      ntpPort,
+                             Timeout:       configured.Timeout,
+                             DNSClient:     dnsClient,
+                             TimeProvider:  TimeProvider
+                         );
+
+            try
+            {
+
+                #region The key exchange
+
+                Step("info", "Key exchange over TLS ...");
+
+                var keyExchange = await asking.GetNTSKERecords(CancellationToken: CancellationToken);
+
+                if (keyExchange.Response?.TimingInfo is NTSKE_TimingInfo timing)
+                {
+
+                    if (timing.ConnectedIPAddress is not null)
+                        Step("info", $"Connected to {timing.ConnectedIPAddress}" +
+                                     (timing.ResolvedIPAddresses.Any()
+                                          ? $", of {timing.ResolvedIPAddresses.Count()} address(es) that were offered"
+                                          : "") + ".");
+
+                    Step("info", "Where the time went: " +
+                                 String.Join(", ", new[] {
+                                     timing.DNSLookupDuration      is TimeSpan dns  ? $"name {dns.TotalMilliseconds:0} ms"      : null,
+                                     timing.TCPConnectDuration     is TimeSpan tcp  ? $"TCP {tcp.TotalMilliseconds:0} ms"       : null,
+                                     timing.TLSHandshakeDuration   is TimeSpan tls  ? $"TLS {tls.TotalMilliseconds:0} ms"       : null,
+                                     timing.NTSKEProtocolDuration  is TimeSpan ke   ? $"key exchange {ke.TotalMilliseconds:0} ms" : null
+                                 }.Where(one => one is not null)) + ".");
+
+                }
+
+                // Before the verdict on the exchange, and whichever way it went:
+                // a certificate that was refused is the one to see most of all.
+                if (keyExchange.TLSInfo is NTSKE_TLSInfo tlsInfo)
+                    foreach (var (level, text) in TLSSteps(tlsInfo, TimeProvider.GetUtcNow()))
+                        Step(level, text);
+
+                if (!keyExchange.Success || keyExchange.Response is null)
+                {
+                    Step("error", $"The key exchange failed ({keyExchange.ErrorCategory}): {keyExchange.ErrorMessage}");
+                    Log.Warning($"NTS test: the key exchange with {name} failed: {keyExchange.ErrorMessage}", "nts", "ntske", "test");
+                    return Done(where, false);
+                }
+
+                var response = keyExchange.Response;
+
+                foreach (var warning in response.WarningMessages)
+                    Step("warning", $"The key exchange warned: {warning}");
+
+                Step("notice", $"The key exchange succeeded: {response.AEADAlgorithm}, {response.Cookies.Count()} cookie(s).");
+
+                Step("info", response.NTPv4ServerNames.Any()
+                                 ? $"It named these NTP servers: {String.Join(", ", response.NTPv4ServerNames)}."
+                                 : "It named no NTP server of its own, so the time is asked of this host.");
+
+                if (directedAt is not null &&
+                    !response.NTPv4ServerNames.Any(named => String.Equals(named.Trim('[', ']').TrimEnd('.'),
+                                                                          directedAt,
+                                                                          StringComparison.OrdinalIgnoreCase)))
+                {
+                    Step("error", $"This exchange did not name {directedAt}, so the cookies it issued were not said to be " +
+                                   "accepted there. Nothing was sent: a cookie spent on a server holding different master " +
+                                   "keys is wasted, and the refusal it earns is reported against the wrong machine.");
+                    return Done(where, false);
+                }
+
+                #endregion
+
+                #region The authenticated time request
+
+                Step("info", "Authenticated NTP request ...");
+
+                var query = await asking.QueryTime(NTSKEResponse:      response,
+                                                   NTPServer:          directedAt,
+                                                   CancellationToken:  CancellationToken);
+
+                if (!query.Success || query.Response is null)
+                {
+                    Step("error", $"The NTP request to {query.RemoteDescription} failed " +
+                                  $"({query.ErrorCategory}): {query.ErrorMessage}");
+                    Log.Warning($"NTS test: the NTP request to {name} failed: {query.ErrorMessage}", "nts", "ntp", "test");
+                    return Done(where, false);
+                }
+
+                Step("info", $"Answered by {query.RemoteDescription}" +
+                             (query.Attempts > 1 ? $", after {query.Attempts} attempts" : "") +
+                             $"; {query.RemainingCookiesAfterQuery} cookie(s) left" +
+                             (query.NewCookieReceived ? ", and a fresh one came back" : "") + ".");
+
+                if (query.StopwatchRoundTripTime is TimeSpan roundTrip)
+                    Step("info", String.Format(System.Globalization.CultureInfo.InvariantCulture,
+                                               "Round trip {0:0.0} ms.", roundTrip.TotalMilliseconds));
+
+                var offset = query.Response.ClockOffset;
+
+                // Invariant, so that a decimal point stays a point: these
+                // sentences are English, and a RoamingHub in a German locale
+                // otherwise wrote "+148,0 ms" in the middle of one.
+                Step("notice", offset.HasValue
+                                   ? String.Format(System.Globalization.CultureInfo.InvariantCulture,
+                                                   "This RoamingHub's clock is {0:+0.0;-0.0;0} ms off what {1} says.",
+                                                   offset.Value.TotalMilliseconds, name)
+                                   : $"{name} answered, but said nothing this RoamingHub could take an offset from.");
+
+                #endregion
+
+                Step("info", "The clock was not stepped: that is a different thing, with the sessions and charge " +
+                             "detail records of every peer stamped against it, and not something a test does by surprise.");
+
+                Log.Notice($"NTS test: {name} answered in {clock.ElapsedMilliseconds} ms.", "nts", "test");
+
+                return Done(where, true);
+
+            }
+            catch (Exception e)
+            {
+                Step("error", $"{e.GetType().Name}: {e.Message}");
+                Log.Warning($"NTS test: asking {name} failed: {e.Message}", "nts", "test");
+                return Done(where, false);
+            }
+
+        }
+
+        #endregion
+
+        /// <summary>
+        /// Ask this RoamingHub's group of time servers what the time is.
+        /// </summary>
+        /// <remarks>
+        /// The group and not the single client, because a clock a charge is
+        /// billed by should not move on the word of one server. What comes back
+        /// is the group's verdict - the median of the servers that answered and
+        /// authenticated, how many there were, how far apart they were - and a
+        /// line for each server, because a log book records what was asked and
+        /// what each one said, not only the conclusion.
+        ///
+        /// The detailed test beside this is the other question and keeps its
+        /// own path: one server, its key exchange, its cookies, its round trip.
+        /// A group cannot answer that, having four of each.
         /// </remarks>
         public async Task<JObject> SyncTimeAsync(CancellationToken CancellationToken = default)
         {
@@ -268,135 +800,94 @@ namespace cloud.charging.open.RoamingHub
                 return Failed("NTS is switched off on this RoamingHub.");
             }
 
-            var client     = ntsClient;
+            var group      = timeSources;
+            var asked      = group.Bands().SelectMany(band => band).Select(source => source.Hostname.ToString()).ToArray();
+            var asking     = asked.Select(hostname => hostname.TrimEnd('.')).ToArray();
             var stopwatch  = Stopwatch.StartNew();
 
-            // The name as people read it, for every sentence below and for
-            // what the page shows: without the root's dot. "ptbtime1.ptb.de."
-            // is the name exactly, and in the middle of a line it reads like a
-            // typing mistake. The configuration file keeps it.
-            var name       = client.Hostname.Trimmed;
-
-            Log.Info($"NTS: key exchange with {name}:{client.NTSKE_Port} ...", "nts", "ntske", "test");
+            Log.Info($"NTS: asking the {asked.Length} time server(s) of group '{group.Name}' ...", "nts", "test");
 
             try
             {
 
-                #region NTS-KE
-
-                var keyExchange = await client.GetNTSKERecords(CancellationToken: CancellationToken);
-
-                if (!keyExchange.Success || keyExchange.Response is null)
-                {
-
-                    Log.Error(
-                        $"NTS: the key exchange with {name} failed after {stopwatch.ElapsedMilliseconds} ms " +
-                        $"({keyExchange.ErrorCategory}): {keyExchange.ErrorMessage}",
-                        "nts", "ntske", "test"
-                    );
-
-                    return Remember(Failed($"The key exchange failed: {keyExchange.ErrorMessage}",
-                                           new JProperty("step",           "ntske"),
-                                           new JProperty("errorCategory",  keyExchange.ErrorCategory.ToString())));
-
-                }
-
-                var response = keyExchange.Response;
-
-                foreach (var warning in response.WarningMessages)
-                    Log.Warning($"NTS: the key exchange with {name} warned: {warning}", "nts", "ntske", "test");
-
-                Log.Info(
-                    $"NTS: the key exchange with {name} succeeded in {stopwatch.ElapsedMilliseconds} ms - " +
-                    $"{response.AEADAlgorithm}, {response.Cookies.Count()} cookie(s)" +
-                    (response.NTPv4ServerNames.Any()
-                         ? $", NTP server(s): {String.Join(", ", response.NTPv4ServerNames)}"
-                         : "") + ".",
-                    "nts", "ntske", "test"
-                );
-
-                // The cookies are what the NTP request below spends, so they go
-                // into the pool before it is sent and not after.
-                client.SeedCookies(response);
-
-                #endregion
-
-                #region NTP over NTS
-
-                var afterKeyExchange = stopwatch.ElapsedMilliseconds;
-
-                Log.Info($"NTS: authenticated NTP request to {name}:{client.NTP_Port} ...", "nts", "ntp", "test");
-
-                var query = await client.QueryTime(CancellationToken: CancellationToken);
+                var verdict = await group.Measure(timeEngine, dnsClient, CancellationToken);
 
                 stopwatch.Stop();
 
-                if (!query.Success || query.Response is null)
-                {
+                #region What the group concluded, and what each server said
 
-                    Log.Error(
-                        $"NTS: the NTP request to {name} failed after {stopwatch.ElapsedMilliseconds} ms " +
-                        $"({query.ErrorCategory}): {query.ErrorMessage}",
-                        "nts", "ntp", "test"
-                    );
+                var servers = new JArray(
+                                  verdict.Results.Select(result => new JObject(
+                                      new JProperty("hostname",       result.ServerHostname.ToString()),
+                                      new JProperty("ok",             TimeSyncVerdict.CanBeTrusted(result)),
+                                      new JProperty("offset_ms",      result.NTP?.Offset.TotalMilliseconds),
+                                      new JProperty("roundTrip_ms",   result.NTP?.RoundTripDelay.TotalMilliseconds),
+                                      new JProperty("authenticated",  result.NTP?.NTSAuthenticationValid),
+                                      new JProperty("keyExchange",    result.NTSKEFromCache ? "reused" : "new"),
+                                      new JProperty("error",          result.ErrorMessage?.ToString())
+                                  ))
+                              );
 
-                    return Remember(Failed($"The NTP request failed: {query.ErrorMessage}",
-                                           new JProperty("step",           "ntp"),
-                                           new JProperty("errorCategory",  query.ErrorCategory.ToString()),
-                                           new JProperty("ntske",          new JObject(
-                                               new JProperty("runtime_ms",     afterKeyExchange),
-                                               new JProperty("aeadAlgorithm",  response.AEADAlgorithm.ToString()),
-                                               new JProperty("cookies",        response.Cookies.Count())
-                                           ))));
-
-                }
+                var groupJSON = new JObject(
+                                    new JProperty("name",               group.Name),
+                                    new JProperty("answered",           verdict.Answered),
+                                    new JProperty("required",           verdict.Required),
+                                    new JProperty("offset_ms",          verdict.Offset?.TotalMilliseconds),
+                                    new JProperty("spread_ms",          verdict.Spread?.TotalMilliseconds),
+                                    new JProperty("deviationExceeded",  verdict.DeviationExceeded)
+                                );
 
                 #endregion
 
-                var roundTrip = query.StopwatchRoundTripTime;
+                if (!verdict.IsUsable)
+                {
 
-                // What the exchange was actually for. The clock of this RoamingHub
+                    Log.Error($"NTS: group '{group.Name}' produced no time after {stopwatch.ElapsedMilliseconds} ms: {verdict}.", "nts", "test");
+
+                    return Remember(Failed(
+                               verdict.Outcome == TimeSyncOutcome.NothingAnswered
+                                   ? "No time server answered."
+                                   : $"Only {verdict.Answered} of {verdict.Required} time server(s) answered.",
+                               new JProperty("runtime_ms",  stopwatch.ElapsedMilliseconds),
+                               new JProperty("group",       groupJSON),
+                               new JProperty("servers",     servers)
+                           ));
+
+                }
+
+                // What the asking was actually for. The clock of this RoamingHub
                 // is not stepped by it - see the remarks on this method - so
                 // the offset is the whole of the result: it is the difference
-                // between what this RoamingHub believes and what a server that
-                // knows was saying at the same moment.
-                var offset    = query.Response?.ClockOffset;
+                // between what this RoamingHub believes and what servers that know
+                // were saying at the same moment.
+                lastTimeCheck          = TimeProvider.GetUtcNow();
+                lastTimeCheckOffset    = verdict.Offset;
+                lastTimeCheckAsked     = asked.Length;
+                lastTimeCheckAnswered  = verdict.Answered;
 
-                lastTimeCheck        = TimeProvider.GetUtcNow();
-                lastTimeCheckOffset  = offset;
-                lastTimeCheckServer  = name;
+                // A name only where naming one is the truth. Four servers
+                // answering is not "checked against ptbtime1", and picking one
+                // of them to print would be the nicer-looking lie.
+                lastTimeCheckServer    = asked.Length == 1
+                                             ? asked[0]
+                                             : null;
 
-                Log.Notice(
-                    AnsweredLine(client.Hostname, stopwatch.ElapsedMilliseconds, offset, roundTrip, query.RemainingCookiesAfterQuery),
-                    "nts", "ntp", "test"
-                );
+                // Written down rather than acted on, which is what the white
+                // paper asks for: the disagreement belongs in the metrological
+                // log book, and the time is still a time.
+                if (verdict.DeviationExceeded)
+                    Log.Warning(DisagreementWarning(group, verdict), "nts", "test");
+
+                Log.Notice($"NTS: group '{group.Name}' answered in {stopwatch.ElapsedMilliseconds} ms - {verdict}.", "nts", "test");
 
                 return Remember(new JObject(
-
-                           new JProperty("ok",             true),
-                           new JProperty("server",         name),
-                           new JProperty("remote",         query.RemoteDescription),
-                           new JProperty("at",             TimeProvider.GetUtcNow().ToString("o")),
-                           new JProperty("runtime_ms",     stopwatch.ElapsedMilliseconds),
-
-                           new JProperty("ntske",          new JObject(
-                               new JProperty("runtime_ms",         afterKeyExchange),
-                               new JProperty("aeadAlgorithm",      response.AEADAlgorithm.ToString()),
-                               new JProperty("cookies",            response.Cookies.Count()),
-                               new JProperty("ntpServers",         new JArray(response.NTPv4ServerNames)),
-                               new JProperty("warnings",           new JArray(response.WarningMessages))
-                           )),
-
-                           new JProperty("offset_ms",      offset?.TotalMilliseconds),
-
-                           new JProperty("ntp",            new JObject(
-                               new JProperty("attempts",           query.Attempts),
-                               new JProperty("roundTrip_ms",       roundTrip?.TotalMilliseconds),
-                               new JProperty("newCookieReceived",  query.NewCookieReceived),
-                               new JProperty("cookiesLeft",        query.RemainingCookiesAfterQuery),
-                               new JProperty("kissOfDeath",        query.KissOfDeath?.ToString())
-                           ))
-
+                           new JProperty("ok",          true),
+                           new JProperty("server",      $"{group.Name}: {String.Join(", ", asking)}"),
+                           new JProperty("at",          TimeProvider.GetUtcNow().ToString("o")),
+                           new JProperty("runtime_ms",  stopwatch.ElapsedMilliseconds),
+                           new JProperty("offset_ms",   verdict.Offset?.TotalMilliseconds),
+                           new JProperty("group",       groupJSON),
+                           new JProperty("servers",     servers)
                        ));
 
             }
@@ -404,11 +895,8 @@ namespace cloud.charging.open.RoamingHub
             {
 
                 stopwatch.Stop();
-
-                Log.Error($"NTS: the exchange with {name} failed after {stopwatch.ElapsedMilliseconds} ms: {e.Message}", "nts", "test");
-
+                Log.Error($"NTS: asking group '{group.Name}' failed after {stopwatch.ElapsedMilliseconds} ms: {e.Message}", "nts", "test");
                 return Remember(Failed(e.Message));
-
             }
 
 
@@ -417,7 +905,7 @@ namespace cloud.charging.open.RoamingHub
 
                 var json = new JObject(
                                new JProperty("ok",      false),
-                               new JProperty("server",  ntsClient.Hostname.Trimmed),
+                               new JProperty("server",  timeSources.Name),
                                new JProperty("at",      TimeProvider.GetUtcNow().ToString("o")),
                                new JProperty("error",   Error)
                            );
@@ -439,37 +927,30 @@ namespace cloud.charging.open.RoamingHub
 
         #endregion
 
-
-        #region (static) AnsweredLine(Hostname, Milliseconds, Offset, RoundTrip, CookiesLeft)
+        #region (static) DisagreementWarning(Group, Verdict)
 
         /// <summary>
-        /// The line a synchronisation that produced a time is logged with.
+        /// What a synchronisation writes down when the servers of a group are
+        /// as far apart as the agreed deviation, or further.
         /// </summary>
         /// <remarks>
-        /// Invariant, so that a decimal point stays a point: this sentence is
-        /// English, and under a German culture it read "clock is +702,4 ms off
-        /// (round trip 12,3 ms)" - in a log whose numbers then changed their
-        /// punctuation with the machine that wrote them. And the server by the
-        /// name it is read by, without the root's dot, which in the middle of a
-        /// sentence reads as a typing mistake.
+        /// Invariant, like the lines of the test above, and the agreed
+        /// deviation with as many places as it has: it may be set as low as a
+        /// millisecond, and a whole-second format wrote that as "0 s". Under a
+        /// German culture the spread read "2,2 ms", a decimal comma in the
+        /// middle of an English sentence.
         /// </remarks>
-        /// <param name="Hostname">The time server that was asked.</param>
-        /// <param name="Milliseconds">How long asking it took.</param>
-        /// <param name="Offset">How far this hub's clock is from what the server said, when it said something to take that from.</param>
-        /// <param name="RoundTrip">How long the NTP request took on the wire.</param>
-        /// <param name="CookiesLeft">How many cookies the next requests can still spend.</param>
-        public static String AnsweredLine(DomainName  Hostname,
-                                          Int64       Milliseconds,
-                                          TimeSpan?   Offset,
-                                          TimeSpan?   RoundTrip,
-                                          Int32       CookiesLeft)
+        /// <param name="Group">The group that was asked.</param>
+        /// <param name="Verdict">What its servers said, with the spread between them.</param>
+        public static String DisagreementWarning(TimeSourceGroup  Group,
+                                                 TimeSyncVerdict  Verdict)
 
-            => String.Concat(
-                   String.Create(CultureInfo.InvariantCulture, $"NTS: {Hostname.Trimmed} answered in {Milliseconds} ms"),
-                   Offset.   HasValue ? String.Create(CultureInfo.InvariantCulture, $", this RoamingHub's clock is {Offset.Value.TotalMilliseconds:+0.0;-0.0;0} ms off") : "",
-                   RoundTrip.HasValue ? String.Create(CultureInfo.InvariantCulture, $" (round trip {RoundTrip.Value.TotalMilliseconds:F1} ms)")                    : "",
-                   String.Create(CultureInfo.InvariantCulture, $", {CookiesLeft} cookie(s) left.")
-               );
+            => String.Format(System.Globalization.CultureInfo.InvariantCulture,
+                             "NTS: the time servers of group '{0}' disagree by {1:F1} ms, " +
+                             "which reaches the agreed deviation of {2:0.###} s.",
+                             Group.Name,
+                             Verdict.Spread?.TotalMilliseconds ?? 0,
+                             Group.MaxDeviation.TotalSeconds);
 
         #endregion
 

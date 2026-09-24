@@ -164,13 +164,45 @@ export interface DNSQueryResult {
 }
 
 
-/** What may be changed about the time client while the hub runs. */
+/** One line of what happened while a time server was being asked. */
+export interface TimeServerTestStep {
+    at_ms:  number;
+    level:  'info' | 'notice' | 'warning' | 'error';
+    text:   string;
+}
+
+/** What came of asking one time server everything. */
+export interface TimeServerTest {
+    host:        string;
+    ok:          boolean;
+    runtime_ms:  number;
+    steps:       TimeServerTestStep[];
+}
+
+/**
+ * What may be changed about the time servers while the hub runs. What is
+ * left out stays as it is; the list of servers is one value and replaces the
+ * hub's whole.
+ */
 export interface NTSUpdate {
-    enabled?:         boolean;
-    hostname?:        string;
-    ntsKEPort?:       number;
-    ntpPort?:         number;
-    timeoutSeconds?:  number;
+    enabled?:              boolean;
+    servers?:              NTSServerEntry[];
+    minServers?:           number;
+    maxDeviationSeconds?:  number;
+    checkEverySeconds?:    number;
+    timeoutSeconds?:       number;
+}
+
+/**
+ * One time server as the configuration names it. Whatever is left out is the
+ * usual: priority 0, the usual ports, switched on.
+ */
+export interface NTSServerEntry {
+    hostname:    string;
+    priority?:   number;
+    ntsKEPort?:  number;
+    ntpPort?:    number;
+    enabled?:    boolean;
 }
 
 /** How one synchronisation went, step by step. */
@@ -182,36 +214,95 @@ export interface NTSSyncResult {
     step?:        string;
     runtime_ms?:  number;
     offset_ms?:   number | null;
+
+    /** What the group concluded: the median, how many answered, how far apart. */
+    group?:       {
+        name:               string;
+        answered:           number;
+        required:           number;
+        offset_ms:          number | null;
+        spread_ms:          number | null;
+        deviationExceeded:  boolean;
+    };
+
+    /** One entry per server asked, answered or not. */
+    servers?:     NTSServerResult[];
+
+    /** Only from the detailed test of a single server. */
     ntske?:       Record<string, unknown>;
     ntp?:         Record<string, unknown>;
+}
+
+/** What one time server of a group said. */
+export interface NTSServerResult {
+    hostname:       string;
+    ok:             boolean;
+    offset_ms?:     number | null;
+    roundTrip_ms?:  number | null;
+    authenticated?: boolean | null;
+    keyExchange?:   string;
+    error?:         string | null;
+}
+
+/** One server of this hub's group, and what its key exchange is doing. */
+export interface NTSTimeSource {
+    hostname:       string;
+    priority:       number;
+    ntsKEPort:      number;
+    ntpPort:        number;
+    enabled:        boolean;
+    cookies?:       number | null;
+    lastExchange?:  string | null;
+    aeadAlgorithm?: string | null;
+
+    /**
+     * The root CA the certificate chain of the last key exchange ended at -
+     * the chain this hub built, so the root it judged the certificate by -
+     * or null before the first exchange.
+     */
+    rootCA?:        NTSRootCA | null;
+}
+
+/** A root CA, by a name to call it, its subject, and its SHA-256 fingerprint. */
+export interface NTSRootCA {
+    name:         string;
+    subject:      string;
+    fingerprint:  string;
 }
 
 /** Where this hub gets the time from, and how its key exchange is doing. */
 export interface NTSConfiguration {
     enabled:   boolean;
-    server:    { hostname: string; ntsKEPort: number; ntpPort: number } & Record<string, unknown>;
-    settings:  { timeoutSeconds: number | null };
-    cookies: {
-        available:     number;
-        maxPoolSize:   number;
-        lowWatermark:  number;
-        seeded:        number;
-        received:      number;
-        consumed:      number;
-        dropped:       number;
-        isLow:         boolean;
-        isEmpty:       boolean;
-        isFull:        boolean;
+
+    /**
+     * Every server this hub has, switched on or not, in the order they
+     * were configured - and the rules for believing them.
+     */
+    timeSources?:  NTSTimeSource[];
+    group?:        { name: string; minServers: number; maxDeviationSeconds: number };
+
+    /**
+     * What may be changed about the group and the test. The quorum is the one
+     * wanted; the group's own can be lower while it has fewer servers on.
+     */
+    settings:  {
+        timeoutSeconds:       number | null;
+        checkEverySeconds:    number;
+        minServers:           number;
+        maxDeviationSeconds:  number;
     };
-    policy:  Record<string, unknown>;
-    keyExchange: {
-        automatic:                 number;
-        aeadAlgorithms:            string[];
-        compliantExporterContext:  boolean;
-        lastExchange:              { error: string | null; warnings: string[]; servers: string[] } | null;
-    };
+    /** What any new client starts with, the group's and the test's alike. */
+    policy:    Record<string, unknown>;
     lastSync:  NTSSyncResult | null;
-    limits:    { maxTimeout: number };
+    limits:    {
+        maxTimeout:        number;
+        minCheckEvery:     number;
+        maxCheckEvery:     number;
+        minDeviation:      number;
+        maxDeviation:      number;
+        defaultNTSKEPort:  number;
+        defaultNTPPort:    number;
+    };
     file:      string;
     /** Only on the answer to a synchronisation, which carries both. */
     result?:   NTSSyncResult;
@@ -227,7 +318,10 @@ export interface Clock {
     source:     string;
     nts: {
         enabled:       boolean;
-        server:        string | null;
+        /** The group the clock is checked against, its servers switched on and its quorum; null while switched off. */
+        group:         string   | null;
+        servers:       string[] | null;
+        minServers:    number   | null;
         lastServer:    string | null;
         checkedAt:     string | null;
         ageSeconds:    number | null;
@@ -582,6 +676,15 @@ export const api = {
     nts: {
         get:   ()                    => request<NTSConfiguration>('GET', '/configuration/nts'),
         save:  (update: NTSUpdate)   => request<NTSConfiguration>('PUT', '/configuration/nts', update),
+        /**
+         * Ask one time server everything: the name, the key exchange and what
+         * the certificate claims, the authenticated NTP request, each one
+         * written down as it happens.
+         *
+         * @param host  which server, on the ports it is configured with.
+         */
+        test:  (host: string)        => request<TimeServerTest>('POST', '/configuration/nts/test', { host }),
+        /** Ask every server of the group, with every step in the log. */
         sync:  ()                    => request<NTSConfiguration>('POST', '/configuration/nts/sync', {})
     },
 

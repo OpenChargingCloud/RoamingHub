@@ -20,6 +20,8 @@
 using NUnit.Framework;
 
 using org.GraphDefined.Vanaheimr.Hermod.DNS;
+using org.GraphDefined.Vanaheimr.Norn.Monitoring;
+using org.GraphDefined.Vanaheimr.Norn.TimeSync;
 
 #endregion
 
@@ -27,79 +29,113 @@ namespace cloud.charging.open.RoamingHub.Tests
 {
 
     /// <summary>
-    /// The line a synchronisation writes into the log with numbers in it.
+    /// What a synchronisation writes into the log about what the group
+    /// concluded, on a machine that writes its numbers with a comma.
     /// </summary>
     /// <remarks>
-    /// Under a German culture - which is what this hub's own machine runs - it
-    /// read "clock is +702,4 ms off (round trip 12,3 ms)": a decimal comma in
-    /// the middle of an English sentence, in a log whose numbers then change
-    /// their punctuation with the machine that wrote them. Every test here runs
-    /// under de-DE for that reason.
+    /// The sentences are English and end up in a log that is held against
+    /// roaming records, so their numbers keep their decimal point whatever the
+    /// culture of the machine that wrote them. Under de-DE they read
+    /// "disagree by 2,2 ms", "the agreed deviation of 0 s" for one of a
+    /// millisecond, and "+2,1 ms from 2 server(s), spread 2,2 ms".
+    ///
+    /// Built from a verdict rather than from a synchronisation, so that
+    /// nothing here asks a time server anything.
     /// </remarks>
+    [TestFixture]
     [SetCulture("de-DE")]
     public class NTSLogLineTests
     {
 
-        #region TheNumbersAreWrittenWithAPointUnderEveryCulture()
+        #region (private static) Answer(Name, OffsetMilliseconds)
+
+        private static NTSMeasurementResult Answer(String  Name,
+                                                   Double  OffsetMilliseconds)
+
+            => new (DomainName.Parse(Name),
+                    Guid.Empty) {
+
+                   Success  = true,
+                   NTP      = new NTPMeasurementResult {
+                                  Success                 = true,
+                                  NTSAuthenticationValid  = true,
+                                  Offset                  = TimeSpan.FromMilliseconds(OffsetMilliseconds)
+                              }
+
+               };
+
+        #endregion
+
+        #region (private static) Disagreeing()
 
         /// <summary>
-        /// The offset and the round trip, with a point - the one culture a log
-        /// written in English can be read in.
+        /// Two servers 2.2 ms apart, in a group that agreed on a millisecond.
         /// </summary>
-        [Test]
-        public void TheNumbersAreWrittenWithAPointUnderEveryCulture()
+        private static (TimeSourceGroup Group, TimeSyncVerdict Verdict) Disagreeing()
         {
 
-            Assert.That(RoamingHub.AnsweredLine(DomainName.Parse("ptbtime1.ptb.de"),
-                                                631,
-                                                TimeSpan.FromMilliseconds(702.4),
-                                                TimeSpan.FromMilliseconds(12.3),
-                                                7),
-                        Does.Contain("clock is +702.4 ms off").And.Contain("(round trip 12.3 ms)"));
+            var deviation  = TimeSpan.FromMilliseconds(1);
+
+            var group      = new TimeSourceGroup(
+                                 "legal",
+                                 [
+                                     new NTSServerEndpoint(DomainName.Parse("a.example")),
+                                     new NTSServerEndpoint(DomainName.Parse("b.example"))
+                                 ],
+                                 MinServers:    2,
+                                 MaxDeviation:  deviation
+                             );
+
+            var verdict    = TimeSyncVerdict.From(
+                                 [ Answer("a.example", 1.0), Answer("b.example", 3.2) ],
+                                 MinServers:    2,
+                                 MaxDeviation:  deviation
+                             );
+
+            return (group, verdict);
 
         }
 
         #endregion
 
-        #region TheServerIsNamedAsItIsRead()
+
+        #region TheDisagreementIsWrittenWithAPointAndTheDeviationInFull()
 
         /// <summary>
-        /// The server without the root's dot: "ptbtime1.ptb.de." is the name
-        /// exactly, and in the middle of a sentence it reads as a typing
-        /// mistake. The configuration file keeps it.
+        /// The warning that the servers of a group disagree: its spread with a
+        /// point, and the agreed deviation with as many places as it has.
         /// </summary>
         [Test]
-        public void TheServerIsNamedAsItIsRead()
+        public void TheDisagreementIsWrittenWithAPointAndTheDeviationInFull()
         {
 
-            Assert.That(RoamingHub.AnsweredLine(DomainName.Parse("ptbtime1.ptb.de"),
-                                                631,
-                                                TimeSpan.FromMilliseconds(-3),
-                                                TimeSpan.FromMilliseconds(12),
-                                                7),
-                        Is.EqualTo("NTS: ptbtime1.ptb.de answered in 631 ms, this RoamingHub's clock is -3.0 ms off " +
-                                   "(round trip 12.0 ms), 7 cookie(s) left."));
+            var (group, verdict) = Disagreeing();
+
+            Assert.That(verdict.DeviationExceeded,  Is.True,  "the test's own premise");
+
+            Assert.That(RoamingHub.DisagreementWarning(group, verdict),
+                        Is.EqualTo("NTS: the time servers of group 'legal' disagree by 2.2 ms, " +
+                                   "which reaches the agreed deviation of 0.001 s."));
 
         }
 
         #endregion
 
-        #region AnAnswerWithoutAnOffsetSaysSo()
+        #region TheVerdictTheLineEndsWithHasAPointToo()
 
         /// <summary>
-        /// An answer nothing could be taken from still names the server and
-        /// the cookies, and leaves out what it does not have.
+        /// "NTS: group 'legal' answered in ... ms - " ends with the verdict,
+        /// which is Norn's to write. Under a German culture it was the one
+        /// half of the line with a comma in it.
         /// </summary>
         [Test]
-        public void AnAnswerWithoutAnOffsetSaysSo()
+        public void TheVerdictTheLineEndsWithHasAPointToo()
         {
 
-            Assert.That(RoamingHub.AnsweredLine(DomainName.Parse("ptbtime1.ptb.de"),
-                                                631,
-                                                null,
-                                                null,
-                                                0),
-                        Is.EqualTo("NTS: ptbtime1.ptb.de answered in 631 ms, 0 cookie(s) left."));
+            var (_, verdict) = Disagreeing();
+
+            Assert.That(verdict.ToString(),
+                        Is.EqualTo("+2.1 ms from 2 server(s), spread 2.2 ms - beyond the agreed deviation"));
 
         }
 
