@@ -90,6 +90,19 @@ namespace cloud.charging.open.RoamingHub
         /// </summary>
         public const           Int32     DefaultLogPageSize  = 500;
 
+        /// <summary>
+        /// How long an event stream stays silent before a comment is sent down
+        /// it instead.
+        /// </summary>
+        /// <remarks>
+        /// Silence is how an event stream waits, and a proxy in front of the
+        /// hub cannot tell it from a hub that has gone: nginx gives up on an
+        /// upstream that has sent nothing for 60 seconds. Fifteen seconds is
+        /// what the HTML standard suggests for exactly this, and a browser skips
+        /// a comment.
+        /// </remarks>
+        public static readonly TimeSpan  DefaultEventStreamHeartbeat = TimeSpan.FromSeconds(15);
+
         private readonly DateTimeOffset  startedAt;
 
         /// <summary>
@@ -134,6 +147,13 @@ namespace cloud.charging.open.RoamingHub
         /// The Server-Sent Events source every browser hangs on (/api/v1/events).
         /// </summary>
         public HTTPEventSource<JObject>  Events      { get; }
+
+        /// <summary>
+        /// How long an event stream - the log's or the traffic's - stays silent
+        /// before a comment is sent down it; <see cref="DefaultEventStreamHeartbeat"/>
+        /// unless set, and never when set to zero.
+        /// </summary>
+        public TimeSpan                  EventStreamHeartbeat { get; set; } = DefaultEventStreamHeartbeat;
 
         #endregion
 
@@ -590,6 +610,24 @@ namespace cloud.charging.open.RoamingHub
         /// hangs on. Modelled on Hermod's MapEventSource, with the session
         /// checked first and without opening the stream to other origins.
         /// </summary>
+        /// <remarks>
+        /// Two things in here are for a proxy in front of the hub, and both
+        /// were learned by the vehicle from nginx as it comes.
+        ///
+        /// "X-Accel-Buffering: no", because nginx buffers what it passes on,
+        /// and a buffered event stream reaches the browser as nothing at all -
+        /// not even its header - until a buffer is full or the hub has been
+        /// silent long enough for nginx to give up on it. The browser never saw
+        /// the stream open, so the vehicle's Logs page said "reconnecting ..."
+        /// and did not ask for its snapshot either: behind nginx the header
+        /// came after 72 seconds, and the stream ended 98 ms later.
+        ///
+        /// And a comment whenever the stream has been silent for
+        /// <see cref="EventStreamHeartbeat"/>, because the 60 seconds after
+        /// which nginx gives up are an ordinary pause for a hub nobody is
+        /// using. Both are in <see cref="CarryEvents"/> and the header below,
+        /// which the traffic's stream shares.
+        /// </remarks>
         private Task<HTTPResponse> StreamEvents(HTTPRequest Request)
         {
 
@@ -632,17 +670,7 @@ namespace cloud.charging.open.RoamingHub
                                    // timeout expired.
                                    await stream.FlushAsync(ending.Token);
 
-                                   await foreach (var httpEvent in Events.GetAllEventsGreater(
-                                                                       clientId,
-                                                                       Request.GetHeaderField(HTTPRequestHeaderField.LastEventId),
-                                                                       ending.Token
-                                                                   ))
-                                   {
-                                       await stream.WriteAsync(httpEvent.SerializedHeader);
-                                       await stream.WriteAsync(httpEvent.SerializedData);
-                                       await stream.WriteAsync("\n\n");
-                                       await stream.FlushAsync(ending.Token);
-                                   }
+                                   await CarryEvents(Events, clientId, Request, stream, ending);
 
                                }
                                catch (OperationCanceledException)
@@ -667,8 +695,98 @@ namespace cloud.charging.open.RoamingHub
 
                            }
 
-                       }.WithCommonSecurityHeaders().AsImmutable
+                       }.Set("X-Accel-Buffering", "no").
+                         WithCommonSecurityHeaders().
+                         AsImmutable
                    );
+
+        }
+
+        #endregion
+
+        #region (private) CarryEvents     (Source, ClientId, Request, Stream, Ending)
+
+        /// <summary>
+        /// Everything the given source has for this client, and newer events
+        /// as they come, with a comment whenever it has been silent for
+        /// <see cref="EventStreamHeartbeat"/> - until the stream ends.
+        /// </summary>
+        /// <remarks>
+        /// One loop for both streams, the log's and the traffic's, because a
+        /// proxy cannot tell one silent stream from another.
+        ///
+        /// The next event is waited for across the heartbeats rather than asked
+        /// for again: an enumerator takes one question at a time. And the
+        /// enumerator is stopped before it is disposed, whichever way the stream
+        /// ends - a heartbeat that could not be written leaves it waiting for
+        /// the next event, and it cannot be disposed while it waits.
+        /// </remarks>
+        /// <param name="Source">The event source to read.</param>
+        /// <param name="ClientId">Who is reading it, as the source knows them.</param>
+        /// <param name="Request">The request that opened the stream, for its Last-Event-ID.</param>
+        /// <param name="Stream">Where the events are written.</param>
+        /// <param name="Ending">Cancelled when the stream is to end; cancelled here as well once it has.</param>
+        private async Task CarryEvents(HTTPEventSource<JObject>  Source,
+                                       String                    ClientId,
+                                       HTTPRequest               Request,
+                                       StreamWriter              Stream,
+                                       CancellationTokenSource   Ending)
+        {
+
+            var heartbeat  = EventStreamHeartbeat > TimeSpan.Zero
+                                 ? EventStreamHeartbeat
+                                 : Timeout.InfiniteTimeSpan;
+
+            await using var events = Source.GetAllEventsGreater(
+                                         ClientId,
+                                         Request.GetHeaderField(HTTPRequestHeaderField.LastEventId),
+                                         Ending.Token
+                                     ).GetAsyncEnumerator(Ending.Token);
+
+            var next = events.MoveNextAsync().AsTask();
+
+            try
+            {
+
+                while (true)
+                {
+
+                    try
+                    {
+                        if (!await next.WaitAsync(heartbeat, Ending.Token))
+                            break;
+                    }
+                    catch (TimeoutException)
+                    {
+                        await Stream.WriteHeartbeat(CancellationToken: Ending.Token);
+                        continue;
+                    }
+
+                    var httpEvent = events.Current;
+
+                    await Stream.WriteAsync(httpEvent.SerializedHeader);
+                    await Stream.WriteAsync(httpEvent.SerializedData);
+                    await Stream.WriteAsync("\n\n");
+                    await Stream.FlushAsync(Ending.Token);
+
+                    next = events.MoveNextAsync().AsTask();
+
+                }
+
+            }
+            finally
+            {
+
+                Ending.Cancel();
+
+                try
+                {
+                    await next;
+                }
+                catch
+                { }
+
+            }
 
         }
 

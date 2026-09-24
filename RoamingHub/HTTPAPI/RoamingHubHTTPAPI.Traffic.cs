@@ -193,8 +193,9 @@ namespace cloud.charging.open.RoamingHub
         /// <remarks>
         /// The same shape as the event stream beside it, and for the same
         /// reasons - see StreamEvents in RoamingHubHTTPAPI.cs, which this follows
-        /// line for line. What differs is the permission it asks for and the
-        /// source it reads from.
+        /// line for line, the header a proxy is told not to buffer it by and
+        /// the comment it sends while silent included. What differs is the
+        /// permission it asks for and the source it reads from.
         /// </remarks>
         private Task<HTTPResponse> StreamTraffic(HTTPRequest Request)
         {
@@ -233,17 +234,7 @@ namespace cloud.charging.open.RoamingHub
                                    // for its first byte until its own timeout.
                                    await stream.FlushAsync(ending.Token);
 
-                                   await foreach (var httpEvent in TrafficEvents.GetAllEventsGreater(
-                                                                       clientId,
-                                                                       Request.GetHeaderField(HTTPRequestHeaderField.LastEventId),
-                                                                       ending.Token
-                                                                   ))
-                                   {
-                                       await stream.WriteAsync(httpEvent.SerializedHeader);
-                                       await stream.WriteAsync(httpEvent.SerializedData);
-                                       await stream.WriteAsync("\n\n");
-                                       await stream.FlushAsync(ending.Token);
-                                   }
+                                   await CarryEvents(TrafficEvents, clientId, Request, stream, ending);
 
                                }
                                catch (OperationCanceledException)
@@ -266,7 +257,9 @@ namespace cloud.charging.open.RoamingHub
 
                            }
 
-                       }.WithCommonSecurityHeaders().AsImmutable
+                       }.Set("X-Accel-Buffering", "no").
+                         WithCommonSecurityHeaders().
+                         AsImmutable
                    );
 
         }

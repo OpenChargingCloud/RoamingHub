@@ -160,6 +160,15 @@ Reading it is its own permission - `readTraffic` - and not part of
 `readConfiguration`: the configuration is what this hub is, and the traffic is
 what its peers did through it.
 
+**Behind a proxy.** Both streams - this one and the log's at `/api/v1/events` -
+say `X-Accel-Buffering: no`, which nginx honours without a change to its
+configuration, and send a comment down the line whenever they have been silent
+for 15 seconds. Without the header nginx buffers a stream until it gives up on
+it, and the browser sees nothing at all, not even that it opened; without the
+comment a hub whose peers are quiet reaches nginx's 60 seconds without data,
+and nginx ends the stream. `EventStreamHeartbeat` on the API sets the interval;
+zero switches the comment off.
+
 
 ## What it can be told
 
