@@ -182,6 +182,18 @@ append-only files of its own below an `ocpi/` directory beside the
 configuration, one set per version, and reads them back at every start.
 
 
+## At a console somebody types at
+
+The event log writes to the console whenever something happens, from whichever
+thread it happened on. A program that reads commands on the same console hands
+the log a way to write around the line being typed, so that an entry arriving
+mid-word neither lands inside the command nor waits for it:
+
+```csharp
+roamingHub.ShareConsoleWith(cli.WriteBlock);   // line off, entry whole, line back
+```
+
+
 ## The tests
 
 ```
