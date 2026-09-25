@@ -206,7 +206,6 @@ namespace cloud.charging.open.RoamingHub
         /// <param name="ConfigFile">Where everything this RoamingHub can be told in writing lives; "configuration.json" beside the process by default.</param>
         /// <param name="OCPI">Who this RoamingHub is in OCPI, unless the configuration file says otherwise.</param>
         /// <param name="Frontend">Where the web interface comes from; the bundle embedded in this assembly by default.</param>
-        /// <param name="CertificatesPath">The directory of the node's certificate store; what the file says, or "certificates" beside it, by default.</param>
         /// <param name="Log">The event log; a new one by default.</param>
         /// <param name="LogToConsole">Whether the event log is also written to the console.</param>
         /// <param name="ConsoleLogLevel">What the console shows of it.</param>
@@ -225,7 +224,6 @@ namespace cloud.charging.open.RoamingHub
                           WWCPConfigFile?        ConfigFile         = null,
                           OCPIConfiguration?     OCPI               = null,
                           IStaticContentSource?  Frontend           = null,
-                          String?                CertificatesPath   = null,
                           EventLog?              Log                = null,
                           Boolean                LogToConsole       = true,
                           LogLevel               ConsoleLogLevel    = LogLevel.Info,
@@ -253,7 +251,13 @@ namespace cloud.charging.open.RoamingHub
                    DNSClient:          DNSClient,
                    NTSClient:          NTSClient,
                    Frontend:           Frontend ?? new EmbeddedContentSource(HTTPRoot, typeof(RoamingHub).Assembly),
-                   CertificatesPath:   CertificatesPath,
+
+                   // None in the node's store. Its kinds are a vehicle's - a
+                   // contract, a provisioning chain, a tariff - and none of them
+                   // is anything a hub presents or believes, so a store of them
+                   // beside the configuration file would be seven empty
+                   // directories promising something nothing here reads.
+                   CertificateKinds:   [],
                    Log:                Log,
                    LogToConsole:       LogToConsole,
                    ConsoleLogLevel:    ConsoleLogLevel,

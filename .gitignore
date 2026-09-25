@@ -264,13 +264,11 @@ __pycache__/
 
 # What a hub writes beside itself when it is started from here: its accounts
 # - password hashes, and the cookies of whoever is signed in - what it is
-# configured as, the OCPI library's files about its peers and the tokens
-# exchanged with them, and the certificate store of the node below it, which
-# is written at every start. Records of one installation, not of the source.
+# configured as, and the OCPI library's files about its peers and the tokens
+# exchanged with them. Records of one installation, not of the source.
 /accounts/
 configuration.json
 /ocpi/
-/certificates/
 
 # The frontend: what npm installs is already ignored above; this is what
 # webpack emits. Built by the project file, so a checkout needs node and not
