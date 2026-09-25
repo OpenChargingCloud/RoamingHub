@@ -23,7 +23,7 @@ using NUnit.Framework;
 
 using org.GraphDefined.Vanaheimr.Hermod.DNS;
 
-using cloud.charging.open.RoamingHub.Configuration;
+using cloud.charging.open.protocols.WWCP.Node.Configuration;
 
 #endregion
 
@@ -431,7 +431,9 @@ namespace cloud.charging.open.RoamingHub.Tests
         /// <summary>
         /// The whole way through: four servers in the file, four in the group,
         /// four on the display - and no server named on a screen, because
-        /// naming one of four would be the nicer-looking lie.
+        /// naming one of four would be the nicer-looking lie. The node's clock
+        /// has a "server" for the one server of a group of one, and leaves it
+        /// empty for a group of four.
         /// </summary>
         [Test]
         public async Task AConfiguredGroupReachesTheStationAndItsDisplay()
@@ -457,7 +459,7 @@ namespace cloud.charging.open.RoamingHub.Tests
                 Assert.That(RoamingHub.TimeSources.MinServers,              Is.EqualTo(2));
 
                 Assert.That(clock["nts"]?["servers"]?.Values<String>(),  Has.Exactly(4).Items);
-                Assert.That((clock["nts"] as JObject)?.ContainsKey("server"),  Is.False,
+                Assert.That(clock["nts"]?["server"]?.Type,                 Is.EqualTo(JTokenType.Null),
                             "a screen would have printed one of four as though it were the one");
 
                 // Nothing has been checked yet, and a screen is told that in

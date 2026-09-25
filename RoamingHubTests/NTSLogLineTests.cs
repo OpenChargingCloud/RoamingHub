@@ -113,7 +113,7 @@ namespace cloud.charging.open.RoamingHub.Tests
 
             Assert.That(verdict.DeviationExceeded,  Is.True,  "the test's own premise");
 
-            Assert.That(RoamingHub.DisagreementWarning(group, verdict),
+            Assert.That(RoamingHub.DeviationWarning(group.Name, verdict.Spread!.Value, group.MaxDeviation),
                         Is.EqualTo("NTS: the time servers of group 'legal' disagree by 2.2 ms, " +
                                    "which reaches the agreed deviation of 0.001 s."));
 

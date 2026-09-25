@@ -620,7 +620,7 @@ namespace cloud.charging.open.RoamingHub
             RefreshPresence();
 
             Log.Log(
-                result.Success ? Logging.LogLevel.Notice : Logging.LogLevel.Warning,
+                result.Success ? protocols.WWCP.Node.Logging.LogLevel.Notice : protocols.WWCP.Node.Logging.LogLevel.Warning,
                 result.Message,
                 "ocpi", "credentials", "partner"
             );

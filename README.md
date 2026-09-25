@@ -21,12 +21,20 @@ This is built the same way as
 file, the same accounts, the same event log, the same shape of peering - so
 that somebody who has read one of them has read this one.
 
+Below it is [WWCP_Node](https://github.com/OpenChargingCloud/WWCP_Node): what
+every one of these programs is before it is anything in particular - the log,
+the configuration file, name resolution and the time, a certificate store, the
+accounts, and the HTTP server with the web interface behind it. The vehicle of
+[EV](https://github.com/OpenChargingCloud/EV) is one of those with a battery,
+the charging station one with EVSEs; this hub is one with OCPI, its peers and
+what goes between them.
+
 
 ## What is here
 
 | | |
 |---|---|
-| The base | name resolution, the time source, the accounts, the event log, the JSON API and its event stream |
+| The base | WWCP_Node's - name resolution, the time source, the certificate store, the accounts and the event log - and on top of it the JSON API and its event stream |
 | The peering | a peer added, a token handed out, and the credentials exchanged in **either** direction |
 | The traffic | every OCPI call that touched this hub, both ways, with the two parties of it - on its own page and its own stream |
 | The web interface | all of the above in a browser: the traffic as it happens, the peers, the configuration and the log |
@@ -178,7 +186,14 @@ The `configuration.json` beside it, in the same shape as the EMSP's:
 |---|---|
 | `dns` | the name servers and how they are asked |
 | `nts` | the time servers, the rules for believing them, and how often the clock is checked |
+| `certificates` | where the node keeps its certificate store, `certificates/` beside this file unless it says otherwise |
 | `ocpi` | who this hub is - country code, party identification, name - and which versions it offers |
+
+The node below reads the sections every one of these programs has - `dns`,
+`nts` and `certificates` - and the hub reads its own, `ocpi`, from the same
+document; each passes over what is the other's. Nothing of the hub chooses
+from the certificate store yet: the node makes it at every start, beside the
+file, and says at a start that it is empty.
 
 Everything in `dns` and `nts` takes effect the moment it is saved. The `ocpi`
 section is read once at the start and deliberately not changeable while
@@ -325,6 +340,11 @@ repository, and two repositories of one name kept apart. None of them
 asks a name server or a time server anything - name resolution is switched
 off where a server is tested, and the tests that need the time client switched
 on start the hub on a clock whose timers never fire.
+
+What the node below does on its own - the file's sections, the log, the time
+servers, the certificate store, the accounts' roles and the ports - is tested
+once more in WWCP_Node's own `WWCP_Node_Tests`, against a node of no
+particular kind.
 
 The web interface has tests of its own, for what the NTS page sends when one
 server of the list is changed.

@@ -154,7 +154,7 @@ namespace cloud.charging.open.RoamingHub.OCPI
 
                 if (RoamingHub.OCPI.Logging?.Requests != false || !worked)
                     RoamingHub.Log.Log(
-                        worked ? Logging.LogLevel.Notice : Logging.LogLevel.Warning,
+                        worked ? protocols.WWCP.Node.Logging.LogLevel.Notice : protocols.WWCP.Node.Logging.LogLevel.Warning,
                         worked
                             ? $"The peer {who} {What} this hub (OCPI {Label})."
                             : $"The peer {who} tried to {What.Split(' ')[0]} this hub and was answered {Response.StatusCode}: {Response.StatusMessage} (OCPI {Label}).",

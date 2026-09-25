@@ -23,7 +23,7 @@ using NUnit.Framework;
 
 using org.GraphDefined.Vanaheimr.Hermod.DNS;
 
-using cloud.charging.open.RoamingHub.Configuration;
+using cloud.charging.open.protocols.WWCP.Node.Configuration;
 
 #endregion
 

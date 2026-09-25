@@ -26,6 +26,9 @@ using Newtonsoft.Json.Linq;
 using org.GraphDefined.Vanaheimr.Illias;
 using org.GraphDefined.Vanaheimr.Hermod.HTTP;
 
+using cloud.charging.open.protocols.WWCP.Node;
+using cloud.charging.open.protocols.WWCP.Node.Logging;
+
 using cloud.charging.open.RoamingHub.Logging;
 using cloud.charging.open.RoamingHub.Web;
 
@@ -448,7 +451,7 @@ namespace cloud.charging.open.RoamingHub
             return JSONResponse(
                        Request,
                        HTTPStatusCode.OK,
-                       await RoamingHub.ResolveAsync(name, recordTypes, Request.CancellationToken)
+                       await RoamingHub.ResolveAsync(name, recordTypes, CancellationToken: Request.CancellationToken)
                    );
 
         }

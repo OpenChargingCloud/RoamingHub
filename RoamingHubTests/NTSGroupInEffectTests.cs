@@ -567,7 +567,10 @@ namespace cloud.charging.open.RoamingHub.Tests
         /// or its quorum; the log line at the start, which names the same
         /// servers, has always left the dots out. Both come from one place now.
         /// And it used to say "server" as well, with the host of the single
-        /// client that is only there for a server's detailed test.
+        /// client that is only there for a server's detailed test. The node
+        /// says "server" again, but for the one server of a group of one - what
+        /// a screen shows beside the time - and leaves it empty for a group of
+        /// more, as this one is: two switched on.
         /// </remarks>
         [Test]
         public async Task TheClockIsCheckedAgainstTheGroupAndNotTheTestClient()
@@ -590,7 +593,7 @@ namespace cloud.charging.open.RoamingHub.Tests
 
                 Assert.That(nts.Value<Int32>("minServers"),    Is.EqualTo(2));
 
-                Assert.That(nts.ContainsKey("server"),         Is.False,  "the test client's host is named again");
+                Assert.That(nts["server"]?.Type,               Is.EqualTo(JTokenType.Null),  "the test client's host is named again");
 
             });
 
