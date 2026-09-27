@@ -525,9 +525,10 @@ what the DNS page and the NTS page send when one server of the list is
 changed, with the pins of every other server still on it; pins as somebody
 types them and as they are read back, in words, and what the certificate
 store offers a server; a page left with something typed into it, which asks
-before it is left; and a stream the browser has given up on - the hub asked
-why, and a session that is gone, a role that went and a stream that was
-merely cut each answered in its own way.
+before it is left; which line of the log shows which entry, drawn newest
+first and filtered by position; and a stream the browser has given up on -
+the hub asked why, and a session that is gone, a role that went and a stream
+that was merely cut each answered in its own way.
 
 
 ## Your participation
