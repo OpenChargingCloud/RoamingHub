@@ -28,9 +28,9 @@ using org.GraphDefined.Vanaheimr.Hermod.HTTP;
 
 using cloud.charging.open.protocols.WWCP.Node;
 using cloud.charging.open.protocols.WWCP.Node.Logging;
+using cloud.charging.open.protocols.WWCP.Node.Web;
 
 using cloud.charging.open.RoamingHub.Logging;
-using cloud.charging.open.RoamingHub.Web;
 
 #endregion
 
@@ -242,6 +242,10 @@ namespace cloud.charging.open.RoamingHub
 
             AddHandler(HTTPPath.Root + "v1/configuration/time",       GetClock,              HTTPMethod.GET);
 
+            // The certificate store: what this hub believes, presents and
+            // recognises; see RoamingHubHTTPAPI.Certificates.cs.
+            RegisterCertificateRoutes();
+
             // The OCPI side: who the peers are and the peering itself; see
             // RoamingHubHTTPAPI.OCPI.cs.
             RegisterOCPIRoutes();
@@ -258,7 +262,8 @@ namespace cloud.charging.open.RoamingHub
 
             // Everything else below /api answers with a JSON 404 instead of
             // the single-page-application stub of the web interface.
-            foreach (var method in new[] { HTTPMethod.GET, HTTPMethod.HEAD, HTTPMethod.POST, HTTPMethod.PUT, HTTPMethod.DELETE })
+            foreach (var method in new[] { HTTPMethod.GET, HTTPMethod.HEAD, HTTPMethod.POST, HTTPMethod.PUT,
+                                           HTTPMethod.PATCH, HTTPMethod.DELETE })
                 AddHandler(HTTPPath.Root + "{path..}", UnknownPath, method);
 
         }
@@ -368,7 +373,7 @@ namespace cloud.charging.open.RoamingHub
         private Task<HTTPResponse> GetConfiguration(HTTPRequest Request)
         {
 
-            if (!TryAuthorize(Request, Permissions.ReadConfiguration, false, out _, out var refused))
+            if (!TryAuthorize(Request, Permission.Read(NodeResources.Configuration), false, out _, out var refused))
                 return Task.FromResult(refused);
 
             return Task.FromResult(
@@ -387,7 +392,7 @@ namespace cloud.charging.open.RoamingHub
         private Task<HTTPResponse> GetDNSConfiguration(HTTPRequest Request)
         {
 
-            if (!TryAuthorize(Request, Permissions.ReadConfiguration, false, out _, out var refused))
+            if (!TryAuthorize(Request, Permission.Read(NodeResources.DNS), false, out _, out var refused))
                 return Task.FromResult(refused);
 
             return Task.FromResult(
@@ -404,7 +409,7 @@ namespace cloud.charging.open.RoamingHub
         private Task<HTTPResponse> PutDNSConfiguration(HTTPRequest Request)
         {
 
-            if (!TryAuthorize(Request, Permissions.ChangeNetworkSettings, true, out _, out var refused))
+            if (!TryAuthorize(Request, Permission.Edit(NodeResources.DNS), true, out _, out var refused))
                 return Task.FromResult(refused);
 
             if (!TryParseJSONObject(Request, out var json, out var errorResponse))
@@ -420,19 +425,25 @@ namespace cloud.charging.open.RoamingHub
         }
 
         /// <summary>
-        /// POST /api/v1/configuration/dns/query with {"name", "recordTypes"}:
-        /// make this RoamingHub look a name up and say what came back.
+        /// POST /api/v1/configuration/dns/query with {"name", "recordTypes",
+        /// "server"}: make this RoamingHub look a name up and say what came back.
         /// </summary>
         /// <remarks>
         /// A POST although it changes nothing here, because it makes this
         /// RoamingHub send traffic to a host somebody named - which is not
         /// something to leave sitting in a URL that a browser may repeat,
         /// prefetch or put in a history.
+        ///
+        /// "server" is the place of one name server in the list, from zero, to
+        /// ask that one alone - the DNS page's Test beside each server - and
+        /// left out to ask the way this hub asks for anything else. What was
+        /// made of the certificate of a server reached over TLS or HTTPS comes
+        /// back with the answer.
         /// </remarks>
         private async Task<HTTPResponse> PostDNSQuery(HTTPRequest Request)
         {
 
-            if (!TryAuthorize(Request, Permissions.RunDiagnostics, true, out var user, out var refused))
+            if (!TryAuthorize(Request, Permission.Run(NodeResources.DNS), true, out var user, out var refused))
                 return refused;
 
             if (!TryParseJSONObject(Request, out var json, out var errorResponse))
@@ -451,7 +462,7 @@ namespace cloud.charging.open.RoamingHub
             return JSONResponse(
                        Request,
                        HTTPStatusCode.OK,
-                       await RoamingHub.ResolveAsync(name, recordTypes, CancellationToken: Request.CancellationToken)
+                       await RoamingHub.ResolveAsync(name, recordTypes, json.Value<Int32?>("server"), Request.CancellationToken)
                    );
 
         }
@@ -466,7 +477,7 @@ namespace cloud.charging.open.RoamingHub
         private Task<HTTPResponse> GetNTSConfiguration(HTTPRequest Request)
         {
 
-            if (!TryAuthorize(Request, Permissions.ReadConfiguration, false, out _, out var refused))
+            if (!TryAuthorize(Request, Permission.Read(NodeResources.NTS), false, out _, out var refused))
                 return Task.FromResult(refused);
 
             return Task.FromResult(
@@ -481,7 +492,7 @@ namespace cloud.charging.open.RoamingHub
         private Task<HTTPResponse> PutNTSConfiguration(HTTPRequest Request)
         {
 
-            if (!TryAuthorize(Request, Permissions.ChangeNetworkSettings, true, out _, out var refused))
+            if (!TryAuthorize(Request, Permission.Edit(NodeResources.NTS), true, out _, out var refused))
                 return Task.FromResult(refused);
 
             if (!TryParseJSONObject(Request, out var json, out var errorResponse))
@@ -509,7 +520,7 @@ namespace cloud.charging.open.RoamingHub
         private async Task<HTTPResponse> PostNTSSync(HTTPRequest Request)
         {
 
-            if (!TryAuthorize(Request, Permissions.RunDiagnostics, true, out var user, out var refused))
+            if (!TryAuthorize(Request, Permission.Run(NodeResources.NTS), true, out var user, out var refused))
                 return refused;
 
             Log.Info($"'{user.Id}' asked this RoamingHub to synchronise its time.", "nts", "test", "web");
@@ -545,7 +556,7 @@ namespace cloud.charging.open.RoamingHub
         private async Task<HTTPResponse> PostNTSTest(HTTPRequest Request)
         {
 
-            if (!TryAuthorize(Request, Permissions.RunDiagnostics, true, out var user, out var refused))
+            if (!TryAuthorize(Request, Permission.Run(NodeResources.NTS), true, out var user, out var refused))
                 return refused;
 
             if (!TryParseJSONObject(Request, out var json, out var errorResponse))
@@ -585,7 +596,7 @@ namespace cloud.charging.open.RoamingHub
         private Task<HTTPResponse> GetClock(HTTPRequest Request)
         {
 
-            if (!TryAuthorize(Request, Permissions.ReadConfiguration, false, out _, out var refused))
+            if (!TryAuthorize(Request, Permission.Read(NodeResources.NTS), false, out _, out var refused))
                 return Task.FromResult(refused);
 
             return Task.FromResult(
@@ -675,10 +686,13 @@ namespace cloud.charging.open.RoamingHub
         private Task<HTTPResponse> StreamEvents(HTTPRequest Request)
         {
 
-            if (!TryGetUser(Request, out _, out var unauthorized))
+            if (!TryGetUser(Request, out var reader, out var unauthorized))
                 return Task.FromResult(unauthorized);
 
-            var clientId = Request.RemoteSocket.ToString();
+            var clientId    = Request.RemoteSocket.ToString();
+
+            // Asked before every event and at every heartbeat - see StillLetIn().
+            var stillLetIn  = StillLetIn(Request, reader);
 
             return Task.FromResult(
                        new HTTPResponse.Builder(Request) {
@@ -714,7 +728,7 @@ namespace cloud.charging.open.RoamingHub
                                    // timeout expired.
                                    await stream.FlushAsync(ending.Token);
 
-                                   await CarryEvents(Events, clientId, Request, stream, ending);
+                                   await CarryEvents(Events, clientId, Request, stream, ending, stillLetIn);
 
                                }
                                catch (OperationCanceledException)
@@ -748,16 +762,19 @@ namespace cloud.charging.open.RoamingHub
 
         #endregion
 
-        #region (private) CarryEvents     (Source, ClientId, Request, Stream, Ending)
+        #region (private) CarryEvents     (Source, ClientId, Request, Stream, Ending, StillLetIn)
 
         /// <summary>
         /// Everything the given source has for this client, and newer events
         /// as they come, with a comment whenever it has been silent for
-        /// <see cref="EventStreamHeartbeat"/> - until the stream ends.
+        /// <see cref="EventStreamHeartbeat"/> - until the stream ends, or its
+        /// reader would no longer be let in.
         /// </summary>
         /// <remarks>
         /// One loop for both streams, the log's and the traffic's, because a
-        /// proxy cannot tell one silent stream from another.
+        /// proxy cannot tell one silent stream from another - and because a
+        /// stream is one request answered for hours, and both have to ask
+        /// again what that request was asked once: whether its reader may.
         ///
         /// The next event is waited for across the heartbeats rather than asked
         /// for again: an enumerator takes one question at a time. And the
@@ -770,11 +787,13 @@ namespace cloud.charging.open.RoamingHub
         /// <param name="Request">The request that opened the stream, for its Last-Event-ID.</param>
         /// <param name="Stream">Where the events are written.</param>
         /// <param name="Ending">Cancelled when the stream is to end; cancelled here as well once it has.</param>
+        /// <param name="StillLetIn">Whether whoever opened the stream would still be let in: asked before every event and at every heartbeat.</param>
         private async Task CarryEvents(HTTPEventSource<JObject>  Source,
                                        String                    ClientId,
                                        HTTPRequest               Request,
                                        StreamWriter              Stream,
-                                       CancellationTokenSource   Ending)
+                                       CancellationTokenSource   Ending,
+                                       Func<Boolean>             StillLetIn)
         {
 
             var heartbeat  = EventStreamHeartbeat > TimeSpan.Zero
@@ -789,6 +808,10 @@ namespace cloud.charging.open.RoamingHub
 
             var next = events.MoveNextAsync().AsTask();
 
+            // Set when the stream ends because its reader would no longer be
+            // let in.
+            var letGo = false;
+
             try
             {
 
@@ -802,8 +825,28 @@ namespace cloud.charging.open.RoamingHub
                     }
                     catch (TimeoutException)
                     {
+
+                        // A quiet stream is asked as well, or one whose session
+                        // ended would go on for as long as nothing happened -
+                        // on a hub whose peers are quiet, for hours.
+                        if (!StillLetIn())
+                        {
+                            letGo = true;
+                            break;
+                        }
+
                         await Stream.WriteHeartbeat(CancellationToken: Ending.Token);
                         continue;
+
+                    }
+
+                    // Asked before the event is written, not after: what
+                    // happened after the sign-out is not sent to the session
+                    // that signed out.
+                    if (!StillLetIn())
+                    {
+                        letGo = true;
+                        break;
                     }
 
                     var httpEvent = events.Current;
@@ -829,6 +872,93 @@ namespace cloud.charging.open.RoamingHub
                 }
                 catch
                 { }
+
+            }
+
+            // Its reader no longer let in, the reader is told the one way a
+            // stream can tell anybody anything: it ends, and the browser's
+            // retry is answered with a 401 - or with a 403, where it is only
+            // the permission that went.
+            if (letGo)
+                await Source.Unsubscribe(ClientId);
+
+        }
+
+        #endregion
+
+        #region (private) StillLetIn      (Request, Reader)
+
+        /// <summary>
+        /// Whether whoever opened an event stream would still be let in -
+        /// asked before every event the stream is sent, and at every heartbeat.
+        /// </summary>
+        /// <remarks>
+        /// A stream is one request that is answered for hours, and it used to
+        /// be asked about its session once, when it opened. Measured on a
+        /// local controller, whose stream is the vehicle's as this one is:
+        /// signed out, the Logs page went on saying "live" and showing every
+        /// line it wrote, for as long as it was watched. EV b648caf and
+        /// 4b86e52, carried over.
+        ///
+        /// A stream opened with a session is asked whether that session is
+        /// still there and its account still one that may sign in - what a new
+        /// request with the same cookie is asked. The session is looked at and
+        /// not taken through Sessions.TryGet, which counts as a use: with an
+        /// idle timeout, a Traffic page left open would keep its session alive
+        /// for ever, one call between two peers at a time. Among the few
+        /// sessions a hub has, looking costs nothing.
+        ///
+        /// One opened with an API key is asked about the key - still there,
+        /// inside its window, not disabled, its owner still one that may sign
+        /// in - which is what a new request with it is asked, and costs a
+        /// lookup. Held to its account alone, a stream went on being sent the
+        /// log after its key had been revoked or had run out.
+        ///
+        /// One opened with a password has neither a session nor a key that
+        /// could end. Its account is asked about instead, and the password is
+        /// not checked again: that would be 600 000 rounds of PBKDF2 and a turn
+        /// of the sign-in's rate limit, for every line of the log. A password
+        /// is asked before a key here because Hermod asks it first.
+        ///
+        /// What the reader may read is not asked here, because anybody signed
+        /// in may read the log; the traffic's stream asks it beside this.
+        /// </remarks>
+        /// <param name="Request">The request that opened the stream.</param>
+        /// <param name="Reader">Who it was let in as.</param>
+        private Func<Boolean> StillLetIn(HTTPRequest Request, IUser Reader)
+        {
+
+            if (Request.Cookies is not null                                                      &&
+                Request.Cookies.TryGet(ExtAPI.SessionCookieName, out var cookie)                 &&
+                cookie is not null                                                               &&
+                SecurityToken_Id.TryParse(cookie.FirstOrDefault().Key, out var securityTokenId) &&
+                LiveSession(securityTokenId) is not null)
+            {
+                return () => LiveSession(securityTokenId) is Session session  &&
+                             ExtAPI.TryGetUser(session.UserId, out var user)   &&
+                             HTTPExtAPI.CanAuthenticate(user);
+            }
+
+            if (Request.Authorization is not HTTPBasicAuthentication &&
+                Request.API_Key.HasValue                             &&
+                ExtAPI.CheckHTTPAPIKey(Request) is not null)
+            {
+                return () => ExtAPI.CheckHTTPAPIKey(Request) is not null;
+            }
+
+            var readerId = Reader.Id;
+
+            return () => ExtAPI.TryGetUser(readerId, out var user) &&
+                         HTTPExtAPI.CanAuthenticate(user);
+
+
+            Session? LiveSession(SecurityToken_Id Token)
+            {
+
+                var now = ExtAPI.Sessions.TimeProvider.GetUtcNow();
+
+                return ExtAPI.Sessions.FirstOrDefault(session => session.Token == Token &&
+                                                                 !session.IsExpired(now));
 
             }
 
@@ -967,6 +1097,11 @@ namespace cloud.charging.open.RoamingHub
         /// the permission they are short of and the roles that carry it. The
         /// difference between the last two matters to a browser: 401 means sign
         /// in again, 403 means signing in again will not help.
+        ///
+        /// What the account may do is the node's to answer - see
+        /// <see cref="WWCPNode.IsAllowed(IUser, IEnumerable{Permission})"/> -
+        /// so that a role in the configuration file means here what it means
+        /// on every other node.
         /// </remarks>
         /// <param name="Request">The request.</param>
         /// <param name="Required">What this request needs permission to do.</param>
@@ -974,7 +1109,25 @@ namespace cloud.charging.open.RoamingHub
         /// <param name="User">Who is behind it.</param>
         /// <param name="Refused">The response to send instead.</param>
         private Boolean TryAuthorize(HTTPRequest                             Request,
-                                     Permissions                             Required,
+                                     Permission                              Required,
+                                     Boolean                                 StateChanging,
+                                     [NotNullWhen(true)]  out IUser?         User,
+                                     [NotNullWhen(false)] out HTTPResponse?  Refused)
+
+            => TryAuthorize(Request, [ Required ], StateChanging, out User, out Refused);
+
+
+        /// <summary>
+        /// Who is behind the request, when they are allowed to do all of this
+        /// - or the response that says why not.
+        /// </summary>
+        /// <remarks>
+        /// All of it or nothing: a change that is several kinds at once needs
+        /// every one of them, each carried by whichever role of the account
+        /// carries it.
+        /// </remarks>
+        private Boolean TryAuthorize(HTTPRequest                             Request,
+                                     IReadOnlyCollection<Permission>         Required,
                                      Boolean                                 StateChanging,
                                      [NotNullWhen(true)]  out IUser?         User,
                                      [NotNullWhen(false)] out HTTPResponse?  Refused)
@@ -991,9 +1144,7 @@ namespace cloud.charging.open.RoamingHub
             if (!TryGetUser(Request, out User, out Refused))
                 return false;
 
-            var permissions = PermissionsOf(User);
-
-            if (!permissions.HasFlag(Required))
+            if (!RoamingHub.IsAllowed(User, Required))
             {
                 Refused  = RefusePermission(Request, User, Required, null);
                 User     = null;
@@ -1011,7 +1162,7 @@ namespace cloud.charging.open.RoamingHub
 
         /// <summary>
         /// The 403 for somebody signed in who may not do this, naming the roles
-        /// that carry the permission they are short of.
+        /// that carry what they are short of.
         /// </summary>
         /// <remarks>
         /// Its own method because it is needed twice: once before a request is
@@ -1021,20 +1172,20 @@ namespace cloud.charging.open.RoamingHub
         /// and both leave the same line in the log.
         /// </remarks>
         /// <param name="Because">What it was about this particular request, when the route alone does not say.</param>
-        private HTTPResponse RefusePermission(HTTPRequest  Request,
-                                              IUser        User,
-                                              Permissions  Required,
-                                              String?      Because)
+        private HTTPResponse RefusePermission(HTTPRequest                      Request,
+                                              IUser                            User,
+                                              IReadOnlyCollection<Permission>  Required,
+                                              String?                          Because)
         {
 
-            // HasFlag with more than one flag asks for all of them, which is
-            // what a role has to carry to do a change that was several kinds at
-            // once. Nobody is named who could only do half of it.
-            var allowed = UserRole.All.Where(role => role.Permissions.HasFlag(Required)).
-                                       Select(role => role.Name);
+            // Only roles that could do all of it on their own: nobody is named
+            // who could only do half of it. The administrators can always do
+            // all of it, so the sentence never runs out of roles.
+            var allowed = RoamingHub.Access.RolesAllowing(Required).
+                                            Select(role => role.Name);
 
             Log.Warning(
-                $"'{User.Id}' was refused {Required} on {Request.HTTPMethod} {Request.Path}; " +
+                $"'{User.Id}' was refused {String.Join(", ", Required)} on {Request.HTTPMethod} {Request.Path}; " +
                 $"signed in as {String.Join(", ", RolesOf(User).Select(role => role.Name))}." +
                 (Because is null ? "" : $" {Because}"),
                 "web", "auth"
@@ -1148,7 +1299,7 @@ namespace cloud.charging.open.RoamingHub
             => new (
                    new JProperty("username",     User.Id.ToString()),
                    new JProperty("roles",        new JArray(RolesOf(User).Select(role => role.Name))),
-                   new JProperty("permissions",  new JArray(PermissionsOf(User).Names()))
+                   new JProperty("permissions",  new JArray(RoamingHub.PermissionsOf(User).Select(permission => permission.ToString())))
                );
 
         #endregion
@@ -1178,32 +1329,15 @@ namespace cloud.charging.open.RoamingHub
 
         #endregion
 
-        #region (private) RolesOf(User) / PermissionsOf(User)
+        #region (private) RolesOf(User)
 
         /// <summary>
-        /// The roles this account holds: one per group of that name it is in.
+        /// The roles this account holds: one per group of that name it is in -
+        /// see <see cref="WWCPNode.RolesOf(IUser)"/>.
         /// </summary>
-        /// <remarks>
-        /// Asked of the groups on every request rather than remembered at
-        /// sign-in, so that taking somebody out of a group takes effect on
-        /// their next request instead of at their next sign-in. A role revoked
-        /// that still works until a browser is closed is not revoked.
-        /// </remarks>
-        private IEnumerable<UserRole> RolesOf(IUser User)
+        private IReadOnlyList<Role> RolesOf(IUser User)
 
-              // IsMember compares the account by identification, which is what
-              // makes this safe to ask with whatever instance authenticated the
-              // request: a cookie brings one rebuilt from what the cookie holds
-              // rather than the one the membership was made with.
-            => UserRole.All.Where(role => ExtAPI.IsMember(User, role.GroupId));
-
-        /// <summary>
-        /// Everything those roles add up to, or nothing at all when the account
-        /// is in none of the groups.
-        /// </summary>
-        private Permissions PermissionsOf(IUser User)
-
-            => RolesOf(User).PermissionsOf();
+            => RoamingHub.RolesOf(User);
 
         #endregion
 

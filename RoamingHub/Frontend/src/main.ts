@@ -10,6 +10,7 @@ import { html, must, render } from './html';
 import { logs } from './logs/store';
 import { Router } from './router';
 
+import { certificatesPage }   from './pages/certificates';
 import { configurationPage }  from './pages/configuration';
 import { dnsPage }            from './pages/dns';
 import { homePage }           from './pages/home';
@@ -43,6 +44,7 @@ const router = new Router({
         { path: '/configuration',                 page: configurationPage,  guard: auth.requireSignIn },
         { path: '/configuration/dns',             page: dnsPage,            guard: auth.requireSignIn },
         { path: '/configuration/nts',             page: ntsPage,            guard: auth.requireSignIn },
+        { path: '/configuration/certificates',    page: certificatesPage,   guard: auth.requireSignIn },
         { path: '/configuration/ocpi',            page: ocpiPage,           guard: auth.requireSignIn },
         // The path stays "partners" - it is what the JSON API calls them, and
         // what the other four components call the same page. Only the word on
@@ -60,7 +62,9 @@ const router = new Router({
 // Signed in: follow the hub's log from now on, whichever page is open - so
 // that opening the Logs page shows what happened while somebody was reading
 // the configuration, and not an empty list. Only for whoever may read the
-// log: the stream would answer 403 otherwise.
+// configuration, which is where the menu has the Logs page: the hub sends its
+// log to anybody signed in, and a role from its file without the
+// configuration has no page here to show it on.
 // Signed out - by the button, or because the session expired and a request
 // came back with 401: close the stream, forget the log, show the sign-in.
 //
@@ -71,7 +75,7 @@ auth.onChange(user => {
 
     if (user !== null) {
 
-        if (auth.can('readConfiguration'))
+        if (auth.can('configuration', 'read'))
             logs.start();
 
         return;

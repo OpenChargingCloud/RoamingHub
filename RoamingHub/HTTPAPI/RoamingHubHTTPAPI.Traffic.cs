@@ -22,7 +22,7 @@ using Newtonsoft.Json.Linq;
 using org.GraphDefined.Vanaheimr.Illias;
 using org.GraphDefined.Vanaheimr.Hermod.HTTP;
 
-using cloud.charging.open.RoamingHub.Web;
+using cloud.charging.open.protocols.WWCP.Node.Web;
 
 #endregion
 
@@ -128,7 +128,7 @@ namespace cloud.charging.open.RoamingHub
         private Task<HTTPResponse> GetTraffic(HTTPRequest Request)
         {
 
-            if (!TryAuthorize(Request, Permissions.ReadTraffic, false, out _, out var refused))
+            if (!TryAuthorize(Request, Permission.Read(HubAccess.Traffic), false, out _, out var refused))
                 return Task.FromResult(refused);
 
             var limit  = Request.QueryString.GetUInt32("limit") is { } asked
@@ -168,7 +168,7 @@ namespace cloud.charging.open.RoamingHub
         private Task<HTTPResponse> GetPartiesSeen(HTTPRequest Request)
         {
 
-            if (!TryAuthorize(Request, Permissions.ReadTraffic, false, out _, out var refused))
+            if (!TryAuthorize(Request, Permission.Read(HubAccess.Traffic), false, out _, out var refused))
                 return Task.FromResult(refused);
 
             return Task.FromResult(
@@ -196,14 +196,25 @@ namespace cloud.charging.open.RoamingHub
         /// line for line, the header a proxy is told not to buffer it by and
         /// the comment it sends while silent included. What differs is the
         /// permission it asks for and the source it reads from.
+        ///
+        /// And that the permission is asked again, before every call and at
+        /// every heartbeat, beside what the log's stream asks: taking somebody
+        /// out of the hub role takes the traffic from them on their next
+        /// request, and a stream is one request that is answered for hours.
         /// </remarks>
         private Task<HTTPResponse> StreamTraffic(HTTPRequest Request)
         {
 
-            if (!TryAuthorize(Request, Permissions.ReadTraffic, false, out _, out var refused))
+            if (!TryAuthorize(Request, Permission.Read(HubAccess.Traffic), false, out var reader, out var refused))
                 return Task.FromResult(refused);
 
-            var clientId = Request.RemoteSocket.ToString();
+            var clientId    = Request.RemoteSocket.ToString();
+
+            // The node answers from the groups as they are now, and compares
+            // the account by its identification, so the reader let in at the
+            // start is what it is asked about.
+            var letIn       = StillLetIn(Request, reader);
+            var stillLetIn  = () => letIn() && RoamingHub.IsAllowed(reader, HubAccess.Traffic, Operation.Read);
 
             return Task.FromResult(
                        new HTTPResponse.Builder(Request) {
@@ -234,7 +245,7 @@ namespace cloud.charging.open.RoamingHub
                                    // for its first byte until its own timeout.
                                    await stream.FlushAsync(ending.Token);
 
-                                   await CarryEvents(TrafficEvents, clientId, Request, stream, ending);
+                                   await CarryEvents(TrafficEvents, clientId, Request, stream, ending, stillLetIn);
 
                                }
                                catch (OperationCanceledException)

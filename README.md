@@ -34,10 +34,11 @@ what goes between them.
 
 | | |
 |---|---|
-| The base | WWCP_Node's - name resolution, the time source, the accounts and the event log - and on top of it the JSON API and its event stream |
+| The base | WWCP_Node's - name resolution, the time source, the certificate store, the accounts and the event log - and on top of it the JSON API and its event stream |
 | The peering | a peer added, a token handed out, and the credentials exchanged in **either** direction |
 | The traffic | every OCPI call that touched this hub, both ways, with the two parties of it - on its own page and its own stream |
-| The web interface | all of the above in a browser: the traffic as it happens, the peers, the configuration and the log |
+| Who may do what | three roles - `viewer`, `hub` and `systemadmin` - over the node's resources and the hub's two, `peers` and `traffic`, and whatever the configuration file adds |
+| The web interface | all of the above in a browser: the traffic as it happens, the peers, the name servers, the time servers, the certificates and the log |
 | HubClientInfo | who is on this hub and whether they can be reached, over OCPI and on the Peers page |
 
 **What is not here yet.** Forwarding what one peer sends to another, which is
@@ -164,9 +165,10 @@ business is a question with a different answer in every jurisdiction. A
 deployment that has to keep more should read the stream and put it where it
 has decided to keep it.
 
-Reading it is its own permission - `readTraffic` - and not part of
-`readConfiguration`: the configuration is what this hub is, and the traffic is
-what its peers did through it.
+Reading it is its own permission - `traffic:read` - and not part of
+`configuration:read`: the configuration is what this hub is, and the traffic is
+what its peers did through it. The `hub` role may read it and the `viewer` may
+not; see [Who may do what](#who-may-do-what).
 
 **Behind a proxy.** Both streams - this one and the log's at `/api/v1/events` -
 say `X-Accel-Buffering: no`, which nginx honours without a change to its
@@ -184,16 +186,15 @@ The `configuration.json` beside it, in the same shape as the EMSP's:
 
 | Section | |
 |---|---|
-| `dns` | the name servers and how they are asked |
-| `nts` | the time servers, the rules for believing them, and how often the clock is checked |
+| `dns` | the name servers, how they are asked, and what a server over TLS or HTTPS is held to |
+| `nts` | the time servers, the rules for believing them, what each is held to, and how often the clock is checked |
+| `certificates` | where the certificate store is: `directory`, `certificates/` beside the file by default |
+| `roles` | roles beyond the three a hub brings, or what one of them may do |
 | `ocpi` | who this hub is - country code, party identification, name - and which versions it offers |
 
-The node below reads the sections every one of these programs has - `dns`
-and `nts` - and the hub reads its own, `ocpi`, from the same document; each
-passes over what is the other's. The node's `certificates` section says
-nothing to a hub: its certificate store keeps a vehicle's kinds, none of
-which is a hub's, so a hub keeps no store at all - no directory beside the
-file, and no line about one at a start.
+The node below reads the sections every one of these programs has - `dns`,
+`nts`, `certificates` and `roles` - and the hub reads its own, `ocpi`, from
+the same document; each passes over what is the other's.
 
 Everything in `dns` and `nts` takes effect the moment it is saved. The `ocpi`
 section is read once at the start and deliberately not changeable while
@@ -231,6 +232,22 @@ Without a port, the transport's own is used. `udp://9.9.9.9:53` is how the log
 and the banner name a name server, and not a form the file takes: a file saying
 it is refused at the start, with the file and the entry named, and the page
 refuses it the same way.
+
+A name server reached over TLS or HTTPS shows a certificate, and is judged by
+it at every handshake the way a time server is at its key exchange - see
+below: issued for the address it is dialled at, chaining to a root this
+machine trusts or to a TLS root of the hub's store kept for `dns`, and, where
+its entry says so, one it is held to:
+
+```json
+{ "address": "1.1.1.1", "transport": "TLS", "trustOnFirstUse": "root" }
+```
+
+The keys are a time server's, and on an entry asked over UDP, TCP or plain
+HTTP they are refused, because such a server shows no certificate to hold it
+to. The DNS page looks a name up the way the hub resolves anything, or asks
+one of the name servers on its own, and says per server what it is held to,
+what was made of its certificate last and what it was last believed with.
 
 ### NTS
 
@@ -281,12 +298,39 @@ reducing four to one, and one mentioning nothing but `minServers` or
 those servers could never reach is refused: at the start, before anything is
 asked, and over the API, before anything is written into the file.
 
+A server may be held to more than a certificate authority vouching for it:
+the certificates it may show and the roots its chain may end at, each by its
+SHA-256 fingerprint, and what a mismatch comes to:
+
+```json
+{ "hostname": "time.local", "rootFingerprint": "4F:1C:…", "onMismatch": "record" }
+```
+
+Several of a kind are a list under `certificateFingerprints` or
+`rootFingerprints` - two certificates are a renewal that has been announced,
+two roots a CA moving to a new one. A server showing another certificate is
+refused - its key exchange ends, and it gives no time - unless `onMismatch`
+says `record`, which uses its time and writes the mismatch into the
+metrological log, or `accept`, which uses it and says so in the log.
+`"trustOnFirstUse": "root"` - or `"certificate"` - holds a server to what it
+was first believed with, written into its entry of the file the moment it is
+learned. A pin narrows what is believed and never widens it: the chain still
+has to end at a root this machine trusts, at a TLS root of the hub's store
+kept for `nts`, or at a root the server is held to that the store keeps.
+
+What every server - a time server, a name server over TLS - was last
+believed with is kept in `known-servers.json` beside the configuration file,
+fingerprints and nothing else, so that another certificate is noticed across
+a restart even where a server is held to none.
+
 The NTS page lists every server of the group with a Test of its own - the
 name, the TLS handshake and what the server's certificate claims, down to the
-root CA it ends at and that root's SHA-256 fingerprint, the key exchange and
-the authenticated request, each step timed - and an Edit, and below them what
-the group is held to. "Sync now" asks the group the way the clock check does.
-Neither steps the clock.
+root CA it ends at, with the SHA-256 fingerprints of both, which are what a
+pin is compared with; the key exchange and the authenticated request, each
+step timed - and an Edit, where the pins go: the fingerprint the server showed
+last and the certificates and roots the store keeps for it are offered with a
+click. Below them is what the group is held to. "Sync now" asks the group the
+way the clock check does. Neither steps the clock.
 
 The check runs by itself every `nts.checkEverySeconds`, the first one a minute
 after starting. A new interval, and switching NTS off or on, reach a running
@@ -299,6 +343,123 @@ A host name written back into the file carries the root label -
 `ptbtime1.ptb.de.` - because that is the absolute form it was parsed into, and
 not a stray character. What the hub prints for somebody to read - the log, the
 banner and the pages - drops it again.
+
+
+## The certificate store
+
+Everything this hub believes in TLS, what it will present and every server it
+recognises lives in one store: `certificates/` beside the configuration file,
+unless the file's `certificates.directory` or the command line says
+otherwise. It is the node's store, and a hub keeps the four kinds of TLS in it
+and none of the seven of ISO 15118, which are a vehicle's:
+
+| Kind | |
+|---|---|
+| `tlsRoot` | what a time server, or a name server over TLS or HTTPS, may chain to - kept for `nts`, `dns` or both |
+| `tlsServer` | a server's own certificate, kept to hold the server to by its fingerprint - for `nts`, `dns` or both |
+| `clientRoot` | what a client connecting to this hub will have to chain to |
+| `tlsIdentity` | what this hub will present in TLS, with its private key |
+
+The first two are used today; the other two are kept, and used by nothing
+here yet. The peers are what they are waiting for: a hub reaches more servers
+over HTTPS, and is reached by more clients, than any other kind of node.
+
+The store is the directory: one file per certificate below it, and an
+`index.json` recording what a file cannot say about itself - what somebody
+calls it, whether it is switched on and, for a root or a server certificate,
+what it is kept for. So a store copied to another machine arrives complete,
+and a lost index costs labels, switches and usages rather than certificates.
+Certificates copied into the directory by hand are adopted at the next start,
+or at once with **Re-read the directory** on the Certificates page. Switching
+one off leaves its file where it is; deleting it deletes the file, private key
+and all. Time switches a certificate off as well, and separately: an expired
+one stays listed and stops being used.
+
+**The private keys in the store are not encrypted.** A PKCS#12 is opened with
+its password once, at import, and written back without one. What guards them
+is the file system - the directory is made for its owner alone where the
+platform allows saying so in one call - so the store belongs on a machine
+whose users are all trusted with this hub's identity. The hub says so at every
+start with a key in the store, and the Certificates page says it where the
+keys are listed.
+
+| | |
+|---|---|
+| `GET /api/v1/certificates` | the store, grouped by kind, with what each kind is and what it may be kept for |
+| `POST /api/v1/certificates` | an import: `kind`, the file base64-encoded as `content`, and `password`, `label` and `usages` where there are any |
+| `POST /api/v1/certificates/reload` | read the directory again |
+| `GET` / `PATCH` / `DELETE /api/v1/certificates/{id}` | one certificate; a `PATCH` sets `active`, `label` and `usages` |
+
+Reading it is `certificates:read`, which all three roles have; changing it is
+`certificates:edit`, which only a `systemadmin` has.
+
+
+## Who may do what
+
+A role is a user group of the accounts, and what it may do is a list of
+permissions, each an operation on a resource: `dns:edit`. The operations are
+the node's three - `read`, `edit`, and `run` for asking a server something -
+and the resources are the node's four, `configuration`, `dns`, `nts` and
+`certificates`, and the hub's two:
+
+| Resource | |
+|---|---|
+| `peers` | who is on this hub - read; edited, a peer added, suspended, resumed or removed, and the token it signs in with shown; run, the credentials handshake with one |
+| `traffic` | what went between the peers - read, and nothing else |
+
+A hub brings three roles:
+
+| | `viewer` | `hub` | `systemadmin` |
+|---|---|---|---|
+| `configuration` | read | read | everything |
+| `dns`, `nts` | read | read, edit, run | everything |
+| `certificates` | read | read | everything |
+| `peers` | read | read | everything |
+| `traffic` | - | read | everything |
+
+`systemadmin` is the node's: it may do everything, the first account goes
+there, and nobody but the node says what it may do, because a role that could
+be narrowed could leave nobody able to put that right. `hub` is whoever runs
+the hub from day to day - where it resolves names and reads the time, asking
+those servers whether they work, and the traffic, because the question the
+person running a hub is asked is why a CPO and an EMSP are not seeing each
+other, and the answer is in the traffic. Which peers are let in, and which
+certificates are believed, stays with the administrators: somebody who can
+add a peer lets a foreign system into a room with all the others, and
+somebody who can add a root makes this hub believe a server nobody else would.
+
+The `viewer` is the hub's own rather than the node's. The node's may read
+everything, and on a hub that would include the traffic - what the peers say
+to each other, which is their business passing through and not something
+everybody who may look at the configuration should read.
+
+The `roles` section of the configuration file adds roles, or says differently
+what `viewer` or `hub` may do:
+
+```json
+"roles": { "support": [ "configuration:read", "dns:read", "nts:read", "traffic:read" ] }
+```
+
+A role there naming a resource a hub does not have stops the start, because a
+typo would otherwise be a role that quietly grants nothing; what the file
+added or changed is said in the log at every start, tagged `security`.
+
+What an account may do is asked on every request, so taking somebody out of a
+group takes effect on their next one, and a refusal names the roles that
+would have been let in - "This needs the hub or systemadmin role." A stream is
+one request answered for hours, so both streams ask again, before every event
+and at every heartbeat: whether the session that opened one is still there,
+or the API key, and - for the traffic's - whether its reader may still read
+the traffic. The answer no ends the stream, and the page behind it asks the
+hub why: signed out goes to the sign-in, and a role that went is said on the
+Traffic page rather than retried. The status,
+the log and its stream are for anybody signed in; the clock at
+`/api/v1/configuration/time` is `nts:read`. `GET /api/v1/auth/me` lists what
+the account signed in may do, spelled out resource by resource, and the web
+interface greys out the rest: a button its user may not press, a menu entry
+for a page it may not read. The pages below Configuration sit below
+`configuration:read` in the menu, so a role of the file that is to find them
+there wants that as well, as `support` above has it.
 
 
 ## At a console somebody types at
@@ -334,20 +495,39 @@ to whoever holds the console; the group of time servers - what the section
 takes and refuses, what is in effect after a start and after a save, the test
 of one server and what it says of the certificate, and the NTS lines under a
 German culture; the time servers named without their root dots wherever
-somebody reads them; both event streams as a proxy sees them; and what the
-hub says it was built from - its own assembly stamped, one line per
-repository, and two repositories of one name kept apart. None of them
+somebody reads them; both event streams as a proxy sees them, and each of
+them ending with the session or the API key that opened it, and the
+traffic's with the role that let it in; who may do
+what - what each of the three roles may and may not do, the viewer kept out
+of the traffic and the hub role out of the peering over the API, a refusal
+naming the roles that would have been let in, and a role the configuration
+file adds heard by the API; the certificate store over the
+API - TLS's four kinds and none of a vehicle's, a root imported for the uses
+it is for, those uses changed and taken back to every use, a root switched off
+and deleted, a usage that is not one refused where it is typed, and no store
+at all for anybody not signed in; and what the hub says it was built from -
+its own assembly stamped, one line per repository, and two repositories of
+one name kept apart. None of them
 asks a name server or a time server anything - name resolution is switched
 off where a server is tested, and the tests that need the time client switched
 on start the hub on a clock whose timers never fire.
 
 What the node below does on its own - the file's sections, the log, the time
-servers, the certificate store, the accounts' roles and the ports - is tested
+servers and what they are held to, the certificate store, the accounts' roles
+and the ports - is tested
 once more in WWCP_Node's own `WWCP_Node_Tests`, against a node of no
 particular kind.
 
-The web interface has tests of its own, for what the NTS page sends when one
-server of the list is changed.
+The web interface has tests of its own: what a page does with a hub that
+does not answer, or stops halfway through an answer, and what it then says -
+a read that changed nothing, a write that may have gone through, a sign-in;
+what the DNS page and the NTS page send when one server of the list is
+changed, with the pins of every other server still on it; pins as somebody
+types them and as they are read back, in words, and what the certificate
+store offers a server; a page left with something typed into it, which asks
+before it is left; and a stream the browser has given up on - the hub asked
+why, and a session that is gone, a role that went and a stream that was
+merely cut each answered in its own way.
 
 
 ## Your participation

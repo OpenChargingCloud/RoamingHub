@@ -24,7 +24,7 @@ using org.GraphDefined.Vanaheimr.Hermod.HTTP;
 using cloud.charging.open.protocols.OCPI;
 
 using cloud.charging.open.RoamingHub.OCPI;
-using cloud.charging.open.RoamingHub.Web;
+using cloud.charging.open.protocols.WWCP.Node.Web;
 
 #endregion
 
@@ -37,16 +37,18 @@ namespace cloud.charging.open.RoamingHub
     /// partners pushed.
     /// </summary>
     /// <remarks>
-    /// Three groups of routes and three permissions. Reading is reading, and
-    /// includes what the partners sent - a session is a record about a
-    /// customer, but so is the log. Issuing tokens is the operator's daily
-    /// work. Adding a partner hands a foreign system the right to push into
-    /// this hub, and is the highest of the three. See
-    /// <see cref="Permissions"/>.
+    /// Who this hub is in OCPI is configuration, and read as configuration.
+    /// Its peers are a resource of their own - see <see cref="HubAccess.Peers"/>:
+    /// reading them shows who is on this hub; editing them adds, suspends,
+    /// resumes or removes one, which hands a foreign system the right to push
+    /// into this hub or takes it away; and running them is the credentials
+    /// handshake with one, which asks a server somebody named something and
+    /// believes the answer. Out of the box only the administrators may do the
+    /// last two.
     ///
-    /// A partner's tokens travel to the browser only for whoever may manage
-    /// partners: the token this hub handed out is what the operator has to
-    /// give the partner, so it has to be shown to them - and to nobody else,
+    /// A partner's tokens travel to the browser only for whoever may edit the
+    /// peers: the token this hub handed out is what the operator has to give
+    /// the partner, so it has to be shown to them - and to nobody else,
     /// because it opens this hub.
     /// </remarks>
     public partial class RoamingHubHTTPAPI
@@ -87,7 +89,7 @@ namespace cloud.charging.open.RoamingHub
         private Task<HTTPResponse> GetOCPIConfiguration(HTTPRequest Request)
         {
 
-            if (!TryAuthorize(Request, Permissions.ReadConfiguration, false, out _, out var refused))
+            if (!TryAuthorize(Request, Permission.Read(NodeResources.Configuration), false, out _, out var refused))
                 return Task.FromResult(refused);
 
             return Task.FromResult(
@@ -108,10 +110,10 @@ namespace cloud.charging.open.RoamingHub
         private Task<HTTPResponse> GetPartners(HTTPRequest Request)
         {
 
-            if (!TryAuthorize(Request, Permissions.ReadConfiguration, false, out var user, out var refused))
+            if (!TryAuthorize(Request, Permission.Read(HubAccess.Peers), false, out var user, out var refused))
                 return Task.FromResult(refused);
 
-            var mayManage = PermissionsOf(user).HasFlag(Permissions.ManageRoamingPartners);
+            var mayManage = RoamingHub.IsAllowed(user, HubAccess.Peers, Operation.Edit);
 
             return Task.FromResult(
                        JSONResponse(Request, HTTPStatusCode.OK, RoamingHub.RemotePartiesJSON(IncludeSecrets: mayManage))
@@ -134,7 +136,7 @@ namespace cloud.charging.open.RoamingHub
         private async Task<HTTPResponse> PostPartner(HTTPRequest Request)
         {
 
-            if (!TryAuthorize(Request, Permissions.ManageRoamingPartners, true, out var user, out var refused))
+            if (!TryAuthorize(Request, Permission.Edit(HubAccess.Peers), true, out var user, out var refused))
                 return refused;
 
             if (!TryParseJSONObject(Request, out var json, out var errorResponse))
@@ -172,7 +174,7 @@ namespace cloud.charging.open.RoamingHub
         private async Task<HTTPResponse> PostPartnerRegister(HTTPRequest Request)
         {
 
-            if (!TryAuthorize(Request, Permissions.ManageRoamingPartners, true, out var user, out var refused))
+            if (!TryAuthorize(Request, Permission.Run(HubAccess.Peers), true, out var user, out var refused))
                 return refused;
 
             if (!TryGetVersionAndId(Request, out var version, out var id, out var badRequest))
@@ -220,7 +222,7 @@ namespace cloud.charging.open.RoamingHub
         private Task<HTTPResponse> SetPeerSuspension(HTTPRequest Request, Boolean Suspend)
         {
 
-            if (!TryAuthorize(Request, Permissions.ManageRoamingPartners, true, out var user, out var refused))
+            if (!TryAuthorize(Request, Permission.Edit(HubAccess.Peers), true, out var user, out var refused))
                 return Task.FromResult(refused);
 
             if (!Request.ParsedURLParameters.Any() ||
@@ -271,7 +273,7 @@ namespace cloud.charging.open.RoamingHub
         private async Task<HTTPResponse> DeletePartner(HTTPRequest Request)
         {
 
-            if (!TryAuthorize(Request, Permissions.ManageRoamingPartners, true, out var user, out var refused))
+            if (!TryAuthorize(Request, Permission.Edit(HubAccess.Peers), true, out var user, out var refused))
                 return refused;
 
             if (!TryGetVersionAndId(Request, out var version, out var id, out var badRequest))

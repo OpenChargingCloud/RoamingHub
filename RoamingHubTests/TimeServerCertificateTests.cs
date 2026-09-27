@@ -119,13 +119,15 @@ namespace cloud.charging.open.RoamingHub.Tests
         #region EveryCertificateIsShownWithBothEndsOfItsValidity()
 
         /// <summary>
-        /// The session, the server's certificate and what it is for, the root
-        /// with its fingerprint, each with both ends of its validity and the days
-        /// it has left - and the verdict.
+        /// The session, the server's certificate and what it is for, with its
+        /// own fingerprint, the root with its fingerprint, each with both ends
+        /// of its validity and the days it has left - and the verdict.
         /// </summary>
         /// <remarks>
-        /// The fingerprint expected is worked out here rather than asked of the
-        /// RoamingHub, so that the test does not agree with whatever it is given.
+        /// The fingerprints expected are worked out here rather than asked of
+        /// the RoamingHub, so that the test does not agree with whatever it is
+        /// given. The server's own is what a certificate pin is written down
+        /// from, which is why the node says it since servers can be held to one.
         /// </remarks>
         [Test]
         public void EveryCertificateIsShownWithBothEndsOfItsValidity()
@@ -139,12 +141,13 @@ namespace cloud.charging.open.RoamingHub.Tests
             Assert.That(steps.Select(step => step.Text), Is.EqualTo(new[] {
                 "TLS 1.3, TLS_AES_128_GCM_SHA256, ALPN ntske/1.",
                 "Server certificate: CN=time.example, for time.example; RSA 2048-bit, sha256RSA; valid 2026-09-13 12:00:00 to 2026-12-11 12:00:00 UTC, 79 day(s) left.",
+                $"Its SHA-256 fingerprint: {Convert.ToHexString(SHA256.HashData(server.RawData)).ToLowerInvariant()}.",
                 "Root CA: CN=Test Root; RSA 2048-bit, sha256RSA; valid 2025-09-23 12:00:00 to 2029-06-19 12:00:00 UTC, 1000 day(s) left.",
                 $"The root's SHA-256 fingerprint: {Convert.ToHexString(SHA256.HashData(root.RawData)).ToLowerInvariant()}.",
                 "Validated: the chain ends at a root this machine trusts, nothing in it is revoked (asked online), and 'time.example' is one of the server certificate's names."
             }));
 
-            Assert.That(steps.Select(step => step.Level), Is.EqualTo(new[] { "info", "info", "info", "info", "notice" }));
+            Assert.That(steps.Select(step => step.Level), Is.EqualTo(new[] { "info", "info", "info", "info", "info", "notice" }));
 
         }
 
@@ -268,7 +271,11 @@ namespace cloud.charging.open.RoamingHub.Tests
 
             Assert.Multiple(() => {
                 Assert.That(steps[1].Text,  Does.StartWith("Server certificate: CN=time.example, for time.example, issued by CN=Unknown Root;"));
-                Assert.That(steps,          Has.None.Matches<(String Level, String Text)>(step => step.Text.Contains("fingerprint")));
+
+                // The server's own fingerprint, which a certificate pin is
+                // written down from - and no root's, because there is no root.
+                Assert.That(steps[2],       Is.EqualTo(("info", $"Its SHA-256 fingerprint: {Convert.ToHexString(SHA256.HashData(server.RawData)).ToLowerInvariant()}.")));
+                Assert.That(steps,          Has.None.Matches<(String Level, String Text)>(step => step.Text.Contains("root's SHA-256 fingerprint")));
                 Assert.That(steps[^1],      Is.EqualTo(("error", "Not validated: no chain up to a root could be built.")));
             });
 

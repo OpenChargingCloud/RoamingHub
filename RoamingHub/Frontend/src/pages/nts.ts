@@ -4,7 +4,10 @@ import { html, must, render, type HTMLFragment } from '../html';
 import type { Page } from '../router';
 import { shell } from '../shell';
 import { errorMessage, formatValue, humanizeKey, whileSaving } from '../ui';
+import { typedSinceDrawn, unsaved } from '../unsaved';
 import { entryOf, nameTaken, readable, withServer, withoutServer, type UsualPorts } from './ntsServers';
+import { draftOf, withPins, type StoreOffers } from './pins';
+import { certificateVerdictView, heldToView, pinsFieldset, readPinsFieldset, storeOffers, wirePinsFieldset } from './serverCertificates';
 
 /**
  * What the NTS client allows itself when the RoamingHub has not been told.
@@ -13,6 +16,11 @@ import { entryOf, nameTaken, readable, withServer, withoutServer, type UsualPort
  * it was configured with none - and it does not repeat what the client then
  * falls back to, which is three seconds. It is shown in the empty field, so
  * that an empty field does not read as "no timeout at all".
+ *
+ * And it is what this page works out how long to wait for a test or a
+ * synchronisation from, where the RoamingHub was told nothing. The page
+ * allows fifteen seconds on top of it, so being wrong here by a few seconds
+ * costs nothing at all.
  */
 const theClientsOwnTimeout = 3;
 
@@ -57,15 +65,28 @@ export const ntsPage: Page = {
 
         render(content, html`<div class="loading">Loading ...</div>`);
 
-        must<HTMLButtonElement>(root, '#reload').addEventListener('click', () => void load());
+        // Reload throws what is typed into the group's policy away just as
+        // thoroughly as leaving the page does, and from the opposite corner of
+        // the screen, so it asks first.
+        must<HTMLButtonElement>(root, '#reload').addEventListener('click', () => {
+            if (unsaved.mayBeLost())
+                void load();
+        });
 
-        const mayChange = auth.can('changeNetworkSettings');
-        const mayTest   = auth.can('runDiagnostics');
+        const mayChange = auth.can('nts', 'edit');
+        const mayTest   = auth.can('nts', 'run');
 
         let cancelled = false;
         let current: NTSConfiguration | null = null;
         let clock:   Clock            | null = null;
         let syncing = false;
+
+        /**
+         * The roots and server certificates the store keeps for the time
+         * servers, to be picked in a server's dialog and to name a pinned
+         * fingerprint by - or null where this person may not read the store.
+         */
+        let offers: StoreOffers | null = null;
 
 
         /** The ports a server is asked on unless its entry says otherwise. */
@@ -463,6 +484,12 @@ export const ntsPage: Page = {
                                     <span class="fingerprint" title="SHA-256 fingerprint of the root CA">${fingerprintView(source.rootCA.fingerprint)}</span>
                                 `
                               : html`<span class="muted small">Root CA: no key exchange yet</span>`}
+                        <span class="server-certificate small">
+                            ${heldToView(draftOf(source.heldTo), offers?.nameOf)}
+                            ${source.judgement || source.known && !source.rootCA
+                                  ? certificateVerdictView(source.judgement, source.known)
+                                  : ''}
+                        </span>
                     </div>
 
                     <div class="actions">
@@ -534,10 +561,11 @@ export const ntsPage: Page = {
          * Add a time server, or change or delete one, in a dialog.
          *
          * A dialog rather than fields in the row: a server has five things
-         * that can be said about it, and the list is for reading which servers
-         * there are. And the RoamingHub is told the whole list when this is saved,
-         * so the dialog is also where it becomes clear that exactly one server
-         * is being changed.
+         * that can be said about it and what its certificate is held to
+         * besides, and the list is for reading which servers there are. And
+         * the RoamingHub is told the whole list when this is saved, so the
+         * dialog is also where it becomes clear that exactly one server is
+         * being changed.
          *
          * @param index  the server's place in the list, or null to add one.
          */
@@ -605,6 +633,18 @@ export const ntsPage: Page = {
                         <span class="hint">Switched off, it stays in the list and is not asked.</span>
                     </label>
 
+                    ${pinsFieldset(draftOf(shown?.heldTo), {
+                          service:  'nts',
+                          shown:    shown === null
+                                        ? null
+                                        : {
+                                              name:         readable(shown.hostname),
+                                              certificate:  shown.certificate ?? shown.judgement?.certificate ?? shown.known?.certificate ?? null,
+                                              root:         shown.rootCA?.fingerprint ?? shown.judgement?.root ?? shown.known?.root ?? null
+                                          },
+                          offers
+                      })}
+
                     <div class="form-actions">
                         <button type="submit" class="btn primary">Save</button>
                         <button type="button" class="btn" id="server-cancel">Cancel</button>
@@ -670,6 +710,16 @@ export const ntsPage: Page = {
                     return;
                 }
 
+                // What it is held to is in the dialog as well, so that it is
+                // saved as it is shown - kept where nobody touched it, which is
+                // what the entry lost before this was here.
+                const pins = readPinsFieldset(form);
+
+                if (pins.error !== undefined) {
+                    error.textContent = pins.error;
+                    return;
+                }
+
                 const entry: NTSServerEntry = { hostname };
 
                 if (priority !== 0)                                      entry.priority   = priority;
@@ -677,7 +727,7 @@ export const ntsPage: Page = {
                 if (ntp.length   > 0 && Number(ntp)   !== usual.ntp)    entry.ntpPort    = Number(ntp);
                 if (data.get('enabled') === null)                        entry.enabled    = false;
 
-                void tell(withServer(list, index, entry));
+                void tell(withServer(list, index, withPins(entry, pins.draft)));
 
             });
 
@@ -693,6 +743,8 @@ export const ntsPage: Page = {
                     void tell(withoutServer(list, index));
 
                 });
+
+            wirePinsFieldset(dialog);
 
             dialog.addEventListener('close',  dismiss);
             dialog.addEventListener('cancel', dismiss);
@@ -751,7 +803,7 @@ export const ntsPage: Page = {
 
             try
             {
-                result = await api.nts.test(host);
+                result = await api.nts.test(current?.settings.timeoutSeconds ?? theClientsOwnTimeout, host);
             }
             catch (problem)
             {
@@ -930,7 +982,7 @@ export const ntsPage: Page = {
                 // The answer carries the whole configuration as well as the
                 // result, because an exchange moves the cookies and the record
                 // of the last key exchange that each row is showing.
-                current = await api.nts.sync();
+                current = await api.nts.sync(current?.settings.timeoutSeconds ?? theClientsOwnTimeout);
 
                 // And the clock above: an exchange is exactly the thing that
                 // turns "never checked" into a number.
@@ -960,11 +1012,16 @@ export const ntsPage: Page = {
                 // Together, because they are two halves of one question and a
                 // page that showed where the time comes from without saying
                 // whether it is any good has said nothing.
-                const [loaded, now] = await Promise.all([api.nts.get(), api.clock()]);
+                //
+                // The store beside them and not after them: it only names
+                // fingerprints and offers them in the dialog, and a store this
+                // person may not read is no reason to show no page.
+                const [ loaded, now, kept ] = await Promise.all([ api.nts.get(), api.clock(), storeOffers('nts') ]);
 
                 if (!cancelled) {
                     current = loaded;
                     clock   = now;
+                    offers  = kept;
                     draw();
                 }
             }
@@ -978,9 +1035,14 @@ export const ntsPage: Page = {
 
         }
 
+        // The group's policy is a form and answers for itself. The list needs
+        // no guard: it is never a draft, because every change to a server is
+        // told to the RoamingHub the moment its dialog is saved.
+        const release = unsaved.heldBy(() => typedSinceDrawn(content.querySelector('#policy-form')));
+
         void load();
 
-        return () => { cancelled = true; };
+        return () => { cancelled = true; release(); };
 
     }
 

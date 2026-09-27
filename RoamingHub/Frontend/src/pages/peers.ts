@@ -46,7 +46,12 @@ export const peersPage: Page = {
 
         must<HTMLButtonElement>(root, '#reload').addEventListener('click', () => void load());
 
-        const mayManage = auth.can('manageRoamingPartners');
+        const mayManage   = auth.can('peers', 'edit');
+
+        // Starting the credentials handshake with a peer is running something
+        // against it rather than changing who is on this hub, so it is asked
+        // for on its own - the hub checks it on its own as well.
+        const mayRegister = auth.can('peers', 'run');
 
         let cancelled = false;
         let store: Partners | null = null;
@@ -210,7 +215,7 @@ export const peersPage: Page = {
                     <td class="small muted">${formatTimestamp(partner.created)}</td>
 
                     <td class="right">
-                        ${mayManage && partner.canRegister ? html`
+                        ${mayRegister && partner.canRegister ? html`
                             <button type="button" class="btn small partner-register" data-version="${partner.version}" data-id="${partner.id}"
                                     title="Fetch their versions with the token they handed out, and POST this hub's credentials to them">
                                 ${partner.registered ? 'Register again' : 'Register'}

@@ -26,12 +26,12 @@ using org.GraphDefined.Vanaheimr.Hermod.HTTP;
 using org.GraphDefined.Vanaheimr.Norn.NTS;
 
 using cloud.charging.open.protocols.WWCP.Node;
+using cloud.charging.open.protocols.WWCP.Node.Certificates;
 using cloud.charging.open.protocols.WWCP.Node.Configuration;
 using cloud.charging.open.protocols.WWCP.Node.Logging;
 
 using cloud.charging.open.RoamingHub.Configuration;
 using cloud.charging.open.RoamingHub.Logging;
-using cloud.charging.open.RoamingHub.Web;
 
 #endregion
 
@@ -177,6 +177,21 @@ namespace cloud.charging.open.RoamingHub
             ("hub",            "hub")
         ];
 
+        /// <summary>
+        /// The kinds of certificate a hub keeps: the four TLS is made of, and
+        /// none of the vehicle's seven.
+        /// </summary>
+        /// <remarks>
+        /// What a server this hub connects to may chain to, what a client
+        /// connecting to it has to chain to, a server's certificate kept to be
+        /// recognised, and what this hub shows, with its key. Today the name
+        /// servers and the time servers are what they are held against; the
+        /// peers, reached over HTTPS and reaching this hub the same way, are
+        /// what a hub has more of than anybody. Public, so that a command line
+        /// can refuse a kind before the hub exists to refuse it.
+        /// </remarks>
+        public static readonly IReadOnlyList<CertificateKind> CertificateKinds = CertificateKindExtensions.TLS;
+
         #endregion
 
         #region Properties
@@ -206,6 +221,7 @@ namespace cloud.charging.open.RoamingHub
         /// <param name="ConfigFile">Where everything this RoamingHub can be told in writing lives; "configuration.json" beside the process by default.</param>
         /// <param name="OCPI">Who this RoamingHub is in OCPI, unless the configuration file says otherwise.</param>
         /// <param name="Frontend">Where the web interface comes from; the bundle embedded in this assembly by default.</param>
+        /// <param name="CertificatesPath">The directory of the certificate store; what the file says, or "certificates" beside it, by default.</param>
         /// <param name="Log">The event log; a new one by default.</param>
         /// <param name="LogToConsole">Whether the event log is also written to the console.</param>
         /// <param name="ConsoleLogLevel">What the console shows of it.</param>
@@ -224,6 +240,7 @@ namespace cloud.charging.open.RoamingHub
                           WWCPConfigFile?        ConfigFile         = null,
                           OCPIConfiguration?     OCPI               = null,
                           IStaticContentSource?  Frontend           = null,
+                          String?                CertificatesPath   = null,
                           EventLog?              Log                = null,
                           Boolean                LogToConsole       = true,
                           LogLevel               ConsoleLogLevel    = LogLevel.Info,
@@ -246,18 +263,14 @@ namespace cloud.charging.open.RoamingHub
                    HTTPRootPath:       HTTPRootPath,
                    ExtAPI:             ExtAPI,
                    AccountsPath:       AccountsPath,
-                   Roles:              UserRole.All.Select(role => role.Name),
+                   Resources:          HubAccess.Resources,
+                   RoleDefinitions:    HubAccess.Roles,
                    ConfigFile:         ConfigFile,
                    DNSClient:          DNSClient,
                    NTSClient:          NTSClient,
                    Frontend:           Frontend ?? new EmbeddedContentSource(HTTPRoot, typeof(RoamingHub).Assembly),
-
-                   // None in the node's store. Its kinds are a vehicle's - a
-                   // contract, a provisioning chain, a tariff - and none of them
-                   // is anything a hub presents or believes, so a store of them
-                   // beside the configuration file would be seven empty
-                   // directories promising something nothing here reads.
-                   CertificateKinds:   [],
+                   CertificatesPath:   CertificatesPath,
+                   CertificateKinds:   CertificateKinds,
                    Log:                Log,
                    LogToConsole:       LogToConsole,
                    ConsoleLogLevel:    ConsoleLogLevel,

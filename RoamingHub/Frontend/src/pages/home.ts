@@ -17,7 +17,7 @@ export const homePage: Page = {
     title: 'RoamingHub',
 
     render({ navigate }) {
-        navigate(auth.can('readTraffic') ? '/traffic' : '/configuration', true);
+        navigate(auth.can('traffic', 'read') ? '/traffic' : '/configuration', true);
     }
 
 };

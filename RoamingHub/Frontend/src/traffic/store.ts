@@ -1,4 +1,4 @@
-import { api, type Call } from '../api/client';
+import { api, ApiError, type Call } from '../api/client';
 
 // The browser's copy of what went between the peers, fed by the same two
 // things as the event log beside it: a snapshot from the JSON API and a
@@ -38,6 +38,14 @@ const MAX_CALLS = 5_000;
 /** How much of the traffic a fresh page loads before it starts following along. */
 const SNAPSHOT_SIZE = 1_000;
 
+/**
+ * How long after the stream has given up before the hub is asked why, and how
+ * long before asking again where it could not answer either - the event log's
+ * two numbers, for the same reasons: see logs/store.ts.
+ */
+const ASK_WHY_AFTER   =  3_000;
+const ASK_AGAIN_AFTER = 10_000;
+
 
 export class TrafficStore {
 
@@ -59,8 +67,21 @@ export class TrafficStore {
     /** Whether the hub is keeping the bodies at all. */
     payloads = false;
 
+    /**
+     * Whether the hub stopped sending the traffic to this account, because
+     * it may no longer read it - which the stream cannot say, and asking the
+     * hub who is signed in can.
+     */
+    refused = false;
+
     private source:              EventSource | null = null;
     private readonly listeners = new Set<Listener>();
+
+    /** Set while the hub is being asked why the stream stopped. */
+    private askingWhy = false;
+
+    /** The next attempt to find out, so that stopping cancels it. */
+    private askAgain: ReturnType<typeof setTimeout> | null = null;
 
 
     onChange(listener: Listener): () => void {
@@ -75,6 +96,8 @@ export class TrafficStore {
         if (this.source !== null)
             return;
 
+        this.refused = false;
+
         const source = new EventSource(api.trafficEventsURL);
         this.source  = source;
 
@@ -85,10 +108,18 @@ export class TrafficStore {
         });
 
         source.addEventListener('error', () => {
+
             if (this.streamConnected) {
                 this.streamConnected = false;
                 this.emit({ type: 'stream' });
             }
+
+            // CLOSED is the browser having given up, as on the event log's
+            // stream - and here it is also what a stream looks like that the
+            // hub ended because its reader was taken out of the hub role.
+            if (source.readyState === EventSource.CLOSED)
+                this.findOutWhy(source, ASK_WHY_AFTER);
+
         });
 
         source.addEventListener('call', event => {
@@ -106,8 +137,82 @@ export class TrafficStore {
 
     }
 
+    /**
+     * Why the stream stopped, asked of the hub rather than guessed.
+     *
+     * Three answers, where the event log has two. A 401 is a session that is
+     * gone, and the sign-in page is where this person belongs. An account
+     * that is still signed in but may no longer read the traffic has been
+     * taken out of the role that let it - opening the stream again would only
+     * be refused again, every few seconds, for as long as the page stayed
+     * open, so it is said instead. Anything else is a stream that was cut,
+     * and a new one is opened.
+     */
+    private findOutWhy(Source: EventSource, In: number): void {
+
+        if (this.askingWhy || this.source !== Source || this.askAgain !== null)
+            return;
+
+        this.askAgain = setTimeout(() => {
+
+            this.askAgain = null;
+
+            if (this.source !== Source)
+                return;
+
+            this.askingWhy = true;
+
+            api.auth.me().then(
+                me => {
+
+                    this.askingWhy = false;
+
+                    if (this.source !== Source)
+                        return;
+
+                    Source.close();
+                    this.source = null;
+
+                    if (me.permissions.includes('traffic:read')) {
+                        this.start();
+                        return;
+                    }
+
+                    this.refused = true;
+                    this.emit({ type: 'stream' });
+                    this.emit({
+                        type: 'error',
+                        text: 'This account may no longer read the traffic, so the hub has stopped sending it. ' +
+                              'What is shown is what came before.'
+                    });
+
+                },
+                (problem: unknown) => {
+
+                    this.askingWhy = false;
+
+                    // Signed out: onUnauthorized has already been told, and
+                    // what happens next is the router's business.
+                    if (problem instanceof ApiError && problem.isUnauthorized)
+                        return;
+
+                    this.findOutWhy(Source, ASK_AGAIN_AFTER);
+
+                }
+            );
+
+        }, In);
+
+    }
+
+
     /** Close the stream and forget everything: at sign-out, and when the page goes. */
     stop(): void {
+
+        if (this.askAgain !== null) {
+            clearTimeout(this.askAgain);
+            this.askAgain = null;
+        }
 
         this.source?.close();
         this.source = null;

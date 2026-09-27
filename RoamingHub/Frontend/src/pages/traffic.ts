@@ -1,4 +1,5 @@
 import type { Call } from '../api/client';
+import { auth } from '../auth';
 import { escapeHTML, html, must, render } from '../html';
 import type { Page } from '../router';
 import { shell } from '../shell';
@@ -306,7 +307,9 @@ export const trafficPage: Page = {
 
         function showStream(): void {
             streamState.className   = `stream-state ${traffic.streamConnected ? 'live' : 'down'}`;
-            streamState.textContent = traffic.streamConnected ? 'live' : 'reconnecting ...';
+            streamState.textContent = traffic.streamConnected ? 'live'
+                                    : traffic.refused         ? 'ended'
+                                    :                           'reconnecting ...';
         }
 
 
@@ -374,6 +377,13 @@ export const trafficPage: Page = {
 
                 case 'stream':
                     showStream();
+
+                    // Taken out of the role that let it read this: what the
+                    // menu offers is asked again, so that the next page drawn
+                    // no longer offers the traffic.
+                    if (traffic.refused)
+                        void auth.refresh();
+
                     break;
 
                 case 'error':
