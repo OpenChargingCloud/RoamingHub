@@ -1,4 +1,5 @@
 import { auth } from '../auth';
+import { toURL } from '../basePath';
 import { html, render } from '../html';
 import type { Page } from '../router';
 import { menu, shell } from '../shell';
@@ -19,7 +20,7 @@ export const notFoundPage: Page = {
                 <p>There is no page at <code>${url.pathname}</code>.</p>
                 <p class="muted">
                     This hub has
-                    ${menu.map((entry, index) => html`${index > 0 ? ' and ' : ''}<a href="${entry.path}">${entry.label}</a>`)}.
+                    ${menu.map((entry, index) => html`${index > 0 ? ' and ' : ''}<a href="${toURL(entry.path)}">${entry.label}</a>`)}.
                 </p>
             </section>
         `);

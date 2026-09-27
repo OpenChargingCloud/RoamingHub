@@ -1,4 +1,5 @@
 import { api, type OCPIConfiguration } from '../api/client';
+import { toURL } from '../basePath';
 import { html, must, render } from '../html';
 import type { Page } from '../router';
 import { shell } from '../shell';
@@ -85,9 +86,9 @@ export const ocpiPage: Page = {
                     <section class="card">
                         <h2><i class="fa-solid fa-database"></i> What is held</h2>
                         <div class="kv-list">
-                            <div class="kv"><span class="k">Peers</span><span class="v"><a href="/configuration/ocpi/partners">${ocpi.counts.partners}</a></span></div>
+                            <div class="kv"><span class="k">Peers</span><span class="v"><a href="${toURL('/configuration/ocpi/partners')}">${ocpi.counts.partners}</a></span></div>
                             <div class="kv"><span class="k">Of them registered</span><span class="v">${ocpi.counts.registered}</span></div>
-                            <div class="kv"><span class="k">Calls written down</span><span class="v"><a href="/traffic">${ocpi.counts.calls}</a></span></div>
+                            <div class="kv"><span class="k">Calls written down</span><span class="v"><a href="${toURL('/traffic')}">${ocpi.counts.calls}</a></span></div>
                             <div class="kv"><span class="k">Directory</span><span class="v">${ocpi.directory}</span></div>
                         </div>
                         <p class="hint">
