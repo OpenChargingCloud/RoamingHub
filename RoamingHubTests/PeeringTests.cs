@@ -152,7 +152,7 @@ namespace cloud.charging.open.RoamingHub.Tests
                 Assert.That(listed, Is.EquivalentTo(OCPIConfiguration.DefaultVersions));
                 Assert.That(listed, Does.Not.Contain("2.1.1"), "A hub is offering OCPI 2.1.1, which has no hub role.");
 
-                foreach (var version in versions)
+                foreach (var version in versions!)
                     Assert.That(version.Value<String>("url"),
                                 Is.EqualTo($"{BaseURL.TrimEnd('/')}/ext/versions/{version.Value<String>("version")}"),
                                 "A version is advertised at a URL this hub does not serve.");

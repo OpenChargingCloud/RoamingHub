@@ -207,7 +207,7 @@ namespace cloud.charging.open.RoamingHub.Tests
             {
 
                 var fingerprints = held[kind + "s"] is JArray several
-                                       ? several.Values<String>().ToArray()
+                                       ? several.Values<String>().OfType<String>().ToArray()
                                        : held.Value<String>(kind) is String one ? [ one ] : [];
 
                 if      (fingerprints.Length == 1)  yield return new JProperty(key,       fingerprints[0]);
@@ -325,7 +325,7 @@ namespace cloud.charging.open.RoamingHub.Tests
             using var leaf   = Leaf("127.0.0.1", ca);
 
             using (var chain = Trusted(leaf, ca))
-                Assert.That(RoamingHub.JudgeNameServer(nameServer, leaf, chain, SslPolicyErrors.None).Learned,
+                Assert.That(RoamingHub.JudgeNameServer(nameServer!, leaf, chain, SslPolicyErrors.None).Learned,
                             Is.EqualTo(TrustOnFirstUse.Root),
                             "the handshake after the page was loaded learned the root");
 
