@@ -501,23 +501,17 @@ to whoever holds the console; the group of time servers - what the section
 takes and refuses, what is in effect after a start and after a save, the test
 of one server and what it says of the certificate, and the NTS lines under a
 German culture; the time servers named without their root dots wherever
-somebody reads them; both event streams as a proxy sees them, and each of
-them ending with the session or the API key that opened it, and the
-traffic's with the role that let it in; who may do
-what - what each of the three roles may and may not do, the viewer kept out
-of the traffic and the hub role out of the peering over the API, a refusal
-naming the roles that would have been let in, and a role the configuration
-file adds heard by the API; the certificate store over the
-API - TLS's four kinds and none of a vehicle's, a root imported for the uses
-it is for, those uses changed and taken back to every use, a root switched off
-and deleted, a usage that is not one refused where it is typed - on an
-identity as well, which a hub offers nothing - what each kind may be told,
-as the store says it, and no store at all for anybody not signed in; a root
-learned on first use while the NTS or the DNS page was open, still in effect
-and in the file after the page's next save; and what the hub says it was
-built from -
-its own assembly stamped, one line per repository, and two repositories of
-one name kept apart. None of them
+somebody reads them; the traffic's stream as a proxy sees it, saying so while
+the peers are quiet, ending with the role that let it in, and ended when the
+hub stops; who may do what - what each of the three roles may and may not do,
+the viewer kept out of the traffic and the hub role out of the peering over
+the API, a refusal naming the roles that would have been let in, a role the
+configuration file adds heard by the API, and the clock read with the time
+servers' permission; what the certificate store keeps - TLS's four kinds and
+none of a vehicle's, and what each of them may be told, as the store says
+it - and no store at all for anybody not signed in; and what the hub says it
+was built from - its own assembly stamped, one line per repository, and two
+repositories of one name kept apart. None of them
 asks a name server or a time server anything - name resolution is switched
 off where a server is tested, and the tests that need the time client switched
 on start the hub on a clock whose timers never fire.
@@ -526,7 +520,12 @@ What the node below does on its own - the file's sections, the log, the time
 servers and what they are held to, the certificate store, the accounts' roles
 and the ports - is tested
 once more in WWCP_Node's own `WWCP_Node_Tests`, against a node of no
-particular kind.
+particular kind. And what every node has to answer over HTTP alike is
+WWCP_Node's conformance suite, `NodeConformanceTests` in `WWCP_Node_TestKit`,
+which `RoamingHubConformance` runs against a hub - the sign-in, the
+configuration, name resolution and the time servers, the log and its stream,
+stopping with browsers watching, the certificate store and the web interface;
+see [WWCP_Node's README](https://github.com/OpenChargingCloud/WWCP_Node#testing-a-kind-of-node).
 
 The web interface has tests of its own: what a page does with a hub that
 does not answer, or stops halfway through an answer, and what it then says -

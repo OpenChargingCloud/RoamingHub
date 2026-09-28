@@ -407,8 +407,13 @@ namespace cloud.charging.open.RoamingHub
 
         /// <summary>
         /// End what this hub holds open beyond the server: the watch over the
-        /// peers, the pushes in flight and the event streams.
+        /// peers and the pushes in flight.
         /// </summary>
+        /// <remarks>
+        /// The event streams - the log's and the traffic's - are not among
+        /// them: the node ends every stream of its JSON API itself, before it
+        /// asks this.
+        /// </remarks>
         protected override Task OnStopping()
         {
 
@@ -420,13 +425,6 @@ namespace cloud.charging.open.RoamingHub
             // talking to.
             if (!pushShutdown.IsCancellationRequested)
                 pushShutdown.Cancel();
-
-            // Before the server, and that order is the whole point: every
-            // browser with the Logs page open holds a request that is waiting
-            // for the next log entry rather than for its socket, and the HTTP
-            // server waits for every request it started. Closing the sockets
-            // does not wake those, so they are ended here first.
-            API.CloseEventStreams();
 
             return Task.CompletedTask;
 

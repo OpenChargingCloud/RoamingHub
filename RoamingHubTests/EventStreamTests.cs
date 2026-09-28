@@ -31,13 +31,15 @@ namespace cloud.charging.open.RoamingHub.Tests
 {
 
     /// <summary>
-    /// The two event streams - the log's and the traffic's - as a proxy in
-    /// front of the hub sees them.
+    /// The traffic's event stream, as a proxy in front of the hub sees it.
     /// </summary>
     /// <remarks>
     /// Against a hub that is started, because what is tested is what goes over
-    /// the wire: a header, what a stream says while nothing happens, and that
-    /// it ends when whoever opened it would no longer be let in.
+    /// the wire: a header, what the stream says while the peers are quiet,
+    /// that it ends when whoever opened it would no longer be let in, and that
+    /// a hub told to stop stops with it open. The log's stream is every
+    /// node's, and asked by WWCP_Node's conformance suite - see
+    /// RoamingHubConformance.
     /// </remarks>
     [TestFixture]
     public class EventStreamTests : ARoamingHubTests
@@ -105,37 +107,6 @@ namespace cloud.charging.open.RoamingHub.Tests
                 // Cut rather than closed is ended, too.
                 return true;
             }
-
-        }
-
-        #endregion
-
-        #region (private) WithAPIKey(NotAfter = null)
-
-        /// <summary>
-        /// A client that opens the hub with an API key of the account its first
-        /// start made up, and nothing else: no session, no password.
-        /// </summary>
-        private async Task<(HttpClient HTTP, APIKey Key)> WithAPIKey(DateTimeOffset? NotAfter = null)
-        {
-
-            var key   = new APIKey(APIKey_Id.Parse("event-stream-" + Guid.NewGuid().ToString("N")),
-                                   User_Id.Parse(RoamingHub.DefaultAdminUser),
-                                   NotAfter: NotAfter);
-
-            await RoamingHub.ExtAPI.AddAPIKey(key);
-
-            Assert.That(RoamingHub.ExtAPI.TryGetAPIKey(key.Id, out _), Is.True,
-                        "The API key was not added, so a test of taking it back would pass for the wrong reason.");
-
-            var http  = new HttpClient {
-                            BaseAddress  = new Uri(BaseURL),
-                            Timeout      = TimeSpan.FromSeconds(30)
-                        };
-
-            http.DefaultRequestHeaders.Add("API-Key", key.Id.ToString());
-
-            return (http, key);
 
         }
 
@@ -215,10 +186,10 @@ namespace cloud.charging.open.RoamingHub.Tests
         #endregion
 
 
-        #region TheStreamsAskAProxyNotToBufferThem(Path)
+        #region TheTrafficStreamAsksAProxyNotToBufferIt()
 
         /// <summary>
-        /// "X-Accel-Buffering: no" on both event streams.
+        /// "X-Accel-Buffering: no" on the traffic's stream, as on the log's.
         /// </summary>
         /// <remarks>
         /// nginx buffers what it passes on unless it is told otherwise, and a
@@ -226,16 +197,15 @@ namespace cloud.charging.open.RoamingHub.Tests
         /// its header - until nginx gives up on it after 60 silent seconds. The
         /// vehicle's Logs page said "reconnecting ..." all the while behind
         /// nginx, and never asked for its snapshot, which it does when the
-        /// stream opens; the hub's Logs and Traffic pages hang on the same kind
-        /// of stream.
+        /// stream opens; the hub's Traffic page hangs on the same kind of
+        /// stream.
         /// </remarks>
-        [TestCase("/api/v1/events")]
-        [TestCase("/api/v1/traffic/events")]
-        public async Task TheStreamsAskAProxyNotToBufferThem(String Path)
+        [Test]
+        public async Task TheTrafficStreamAsksAProxyNotToBufferIt()
         {
 
             using var http      = await SignedIn();
-            using var response  = await http.GetAsync(Path, HttpCompletionOption.ResponseHeadersRead);
+            using var response  = await http.GetAsync("/api/v1/traffic/events", HttpCompletionOption.ResponseHeadersRead);
 
             Assert.Multiple(() => {
                 Assert.That(response.StatusCode,                                                 Is.EqualTo(HttpStatusCode.OK));
@@ -248,60 +218,11 @@ namespace cloud.charging.open.RoamingHub.Tests
 
         #endregion
 
-        #region ASilentStreamSaysSoAndThenCarriesOn()
-
-        /// <summary>
-        /// A comment whenever the log's stream has been silent for the
-        /// heartbeat, and the next entry after it as if nothing had happened.
-        /// </summary>
-        /// <remarks>
-        /// nginx gives up on an upstream that has sent nothing for 60 seconds,
-        /// and a hub nobody is using says nothing for longer than that. The
-        /// second half is the one that could go wrong: the stream waits for the
-        /// next entry across the heartbeat instead of asking for it again, and
-        /// an entry that arrived during one must neither be lost nor come twice.
-        /// </remarks>
-        [Test]
-        public async Task ASilentStreamSaysSoAndThenCarriesOn()
-        {
-
-            RoamingHub.API.EventStreamHeartbeat = TimeSpan.FromMilliseconds(300);
-
-            using var http      = await SignedIn();
-            using var response  = await http.GetAsync("/api/v1/events", HttpCompletionOption.ResponseHeadersRead);
-            using var reader    = new StreamReader(await response.Content.ReadAsStreamAsync());
-
-            var heartbeat       = await ReadUntil(reader, line => line == ": keep-alive", TimeSpan.FromSeconds(10));
-
-            var marker          = "A line for the event stream " + Guid.NewGuid().ToString("N")[..8];
-            RoamingHub.Log.Info(marker, "test");
-
-            var lines           = new List<String>();
-            var entry           = await ReadUntil(reader, line => { lines.Add(line); return line.Contains(marker); }, TimeSpan.FromSeconds(10));
-
-            // And the one after it, to be sure the stream is still waiting for
-            // entries and not only for the heartbeat.
-            var second          = marker + " (second)";
-            RoamingHub.Log.Info(second, "test");
-
-            var secondEntry     = await ReadUntil(reader, line => { lines.Add(line); return line.Contains(second); }, TimeSpan.FromSeconds(10));
-
-            Assert.Multiple(() => {
-                Assert.That(heartbeat,                                           Is.True,   "a comment came while nothing was logged");
-                Assert.That(entry,                                               Is.True,   "the entry logged after the heartbeat arrived");
-                Assert.That(secondEntry,                                         Is.True,   "and so did the one after it");
-                Assert.That(lines.Count(line => line.Contains($"\"{marker}\"")), Is.EqualTo(1), "once");
-            });
-
-        }
-
-        #endregion
-
         #region ASilentTrafficStreamSaysSoToo()
 
         /// <summary>
         /// The traffic's stream, which is silent for as long as the peers are:
-        /// a comment after the heartbeat there as well.
+        /// a comment after the heartbeat, as on the log's.
         /// </summary>
         [Test]
         public async Task ASilentTrafficStreamSaysSoToo()
@@ -316,190 +237,6 @@ namespace cloud.charging.open.RoamingHub.Tests
             Assert.That(await ReadUntil(reader, line => line == ": keep-alive", TimeSpan.FromSeconds(10)),
                         Is.True,
                         "a comment came while no call went through the hub");
-
-        }
-
-        #endregion
-
-
-        #region AStreamEndsWithTheSessionThatOpenedIt()
-
-        /// <summary>
-        /// Signed out, a stream opened with that session ends - and a line
-        /// logged after the sign-out does not come down it first.
-        /// </summary>
-        /// <remarks>
-        /// Measured on a local controller before this was so: signed out, the
-        /// Logs page went on saying "live" and showing every line it wrote for
-        /// as long as it was watched. A stream is a request that is answered
-        /// for hours, and it was asked about its session once, when it opened.
-        /// EV's test, carried over with the change.
-        /// </remarks>
-        [Test]
-        public async Task AStreamEndsWithTheSessionThatOpenedIt()
-        {
-
-            RoamingHub.API.EventStreamHeartbeat = TimeSpan.FromMilliseconds(300);
-
-            using var http      = await SignedIn();
-
-            var lines           = new List<String>();
-            using var reader    = await OpenStream(http, lines);
-
-            Assert.That((await http.PostAsync("/api/v1/auth/logout", null)).StatusCode,
-                        Is.EqualTo(HttpStatusCode.NoContent));
-
-            var afterwards      = "Logged after the sign-out " + Guid.NewGuid().ToString("N")[..8];
-            RoamingHub.Log.Info(afterwards, "test");
-
-            var ended           = await EndsWithin(reader, lines, TimeSpan.FromSeconds(5));
-
-            Assert.Multiple(() => {
-                Assert.That(ended,                                          Is.True,   "the stream went on after its session had ended");
-                Assert.That(lines.Any(line => line.Contains(afterwards)),   Is.False,  "a line logged after the sign-out was sent to the session that had signed out");
-            });
-
-        }
-
-        #endregion
-
-        #region AQuietStreamEndsWithItsSessionToo()
-
-        /// <summary>
-        /// And a stream nothing is logged into ends at its next heartbeat, not
-        /// whenever the next line happens to be written - however the session
-        /// ended. Here all of an account's sessions are taken back at once,
-        /// the way a new password takes them, which logs nothing at all.
-        /// </summary>
-        [Test]
-        public async Task AQuietStreamEndsWithItsSessionToo()
-        {
-
-            RoamingHub.API.EventStreamHeartbeat = TimeSpan.FromMilliseconds(300);
-
-            using var http      = await SignedIn();
-
-            var lines           = new List<String>();
-            using var reader    = await OpenStream(http, lines);
-
-            var session         = RoamingHub.ExtAPI.Sessions.Single();
-
-            Assert.That(RoamingHub.ExtAPI.Sessions.RemoveAllForUser(session.UserId), Is.EqualTo(1));
-
-            Assert.That(await EndsWithin(reader, lines, TimeSpan.FromSeconds(3)), Is.True,
-                        "a stream nothing was logged into went on after its session had ended");
-
-        }
-
-        #endregion
-
-        #region AStreamOfAnotherSessionGoesOn()
-
-        /// <summary>
-        /// Only the stream of the session that ended ends: a second browser,
-        /// signed in on its own, goes on being sent the log.
-        /// </summary>
-        [Test]
-        public async Task AStreamOfAnotherSessionGoesOn()
-        {
-
-            using var mine      = await SignedIn();
-            using var theirs    = await SignedIn();
-
-            var endingLines     = new List<String>();
-            var goingLines      = new List<String>();
-            using var ending    = await OpenStream(mine,   endingLines);
-            using var going     = await OpenStream(theirs, goingLines);
-
-            Assert.That((await mine.PostAsync("/api/v1/auth/logout", null)).StatusCode,
-                        Is.EqualTo(HttpStatusCode.NoContent));
-
-            var afterwards      = "Logged after one of two signed out " + Guid.NewGuid().ToString("N")[..8];
-            RoamingHub.Log.Info(afterwards, "test");
-
-            var arrived         = await ReadUntil (going,  line => { goingLines.Add(line); return line.Contains(afterwards); }, TimeSpan.FromSeconds(10));
-            var ended           = await EndsWithin(ending, endingLines, TimeSpan.FromSeconds(5));
-
-            Assert.Multiple(() => {
-                Assert.That(arrived,                                              Is.True,   "the stream of the session still signed in stopped too");
-                Assert.That(ended,                                                Is.True,   "the stream of the session that signed out went on");
-                Assert.That(endingLines.Any(line => line.Contains(afterwards)),   Is.False,  "a line logged after the sign-out was sent to the session that had signed out");
-            });
-
-        }
-
-        #endregion
-
-        #region AStreamOpenedWithAnAPIKeyEndsWithTheKey()
-
-        /// <summary>
-        /// A stream opened with an API key ends when the key is taken back -
-        /// and a line logged afterwards does not come down it first.
-        /// </summary>
-        /// <remarks>
-        /// Such a stream has no session that could end, and held to its account
-        /// alone, a key that was revoked would go on being sent the log for as
-        /// long as the account it belonged to was there.
-        /// </remarks>
-        [Test]
-        public async Task AStreamOpenedWithAnAPIKeyEndsWithTheKey()
-        {
-
-            RoamingHub.API.EventStreamHeartbeat = TimeSpan.FromMilliseconds(300);
-
-            var (http, key)     = await WithAPIKey();
-
-            using var client    = http;
-
-            var lines           = new List<String>();
-            using var reader    = await OpenStream(client, lines);
-
-            await RoamingHub.ExtAPI.RemoveAPIKey(key);
-
-            Assert.That(RoamingHub.ExtAPI.TryGetAPIKey(key.Id, out _), Is.False, "the API key is gone");
-
-            var afterwards      = "Logged after the key was taken back " + Guid.NewGuid().ToString("N")[..8];
-            RoamingHub.Log.Info(afterwards, "test");
-
-            var ended           = await EndsWithin(reader, lines, TimeSpan.FromSeconds(5));
-
-            Assert.Multiple(() => {
-                Assert.That(ended,                                          Is.True,   "the stream went on after its API key had been taken back");
-                Assert.That(lines.Any(line => line.Contains(afterwards)),   Is.False,  "a line logged after the key was taken back was sent over it");
-            });
-
-        }
-
-        #endregion
-
-        #region AStreamEndsWhenItsAPIKeyRunsOut()
-
-        /// <summary>
-        /// And one whose key runs out ends at the next heartbeat after, with
-        /// nothing logged and nobody taking anything back.
-        /// </summary>
-        [Test]
-        public async Task AStreamEndsWhenItsAPIKeyRunsOut()
-        {
-
-            RoamingHub.API.EventStreamHeartbeat = TimeSpan.FromMilliseconds(300);
-
-            // Long enough for the stream to open before the key runs out.
-            var runsOut         = DateTimeOffset.UtcNow.AddSeconds(5);
-            var (http, _)       = await WithAPIKey(runsOut);
-
-            using var client    = http;
-
-            var lines           = new List<String>();
-            using var reader    = await OpenStream(client, lines);
-
-            var ended           = await EndsWithin(reader, lines, runsOut - DateTimeOffset.UtcNow + TimeSpan.FromSeconds(3));
-            var endedAt         = DateTimeOffset.UtcNow;
-
-            Assert.Multiple(() => {
-                Assert.That(ended,    Is.True,                                                "the stream went on after its API key had run out");
-                Assert.That(endedAt,  Is.GreaterThanOrEqualTo(runsOut.AddMilliseconds(-100)),  "the stream ended before its API key ran out, so something else ended it");
-            });
 
         }
 
@@ -563,6 +300,88 @@ namespace cloud.charging.open.RoamingHub.Tests
                 Assert.That(logGoesOn,         Is.True,                             "the log's stream of the same session ended as well, and it may be read by anybody signed in");
                 Assert.That(again.StatusCode,  Is.EqualTo(HttpStatusCode.Forbidden), "opening the traffic's stream again was not refused");
             });
+
+        }
+
+        #endregion
+
+        #region StopsWithABrowserOnTheTrafficPage()
+
+        /// <summary>
+        /// A hub with a browser on its Traffic page stops, as one with a browser
+        /// on its Logs page does: the node ends every stream of its JSON API
+        /// before it stops the server, the traffic's among them, where the hub
+        /// used to end its streams itself.
+        /// </summary>
+        /// <remarks>
+        /// Without a heartbeat, so that a stream nobody ends waits for ever
+        /// rather than until its next heartbeat finds the socket gone. And
+        /// settled, not merely opened, as the conformance suite settles the
+        /// log's (see EventStream.OpenAndSettle): a stream still writing out
+        /// what it had is ended by its socket closing, and this test would then
+        /// pass against a hub that cannot stop. A stranger's call is what comes
+        /// down this stream - calls until one arrives, a quiet moment, and one
+        /// more, whose arrival means the stream was waiting for it.
+        /// </remarks>
+        [Test]
+        public async Task StopsWithABrowserOnTheTrafficPage()
+        {
+
+            RoamingHub.API.EventStreamHeartbeat = TimeSpan.Zero;
+
+            using var http      = await SignedIn();
+            using var response  = await http.GetAsync("/api/v1/traffic/events", HttpCompletionOption.ResponseHeadersRead);
+
+            Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK), "the traffic's stream opened");
+
+            using var traffic   = new StreamReader(await response.Content.ReadAsStreamAsync());
+            using var stranger  = Anonymous();
+            using var settled   = new CancellationTokenSource();
+
+            var knocking        = Task.Run(async () => {
+                                      try
+                                      {
+                                          while (!settled.IsCancellationRequested)
+                                          {
+                                              await stranger.GetAsync("/ext/versions/knocking", settled.Token);
+                                              await Task.Delay(TimeSpan.FromMilliseconds(100), settled.Token);
+                                          }
+                                      }
+                                      catch (OperationCanceledException)
+                                      { }
+                                  });
+
+            var carried         = await ReadUntil(traffic, line => line.StartsWith("data:"), TimeSpan.FromSeconds(10));
+
+            settled.Cancel();
+            await knocking;
+
+            Assert.That(carried, Is.True, "a stranger's call never came down the traffic's stream");
+
+            await Task.Delay(TimeSpan.FromMilliseconds(500));
+
+            var waitedFor       = "/ext/versions/waited-for-" + Guid.NewGuid().ToString("N")[..8];
+
+            await stranger.GetAsync(waitedFor);
+
+            Assert.That(await ReadUntil(traffic, line => line.StartsWith("data:") && line.Contains(waitedFor), TimeSpan.FromSeconds(10)),
+                        Is.True,
+                        "the traffic's stream never started waiting for the next call");
+
+            var stopping        = RoamingHub.Stop();
+            var stopped         = await Task.WhenAny(stopping, Task.Delay(TimeSpan.FromSeconds(30))) == stopping;
+
+            // Where it does not stop, the streams are ended here, as the hub
+            // used to end them - so that this test fails rather than hanging
+            // the teardown on the same stop.
+            if (!stopped)
+                RoamingHub.API.CloseEventStreams();
+
+            await stopping;
+
+            Assert.That(stopped, Is.True,
+                        "A hub with a browser on its Traffic page did not stop within 30 seconds: " +
+                        "the traffic's stream is not ended before the server is.");
 
         }
 

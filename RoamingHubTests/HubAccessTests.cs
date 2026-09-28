@@ -428,9 +428,10 @@ namespace cloud.charging.open.RoamingHub.Tests
 
         /// <summary>
         /// The clock at /api/v1/clock, where every node has it, and read with
-        /// the time servers' permission on a hub: a viewer may, a role of the
-        /// file without nts:read is told who may, and nobody signed in is
-        /// asked to sign in. Its old path is the JSON API's 404 now.
+        /// the time servers' permission on a hub: a viewer may, and a role of
+        /// the file without nts:read is told who may. The conformance suite
+        /// asks every node the rest: that nobody signed in is asked to sign
+        /// in, and that the old path is the JSON API's 404.
         /// </summary>
         [Test]
         public async Task TheClockIsWhereEveryNodeHasItAndNeedsTheTimeServers()
@@ -445,24 +446,16 @@ namespace cloud.charging.open.RoamingHub.Tests
 
             using var viewer     = await SignedInAs("viewer3",    "viewer");
             using var support    = await SignedInAs("supporter2", "support");
-            using var anonymous  = new HttpClient { BaseAddress = address, Timeout = TimeSpan.FromSeconds(30) };
 
-            var read             = await viewer.   GetAsync("api/v1/clock");
-            var refused          = await support.  GetAsync("api/v1/clock");
+            var read             = await viewer. GetAsync("api/v1/clock");
+            var refused          = await support.GetAsync("api/v1/clock");
             var refusal          = await refused.Content.ReadAsStringAsync();
-            var nobody           = await anonymous.GetAsync("api/v1/clock");
-            var oldPath          = await viewer.   GetAsync("api/v1/configuration/time");
-            var notThere         = await oldPath.Content.ReadAsStringAsync();
 
             Assert.Multiple(() => {
                 Assert.That(read.StatusCode,     Is.EqualTo(HttpStatusCode.OK));
                 Assert.That(refused.StatusCode,  Is.EqualTo(HttpStatusCode.Forbidden));
                 Assert.That(refusal,             Does.Contain("This needs the viewer or hub or systemadmin role."),
                             "the clock asks for nts:read on a hub, which the file's role does not carry");
-                Assert.That(nobody.StatusCode,   Is.EqualTo(HttpStatusCode.Unauthorized));
-                Assert.That(oldPath.StatusCode,  Is.EqualTo(HttpStatusCode.NotFound));
-                Assert.That(notThere,            Does.Contain("Unknown API path"),
-                            "the JSON API's own 404, and not the web interface's page");
             });
 
         }
