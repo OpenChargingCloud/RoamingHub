@@ -391,6 +391,84 @@ namespace cloud.charging.open.RoamingHub.Tests
 
         #endregion
 
+
+        #region TheStatusSaysWhoTheHubIsInOCPIAfterItsVersion()
+
+        /// <summary>
+        /// The node writes every node's status; the hub adds who it is in OCPI,
+        /// right after the version - the one thing every peer wrote into its
+        /// credentials.
+        /// </summary>
+        [Test]
+        public async Task TheStatusSaysWhoTheHubIsInOCPIAfterItsVersion()
+        {
+
+            await Hub().Start();
+
+            using var viewer  = await SignedInAs("viewer2", "viewer");
+
+            var answer        = await viewer.GetAsync("api/v1/status");
+            var status        = JObject.Parse(await answer.Content.ReadAsStringAsync());
+            var names         = status.Properties().Select(property => property.Name).ToList();
+
+            Assert.Multiple(() => {
+                Assert.That(answer.StatusCode,                 Is.EqualTo(HttpStatusCode.OK));
+                Assert.That(status.Value<String>("service"),   Is.EqualTo("RoamingHub"));
+                Assert.That(status.Value<String>("partyId"),   Is.EqualTo(hub!.PartyIdText));
+                Assert.That(names.IndexOf("partyId"),          Is.EqualTo(names.IndexOf("version") + 1), String.Join(", ", names));
+                Assert.That(names,                             Does.Contain("hermod").And.Contain("uptime").And.Contain("log"),
+                            "and everything else every node's status says");
+            });
+
+        }
+
+        #endregion
+
+        #region TheClockIsWhereEveryNodeHasItAndNeedsTheTimeServers()
+
+        /// <summary>
+        /// The clock at /api/v1/clock, where every node has it, and read with
+        /// the time servers' permission on a hub: a viewer may, a role of the
+        /// file without nts:read is told who may, and nobody signed in is
+        /// asked to sign in. Its old path is the JSON API's 404 now.
+        /// </summary>
+        [Test]
+        public async Task TheClockIsWhereEveryNodeHasItAndNeedsTheTimeServers()
+        {
+
+            await Hub("""
+                      {
+                        "nts":   { "enabled": false },
+                        "roles": { "support": [ "dns:read", "traffic:read" ] }
+                      }
+                      """).Start();
+
+            using var viewer     = await SignedInAs("viewer3",    "viewer");
+            using var support    = await SignedInAs("supporter2", "support");
+            using var anonymous  = new HttpClient { BaseAddress = address, Timeout = TimeSpan.FromSeconds(30) };
+
+            var read             = await viewer.   GetAsync("api/v1/clock");
+            var refused          = await support.  GetAsync("api/v1/clock");
+            var refusal          = await refused.Content.ReadAsStringAsync();
+            var nobody           = await anonymous.GetAsync("api/v1/clock");
+            var oldPath          = await viewer.   GetAsync("api/v1/configuration/time");
+            var notThere         = await oldPath.Content.ReadAsStringAsync();
+
+            Assert.Multiple(() => {
+                Assert.That(read.StatusCode,     Is.EqualTo(HttpStatusCode.OK));
+                Assert.That(refused.StatusCode,  Is.EqualTo(HttpStatusCode.Forbidden));
+                Assert.That(refusal,             Does.Contain("This needs the viewer or hub or systemadmin role."),
+                            "the clock asks for nts:read on a hub, which the file's role does not carry");
+                Assert.That(nobody.StatusCode,   Is.EqualTo(HttpStatusCode.Unauthorized));
+                Assert.That(oldPath.StatusCode,  Is.EqualTo(HttpStatusCode.NotFound));
+                Assert.That(notThere,            Does.Contain("Unknown API path"),
+                            "the JSON API's own 404, and not the web interface's page");
+            });
+
+        }
+
+        #endregion
+
     }
 
 }

@@ -37,10 +37,9 @@ namespace cloud.charging.open.RoamingHub
     /// <para>
     /// Its own event source rather than a second kind of message on the one
     /// beside it, and that is a permission boundary rather than tidiness: the
-    /// event log is what this hub did and anybody who may read the
-    /// configuration may read it, and the traffic is what the peers did
-    /// through this hub, which is a different question and its own
-    /// permission. One stream carrying both would hand the second to whoever
+    /// event log is what this hub did and anybody signed in may read it, and
+    /// the traffic is what the peers did through this hub, which is a
+    /// different question and its own permission. One stream carrying both would hand the second to whoever
     /// was granted the first.
     /// </para>
     /// <para>
@@ -191,16 +190,16 @@ namespace cloud.charging.open.RoamingHub
         /// GET /api/v1/traffic/events: every call as it happens.
         /// </summary>
         /// <remarks>
-        /// The same shape as the event stream beside it, and for the same
-        /// reasons - see StreamEvents in RoamingHubHTTPAPI.cs, which this follows
-        /// line for line, the header a proxy is told not to buffer it by and
-        /// the comment it sends while silent included. What differs is the
-        /// permission it asks for and the source it reads from.
+        /// The node's event stream, carried by the node - the header a proxy is
+        /// told not to buffer it by and the comment it sends while silent
+        /// included; see NodeHTTPAPI.EventStreamOf. What differs is the source
+        /// it reads from and the permission it asks for.
         ///
         /// And that the permission is asked again, before every call and at
-        /// every heartbeat, beside what the log's stream asks: taking somebody
-        /// out of the hub role takes the traffic from them on their next
-        /// request, and a stream is one request that is answered for hours.
+        /// every heartbeat, beside the sign-in the node asks about: taking
+        /// somebody out of the hub role takes the traffic from them on their
+        /// next request, and a stream is one request that is answered for
+        /// hours.
         /// </remarks>
         private Task<HTTPResponse> StreamTraffic(HTTPRequest Request)
         {
@@ -208,70 +207,36 @@ namespace cloud.charging.open.RoamingHub
             if (!TryAuthorize(Request, Permission.Read(HubAccess.Traffic), false, out var reader, out var refused))
                 return Task.FromResult(refused);
 
-            var clientId    = Request.RemoteSocket.ToString();
-
-            // The node answers from the groups as they are now, and compares
-            // the account by its identification, so the reader let in at the
-            // start is what it is asked about.
-            var letIn       = StillLetIn(Request, reader);
-            var stillLetIn  = () => letIn() && RoamingHub.IsAllowed(reader, HubAccess.Traffic, Operation.Read);
-
+            // The node answers from the groups as they are now, and compares an
+            // account by its identification, so whoever the stream is asked
+            // about is asked about as they are at that moment.
             return Task.FromResult(
-                       new HTTPResponse.Builder(Request) {
-
-                           HTTPStatusCode  = HTTPStatusCode.OK,
-                           Server          = HTTPServer.HTTPServerName,
-                           ContentType     = HTTPContentType.Text.EVENTSTREAM,
-                           CacheControl    = "no-cache",
-                           Connection      = ConnectionType.KeepAlive,
-
-                           HTTPSSEWorker   = async (response, stream) => {
-
-                               using var ending = CancellationTokenSource.CreateLinkedTokenSource(
-                                                      Request.CancellationToken,
-                                                      shutdown.Token
-                                                  );
-
-                               try
-                               {
-
-                                   await stream.WriteAsync("retry: ");
-                                   await stream.WriteAsync(((UInt32) TrafficEvents.RetryInterval.TotalMilliseconds).ToString());
-                                   await stream.WriteAsync("\n\n");
-
-                                   // Out of the buffer now rather than with the
-                                   // first call: a hub whose peers are quiet
-                                   // would otherwise leave the reader waiting
-                                   // for its first byte until its own timeout.
-                                   await stream.FlushAsync(ending.Token);
-
-                                   await CarryEvents(TrafficEvents, clientId, Request, stream, ending, stillLetIn);
-
-                               }
-                               catch (OperationCanceledException)
-                               {
-                                   await TrafficEvents.Unsubscribe(clientId);
-                               }
-                               catch (ObjectDisposedException)
-                               {
-                                   await TrafficEvents.Unsubscribe(clientId);
-                               }
-                               catch (Exception e)
-                               {
-                                   await TrafficEvents.Unsubscribe(clientId);
-
-                                   // Not through the event log: a stream that
-                                   // ends because the reader went away is the
-                                   // normal end of one.
-                                   System.Diagnostics.Debug.WriteLine($"The traffic stream of {clientId} ended: {e.Message}");
-                               }
-
-                           }
-
-                       }.Set("X-Accel-Buffering", "no").
-                         WithCommonSecurityHeaders().
-                         AsImmutable
+                       EventStreamOf(Request,
+                                     TrafficEvents,
+                                     reader,
+                                     user => RoamingHub.IsAllowed(user, HubAccess.Traffic, Operation.Read))
                    );
+
+        }
+
+        #endregion
+
+        #region (private static) Publish(Source, SubEvent, JSON)
+
+        /// <summary>
+        /// Hands an event to every reader of the given source. Fire-and-forget
+        /// on purpose, as the node's own Publish is: a call is handed over from
+        /// inside the traffic recorder, and a peer's request should not wait for
+        /// a slow browser.
+        /// </summary>
+        private static void Publish(HTTPEventSource<JObject>  Source,
+                                    String                    SubEvent,
+                                    JObject                   JSON)
+        {
+
+            Source.SubmitEvent(SubEvent, JSON).
+                   ContinueWith(task => System.Diagnostics.Debug.WriteLine($"Publishing a '{SubEvent}' event failed: {task.Exception?.GetBaseException().Message}"),
+                                TaskContinuationOptions.OnlyOnFaulted);
 
         }
 

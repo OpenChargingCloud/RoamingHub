@@ -280,6 +280,25 @@ describe('how long the page is willing to wait', () => {
 });
 
 
+describe('the clock', () => {
+
+    it('is asked at /v1/clock, where every node has it now', async () => {
+
+        // At /v1/configuration/time it was the hub's alone, as it was four
+        // other kinds of node's; the node's JSON API answers that path with its
+        // 404 now, which the NTS page would have shown as a clock nobody can
+        // read.
+        fetchThat(answers(200, { now: '2026-09-28T00:00:00Z', legal: false }));
+
+        await api.clock();
+
+        assert.ok(asked[0]!.url.endsWith('/v1/clock'), `the clock was asked at ${asked[0]!.url}`);
+
+    });
+
+});
+
+
 describe('signing in', () => {
 
     // The sign-in is the one call that does not go to this hub's own API.

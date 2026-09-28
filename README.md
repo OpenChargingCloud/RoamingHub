@@ -34,7 +34,7 @@ what goes between them.
 
 | | |
 |---|---|
-| The base | WWCP_Node's - name resolution, the time source, the certificate store, the accounts and the event log - and on top of it the JSON API and its event stream |
+| The base | WWCP_Node's - name resolution, the time source, the certificate store, the accounts, the event log, and the JSON API every node answers with its event stream, to which the hub adds its own routes |
 | The peering | a peer added, a token handed out, and the credentials exchanged in **either** direction |
 | The traffic | every OCPI call that touched this hub, both ways, with the two parties of it - on its own page and its own stream |
 | Who may do what | three roles - `viewer`, `hub` and `systemadmin` - over the node's resources and the hub's two, `peers` and `traffic`, and whatever the configuration file adds |
@@ -342,7 +342,7 @@ after starting. A new interval, and switching NTS off or on, reach a running
 check at once. What the clock is worth - the time, against which group it was
 checked and how many of it had to answer, how long ago and how far off, and
 whether all of that adds up to legal time and why not - is served at
-`GET /api/v1/configuration/time`, and is the first card of the NTS page.
+`GET /api/v1/clock`, and is the first card of the NTS page.
 
 A host name written back into the file carries the root label -
 `ptbtime1.ptb.de.` - because that is the absolute form it was parsed into, and
@@ -454,12 +454,13 @@ group takes effect on their next one, and a refusal names the roles that
 would have been let in - "This needs the hub or systemadmin role." A stream is
 one request answered for hours, so both streams ask again, before every event
 and at every heartbeat: whether the session that opened one is still there,
-or the API key, and - for the traffic's - whether its reader may still read
-the traffic. The answer no ends the stream, and the page behind it asks the
-hub why: signed out goes to the sign-in, and a role that went is said on the
-Traffic page rather than retried. The status,
-the log and its stream are for anybody signed in; the clock at
-`/api/v1/configuration/time` is `nts:read`. `GET /api/v1/auth/me` lists what
+or the API key, or the password - a new one ends it - and, for the
+traffic's, whether its reader may still read the traffic. The answer no ends
+the stream, and the page behind it asks the hub why: signed out goes to the
+sign-in, and a role that went is said on the Traffic page rather than
+retried. The status, the log and its stream are for anybody signed in; the
+clock at `/api/v1/clock`, where every node has it, is `nts:read` on a hub,
+as it was while it sat below the time servers' configuration. `GET /api/v1/auth/me` lists what
 the account signed in may do, spelled out resource by resource, and the web
 interface greys out the rest: a button its user may not press, a menu entry
 for a page it may not read. The pages below Configuration sit below

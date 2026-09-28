@@ -147,7 +147,7 @@ namespace cloud.charging.open.RoamingHub.Tests
                 Assert.That(test.Value<Boolean>("ok"),                      Is.False);
                 Assert.That(test["steps"]?[0]?.Value<String>("text"),       Does.Contain("switched off"));
 
-                Assert.That(said,  Has.Some.EqualTo("'root' asked this RoamingHub to test the time server 'ptbtime2.ptb.de'."),
+                Assert.That(said,  Has.Some.EqualTo("'root' asked this roaming hub to test the time server 'ptbtime2.ptb.de'."),
                             String.Join(" | ", said));
 
             });
