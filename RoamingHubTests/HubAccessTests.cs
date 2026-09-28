@@ -19,7 +19,6 @@
 
 using System.Net;
 using System.Net.Http.Headers;
-using System.Net.Sockets;
 using System.Text;
 
 using Newtonsoft.Json.Linq;
@@ -34,6 +33,7 @@ using org.GraphDefined.Vanaheimr.Hermod.Mail;
 using cloud.charging.open.protocols.WWCP.Node;
 using cloud.charging.open.protocols.WWCP.Node.Web;
 using cloud.charging.open.protocols.WWCP.Node.Configuration;
+using cloud.charging.open.protocols.WWCP.Node.TestKit;
 
 #endregion
 
@@ -106,10 +106,7 @@ namespace cloud.charging.open.RoamingHub.Tests
         private RoamingHub Hub(String Configuration = NoTimeServers)
         {
 
-            var probe  = new TcpListener(System.Net.IPAddress.Loopback, 0);
-            probe.Start();
-            var port   = ((IPEndPoint) probe.LocalEndpoint).Port;
-            probe.Stop();
+            var port   = TestPorts.Free();
 
             var file   = Path.Combine(directory, WWCPConfigFile.DefaultFileName);
             File.WriteAllText(file, Configuration);

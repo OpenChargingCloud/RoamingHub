@@ -19,7 +19,6 @@
 
 using System.Net;
 using System.Net.Http.Headers;
-using System.Net.Sockets;
 using System.Text;
 
 using Newtonsoft.Json.Linq;
@@ -29,6 +28,7 @@ using NUnit.Framework;
 using org.GraphDefined.Vanaheimr.Hermod;
 
 using cloud.charging.open.protocols.WWCP.Node.Configuration;
+using cloud.charging.open.protocols.WWCP.Node.TestKit;
 
 #endregion
 
@@ -36,17 +36,16 @@ namespace cloud.charging.open.RoamingHub.Tests
 {
 
     /// <summary>
-    /// The hub's certificate store over the wire: what it keeps and what each
-    /// of it may be told it is for, and nothing of it for anybody not signed
-    /// in.
+    /// The hub's certificate store over the wire: what it keeps, and what each
+    /// of it may be told it is for.
     /// </summary>
     /// <remarks>
     /// What every node's store does - a root uploaded for what it is for,
     /// changed and taken back to every use, identities, what is refused where
-    /// it is typed - is asked by WWCP_Node's conformance suite, see
-    /// RoamingHubConformance, which holds a store to its own word. What that
-    /// word is on a hub is asked here: TLS's four kinds, and none of a
-    /// vehicle's.
+    /// it is typed, and nothing of it for anybody not signed in - is asked by
+    /// WWCP_Node's conformance suite, see RoamingHubConformance, which holds a
+    /// store to its own word. What that word is on a hub is asked here: TLS's
+    /// four kinds, and none of a vehicle's.
     /// </remarks>
     public class CertificateStoreAPITests
     {
@@ -69,10 +68,7 @@ namespace cloud.charging.open.RoamingHub.Tests
 
             Directory.CreateDirectory(directory);
 
-            var probe  = new TcpListener(System.Net.IPAddress.Loopback, 0);
-            probe.Start();
-            var port   = ((IPEndPoint) probe.LocalEndpoint).Port;
-            probe.Stop();
+            var port   = TestPorts.Free();
 
             var file   = Path.Combine(directory, WWCPConfigFile.DefaultFileName);
             File.WriteAllText(file, """{ "nts": { "enabled": false } }""");
@@ -181,31 +177,6 @@ namespace cloud.charging.open.RoamingHub.Tests
                 Assert.That(store["kinds"]!["tlsIdentity"]!["usages"]?.Children().Any(),     Is.False);
                 Assert.That(store["kinds"]!["clientRoot"]!["hasUsages"]!.Value<Boolean>(),   Is.False);
 
-            });
-
-        }
-
-        #endregion
-
-        #region AnonymouslyTheStoreIsNotThere()
-
-        /// <summary>
-        /// The store is nobody's business anonymously: reading it and uploading
-        /// to it are both a 401, the upload before its body is looked at.
-        /// </summary>
-        [Test]
-        public async Task AnonymouslyTheStoreIsNotThere()
-        {
-
-            using var anonymous = new HttpClient { BaseAddress = client!.BaseAddress, Timeout = TimeSpan.FromSeconds(30) };
-
-            var read    = await anonymous.GetAsync("api/v1/certificates");
-            var upload  = await anonymous.PostAsync("api/v1/certificates",
-                                                    new StringContent("""{ "kind": "tlsRoot", "content": "" }""", Encoding.UTF8, "application/json"));
-
-            Assert.Multiple(() => {
-                Assert.That(read.StatusCode,    Is.EqualTo(HttpStatusCode.Unauthorized));
-                Assert.That(upload.StatusCode,  Is.EqualTo(HttpStatusCode.Unauthorized));
             });
 
         }

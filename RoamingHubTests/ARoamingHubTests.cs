@@ -40,8 +40,9 @@ namespace cloud.charging.open.RoamingHub.Tests
     /// spent on a test that only fails when it runs second.
     ///
     /// Each one gets a directory of its own for the two files it writes, and a
-    /// port the operating system has just confirmed is free - so a developer
-    /// with a RoamingHub running on 2350 can still run the tests.
+    /// port the operating system has just confirmed is free and that no other
+    /// test of the run is handed (TestPorts.Free) - so a developer with a
+    /// RoamingHub running on 2350 can still run the tests.
     ///
     /// **Nothing here reaches the network.** The configuration written before
     /// the RoamingHub is built switches the time client off, which is what

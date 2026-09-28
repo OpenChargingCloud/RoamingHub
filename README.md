@@ -495,37 +495,29 @@ written down as, what a stranger's refused call is written down as, that the
 hub's own JSON API is not traffic, the filter, catching up with `after`, the
 permission, and a call arriving on the stream while it is open.
 
-Beside those: the forms a name server takes in the file and the ones it is
-refused in, with a sentence rather than an exception; the log handing an entry
-to whoever holds the console; the group of time servers - what the section
-takes and refuses, what is in effect after a start and after a save, the test
-of one server and what it says of the certificate, and the NTS lines under a
-German culture; the time servers named without their root dots wherever
-somebody reads them; the traffic's stream as a proxy sees it, saying so while
-the peers are quiet, ending with the role that let it in, and ended when the
-hub stops; who may do what - what each of the three roles may and may not do,
-the viewer kept out of the traffic and the hub role out of the peering over
-the API, a refusal naming the roles that would have been let in, a role the
+Beside those: the traffic's stream as a proxy sees it, saying so while the
+peers are quiet, ending with the role that let it in, and ended when the hub
+stops; who may do what - what each of the three roles may and may not do, the
+viewer kept out of the traffic and the hub role out of the peering over the
+API, a refusal naming the roles that would have been let in, a role the
 configuration file adds heard by the API, and the clock read with the time
 servers' permission; what the certificate store keeps - TLS's four kinds and
-none of a vehicle's, and what each of them may be told, as the store says
-it - and no store at all for anybody not signed in; and what the hub says it
-was built from - its own assembly stamped, one line per repository, and two
-repositories of one name kept apart. None of them
-asks a name server or a time server anything - name resolution is switched
-off where a server is tested, and the tests that need the time client switched
-on start the hub on a clock whose timers never fire.
+none of a vehicle's, and what each of them may be told, as the store says it;
+and what the hub says it was built from - its own assembly stamped, one line
+per repository, and two repositories of one name kept apart. None of them
+asks a name server or a time server anything.
 
-What the node below does on its own - the file's sections, the log, the time
-servers and what they are held to, the certificate store, the accounts' roles
-and the ports - is tested
-once more in WWCP_Node's own `WWCP_Node_Tests`, against a node of no
+What the node below does on its own - the configuration file and its
+sections, the log and the console, the time servers and what they are held
+to, name resolution, the certificate store, the accounts' roles and the
+ports - is tested in WWCP_Node's own `WWCP_Node_Tests`, against a node of no
 particular kind. And what every node has to answer over HTTP alike is
 WWCP_Node's conformance suite, `NodeConformanceTests` in `WWCP_Node_TestKit`,
-which `RoamingHubConformance` runs against a hub - the sign-in, the
-configuration, name resolution and the time servers, the log and its stream,
-stopping with browsers watching, the certificate store and the web interface;
-see [WWCP_Node's README](https://github.com/OpenChargingCloud/WWCP_Node#testing-a-kind-of-node).
+which `RoamingHubConformance` runs against a hub - the sign-in and the roles
+a configuration file adds, the start, the configuration, name resolution and
+the time servers, the log and its stream, stopping with browsers watching,
+the certificate store and the web interface; see
+[WWCP_Node's README](https://github.com/OpenChargingCloud/WWCP_Node#testing-a-kind-of-node).
 
 The web interface has tests of its own: what a page does with a hub that
 does not answer, or stops halfway through an answer, and what it then says -

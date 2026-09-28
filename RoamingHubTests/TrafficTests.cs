@@ -25,6 +25,8 @@ using Newtonsoft.Json.Linq;
 
 using NUnit.Framework;
 
+using cloud.charging.open.protocols.WWCP.Node.TestKit;
+
 #endregion
 
 namespace cloud.charging.open.RoamingHub.Tests
@@ -349,7 +351,7 @@ namespace cloud.charging.open.RoamingHub.Tests
             // Pointed at a port nothing is listening on: the registration
             // fails, and a failed call is exactly as much a thing to account
             // for as one that worked.
-            var nowhere  = $"http://127.0.0.1:{TestRoamingHubs.FreePort()}/versions";
+            var nowhere  = $"http://127.0.0.1:{TestPorts.Free()}/versions";
 
             var response = await admin.PostAsync("/api/v1/ocpi/partners", JSONBody(
                                      new JProperty("version",      "2.2.1"),

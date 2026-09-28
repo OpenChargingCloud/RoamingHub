@@ -24,6 +24,8 @@ using Newtonsoft.Json.Linq;
 using org.GraphDefined.Vanaheimr.Hermod;
 using org.GraphDefined.Vanaheimr.Hermod.HTTP;
 
+using cloud.charging.open.protocols.WWCP.Node.TestKit;
+
 #endregion
 
 namespace cloud.charging.open.RoamingHub.Tests
@@ -111,7 +113,7 @@ namespace cloud.charging.open.RoamingHub.Tests
                                                  Boolean  WithHubClientInfo   = false)
         {
 
-            var port    = TestRoamingHubs.FreePort();
+            var port    = TestPorts.Free();
             var server  = new HTTPServer(IPAddress: IPv4Address.Localhost, TCPPort: IPPort.Parse(port));
             var origin  = $"http://127.0.0.1:{port}";
             var stub    = new StubPeer(server, $"{origin}/versions");

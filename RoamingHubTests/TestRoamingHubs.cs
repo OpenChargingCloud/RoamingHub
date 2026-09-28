@@ -17,14 +17,12 @@
 
 #region Usings
 
-using System.Net;
-using System.Net.Sockets;
-
 using Newtonsoft.Json.Linq;
 
 using org.GraphDefined.Vanaheimr.Hermod;
 
 using cloud.charging.open.protocols.WWCP.Node.Configuration;
+using cloud.charging.open.protocols.WWCP.Node.TestKit;
 
 using cloud.charging.open.RoamingHub.Configuration;
 
@@ -39,8 +37,8 @@ namespace cloud.charging.open.RoamingHub.Tests
     /// <remarks>
     /// Its own class rather than a few protected methods on the fixture base,
     /// because not every test wants a RoamingHub that is started and taken away
-    /// again for it: the clock is a question one can be asked without a socket,
-    /// and the shutdown tests have to do the stopping themselves.
+    /// again for it: the peering tests make theirs as they need them, and the
+    /// conformance suite starts and stops its own - see RoamingHubConformance.
     /// </remarks>
     internal static class TestRoamingHubs
     {
@@ -62,11 +60,9 @@ namespace cloud.charging.open.RoamingHub.Tests
         /// <param name="Directory">Where its accounts and its configuration go; created when it does not exist.</param>
         /// <param name="Configuration">What its configuration file says, or null for a RoamingHub nobody has configured.</param>
         /// <param name="Clock">Where it reads the time, for a test that needs to decide what time it is.</param>
-        /// <param name="LogToConsole">Whether its log reaches the console, for a test about who gets to write there. Off otherwise, because a test run's console is for the test run.</param>
         public static RoamingHub New(String         Directory,
-                                          JObject?       Configuration   = null,
-                                          TimeProvider?  Clock           = null,
-                                          Boolean        LogToConsole    = false)
+                                     JObject?       Configuration   = null,
+                                     TimeProvider?  Clock           = null)
         {
 
             System.IO.Directory.CreateDirectory(Directory);
@@ -76,11 +72,13 @@ namespace cloud.charging.open.RoamingHub.Tests
             if (Configuration is not null)
                 File.WriteAllText(configFile, Configuration.ToString());
 
+            // Its log on neither the console nor the disk: a test run's
+            // console is for the test run.
             return new RoamingHub(
-                       HTTPPort:         IPPort.Parse(FreePort()),
+                       HTTPPort:         IPPort.Parse(TestPorts.Free()),
                        AccountsPath:     Path.Combine(Directory, "accounts"),
                        ConfigFile:       new WWCPConfigFile(configFile),
-                       LogToConsole:     LogToConsole,
+                       LogToConsole:     false,
                        BridgeDebugLog:   false,
                        TimeProvider:     Clock
                    );
@@ -108,41 +106,6 @@ namespace cloud.charging.open.RoamingHub.Tests
                        new JProperty("enabled", false)
                    ))
                );
-
-        #endregion
-
-        #region FreePort()
-
-        /// <summary>
-        /// A TCP port nobody was listening on a moment ago.
-        /// </summary>
-        /// <remarks>
-        /// Asked of the operating system rather than counted up from a
-        /// constant, so that these tests do not fight with a RoamingHub
-        /// somebody has running on 2350 while they write them - and do not
-        /// fight with each other when the runner is told to parallelise.
-        ///
-        /// There is a gap between letting the port go and binding it again, and
-        /// nothing here can close it; what it buys is that the gap is
-        /// milliseconds wide instead of the whole test run.
-        /// </remarks>
-        public static UInt16 FreePort()
-        {
-
-            var listener = new TcpListener(System.Net.IPAddress.Loopback, 0);
-
-            listener.Start();
-
-            try
-            {
-                return (UInt16) ((IPEndPoint) listener.LocalEndpoint).Port;
-            }
-            finally
-            {
-                listener.Stop();
-            }
-
-        }
 
         #endregion
 
