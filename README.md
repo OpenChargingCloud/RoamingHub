@@ -314,7 +314,12 @@ says `record`, which uses its time and writes the mismatch into the
 metrological log, or `accept`, which uses it and says so in the log.
 `"trustOnFirstUse": "root"` - or `"certificate"` - holds a server to what it
 was first believed with, written into its entry of the file the moment it is
-learned. A pin narrows what is believed and never widens it: the chain still
+learned. That can be while the NTS or the DNS page is open, and a page sends
+the whole list back from what it loaded - so beside each server it sends what
+it showed that server held to, as `pinsAsShown`, and the node changes only
+what was changed on the page: a root learned in between stays, and a pin the
+page showed and no longer sends still goes. A pin narrows what is believed
+and never widens it: the chain still
 has to end at a root this machine trusts, at a TLS root of the hub's store
 kept for `nts`, or at a root the server is held to that the store keeps.
 
@@ -357,8 +362,8 @@ and none of the seven of ISO 15118, which are a vehicle's:
 |---|---|
 | `tlsRoot` | what a time server, or a name server over TLS or HTTPS, may chain to - kept for `nts`, `dns` or both |
 | `tlsServer` | a server's own certificate, kept to hold the server to by its fingerprint - for `nts`, `dns` or both |
-| `clientRoot` | what a client connecting to this hub will have to chain to |
-| `tlsIdentity` | what this hub will present in TLS, with its private key |
+| `clientRoot` | what a client connecting to this hub will have to chain to - the root, or the CA that issues the clients |
+| `tlsIdentity` | what this hub will present in TLS, with its private key - on every listener, as a hub names none it could be kept for |
 
 The first two are used today; the other two are kept, and used by nothing
 here yet. The peers are what they are waiting for: a hub reaches more servers
@@ -504,8 +509,12 @@ naming the roles that would have been let in, and a role the configuration
 file adds heard by the API; the certificate store over the
 API - TLS's four kinds and none of a vehicle's, a root imported for the uses
 it is for, those uses changed and taken back to every use, a root switched off
-and deleted, a usage that is not one refused where it is typed, and no store
-at all for anybody not signed in; and what the hub says it was built from -
+and deleted, a usage that is not one refused where it is typed - on an
+identity as well, which a hub offers nothing - what each kind may be told,
+as the store says it, and no store at all for anybody not signed in; a root
+learned on first use while the NTS or the DNS page was open, still in effect
+and in the file after the page's next save; and what the hub says it was
+built from -
 its own assembly stamped, one line per repository, and two repositories of
 one name kept apart. None of them
 asks a name server or a time server anything - name resolution is switched
@@ -522,9 +531,10 @@ The web interface has tests of its own: what a page does with a hub that
 does not answer, or stops halfway through an answer, and what it then says -
 a read that changed nothing, a write that may have gone through, a sign-in;
 what the DNS page and the NTS page send when one server of the list is
-changed, with the pins of every other server still on it; pins as somebody
-types them and as they are read back, in words, and what the certificate
-store offers a server; a page left with something typed into it, which asks
+changed, with the pins of every other server still on it and beside each
+server what the page showed it held to - but not for one added on the page,
+and never as a change; pins as somebody types them and as they are read
+back, in words, and what the certificate store offers a server; a page left with something typed into it, which asks
 before it is left; which line of the log shows which entry, drawn newest
 first and filtered by position; and a stream the browser has given up on -
 the hub asked why, and a session that is gone, a role that went and a stream

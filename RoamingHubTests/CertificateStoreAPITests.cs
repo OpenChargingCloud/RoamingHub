@@ -125,7 +125,7 @@ namespace cloud.charging.open.RoamingHub.Tests
         #endregion
 
 
-        #region (helpers) RootPem(Name) / Send(Method, Path, JSON)
+        #region (helpers) RootPem(Name) / IdentityPem(Name) / Send(Method, Path, JSON)
 
         /// <summary>
         /// A self-signed certificate, as the text of a PEM file base64-encoded -
@@ -142,6 +142,22 @@ namespace cloud.charging.open.RoamingHub.Tests
             using var root = request.CreateSelfSigned(DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddDays(365));
 
             return Convert.ToBase64String(Encoding.ASCII.GetBytes(root.ExportCertificatePem()));
+
+        }
+
+        /// <summary>
+        /// A certificate this hub could present, with its private key beside it
+        /// in the one PEM - as the text of the file, base64-encoded.
+        /// </summary>
+        private static String IdentityPem(String Name)
+        {
+
+            using var key       = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+            var request         = new CertificateRequest($"CN={Name}", key, HashAlgorithmName.SHA256);
+
+            using var identity  = request.CreateSelfSigned(DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddDays(365));
+
+            return Convert.ToBase64String(Encoding.ASCII.GetBytes(identity.ExportCertificatePem() + "\n" + key.ExportPkcs8PrivateKeyPem()));
 
         }
 
@@ -194,6 +210,15 @@ namespace cloud.charging.open.RoamingHub.Tests
                             "a server certificate is recognised, neither believed nor presented");
                 Assert.That(store["usages"]!.Values<String>(),        Is.EqualTo(new[] { "dns", "nts" }), "what a page may offer");
                 Assert.That(store["chosen"],                          Is.Null, "a hub has no session to choose certificates for");
+
+                // What a certificate of each kind may be told it is for, as the
+                // store says it for this hub rather than as the kind says it.
+                Assert.That(store["kinds"]!["tlsRoot"]!["usages"]?.Values<String>(),         Is.EqualTo(new[] { "dns", "nts" }), "what a page may offer a root");
+                Assert.That(store["kinds"]!["tlsServer"]!["usages"]?.Values<String>(),       Is.EqualTo(new[] { "dns", "nts" }));
+                Assert.That(store["kinds"]!["tlsIdentity"]!["hasUsages"]!.Value<Boolean>(),  Is.False,
+                            "a hub names no listener an identity could be told of, so a page offers it nothing - not the services a root vouches for");
+                Assert.That(store["kinds"]!["tlsIdentity"]!["usages"]?.Children().Any(),     Is.False);
+                Assert.That(store["kinds"]!["clientRoot"]!["hasUsages"]!.Value<Boolean>(),   Is.False);
 
                 Assert.That(refused,                                  Is.EqualTo(HttpStatusCode.BadRequest));
                 Assert.That(refusal.Value<String>("error"),           Does.Contain("'kind' has to be one of").And.Contain("tlsRoot").And.Not.Contain("v2gRoot"));
@@ -340,6 +365,12 @@ namespace cloud.charging.open.RoamingHub.Tests
                                                        new JProperty("usages",   "dns")
                                                    ));
 
+            var (identity, idSaid)    = await Send(HttpMethod.Post, "api/v1/certificates", new JObject(
+                                                       new JProperty("kind",     "tlsIdentity"),
+                                                       new JProperty("content",  IdentityPem("Not For The Name Servers")),
+                                                       new JProperty("usages",   new JArray("dns"))
+                                                   ));
+
             var (_, store)            = await Send(HttpMethod.Get, "api/v1/certificates");
 
             Assert.Multiple(() => {
@@ -349,6 +380,8 @@ namespace cloud.charging.open.RoamingHub.Tests
                 Assert.That(clientSaid.ToString(),         Does.Contain("only a TLS root and a server certificate"));
                 Assert.That(notAList,                      Is.EqualTo(HttpStatusCode.BadRequest));
                 Assert.That(listSaid.ToString(),           Does.Contain("has to be a list of usages"));
+                Assert.That(identity,                      Is.EqualTo(HttpStatusCode.BadRequest));
+                Assert.That(idSaid.ToString(),             Does.Contain("names none"), "an identity is told listeners, and a hub has none");
                 Assert.That(store["certificates"]!.Values().SelectMany(kind => kind.Children()).Any(),
                             Is.False,
                             "nothing refused was half-imported");

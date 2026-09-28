@@ -176,6 +176,13 @@ export interface DNSServerEntry extends PinKeys {
     port:                 number;
     transport:            string;
     queryTimeoutSeconds:  number | null;
+    /**
+     * What the page showed the server held to, in the keys above: the hub
+     * changes only what was changed on the page, and keeps what the server
+     * learned while the page was open. Only on a server the page loaded, and
+     * never read back.
+     */
+    pinsAsShown?:         PinKeys;
 }
 
 /**
@@ -297,11 +304,17 @@ export interface NTSUpdate {
  * usual: priority 0, the usual ports, switched on, held to no fingerprint.
  */
 export interface NTSServerEntry extends PinKeys {
-    hostname:    string;
-    priority?:   number;
-    ntsKEPort?:  number;
-    ntpPort?:    number;
-    enabled?:    boolean;
+    hostname:       string;
+    priority?:      number;
+    ntsKEPort?:     number;
+    ntpPort?:       number;
+    enabled?:       boolean;
+    /**
+     * What the page showed the server held to, in the keys above: the hub
+     * changes only what was changed on the page, and keeps what the server
+     * learned while the page was open. Only on a server the page loaded.
+     */
+    pinsAsShown?:   PinKeys;
 }
 
 /** How one synchronisation went, step by step. */
@@ -504,10 +517,16 @@ export interface CertificateStore {
                        description:     string;
                        trustAnchor:     boolean;
                        needsPrivateKey: boolean;
-                       /** Whether one of this kind is told what it is for. */
+                       /** Whether one of this kind is told what it is for in this store. */
                        hasUsages?:      boolean;
+                       /**
+                        * What it may be told: the services for a TLS root or a
+                        * server certificate, the listeners for a TLS identity -
+                        * of which a hub names none.
+                        */
+                       usages?:         string[];
                    }>;
-    /** What a certificate of a kind that has usages may be told it is for. */
+    /** What a TLS root or a server certificate may be told it is for, as it was said before every kind said its own. */
     usages?:       string[];
     certificates:  Record<CertificateKind, Certificate[]>;
     /** Whether anything in the store carries a private key, which is kept unencrypted. */
