@@ -79,6 +79,10 @@ export const peersPage: Page = {
         let revealTokens = false;
 
 
+        /**
+         * The whole page: when it is opened, on Reload, and after a peer was
+         * added, which empties the form for the next one.
+         */
         function draw(): void {
 
             if (store === null)
@@ -95,6 +99,42 @@ export const peersPage: Page = {
                     </div>
                 `}
 
+                <div id="peer-notices"></div>
+
+                <div class="cards">
+                    <section class="card wide" id="peer-list"></section>
+                    ${mayManage ? addCard(partners) : ''}
+                </div>
+            `);
+
+            drawList();
+            wireForm();
+
+        }
+
+
+        /**
+         * What the hub said last, and the list: after a change of one peer,
+         * when one comes or goes, and when the tokens are shown or hidden -
+         * with the form below left as it is. Drawn with the whole page, a peer
+         * half typed into the form went with every one of them, without a
+         * question: a peer going quiet somewhere else was enough.
+         */
+        function drawList(): void {
+
+            const said  = content.querySelector<HTMLElement>('#peer-notices');
+            const list  = content.querySelector<HTMLElement>('#peer-list');
+
+            // Nothing of the page drawn yet: then all of it.
+            if (store === null || said === null || list === null) {
+                draw();
+                return;
+            }
+
+            const partners = store;
+
+            render(said, html`
+
                 ${justAdded === null ? '' : html`
                     <div class="notice ok">
                         <strong>'${justAdded.id}' was added on OCPI ${justAdded.version}. The token it signs in with is</strong>
@@ -109,71 +149,68 @@ export const peersPage: Page = {
                     <div class="notice ${lastRegistration.ok ? 'ok' : 'warn'}">${lastRegistration.message}</div>
                 `}
 
-                <div class="cards">
-                    ${listCard(partners)}
-                    ${mayManage ? addCard(partners) : ''}
-                </div>
             `);
 
-            wire();
+            render(list, listCard(partners));
+
+            wireList();
 
         }
 
 
+        /** What is on the list's card: the peers, and what its columns say. */
         function listCard(partners: Partners): HTMLFragment {
 
             return html`
-                <section class="card wide">
 
-                    <h2>
-                        <i class="fa-solid fa-handshake"></i> Peers
-                        ${mayManage && partners.partners.some(partner => partner.hasOurToken) ? html`
-                            <button type="button" id="reveal" class="btn small" style="margin-left:auto">
-                                ${revealTokens ? 'Hide the tokens' : 'Show the tokens'}
-                            </button>
-                        ` : ''}
-                    </h2>
+                <h2>
+                    <i class="fa-solid fa-handshake"></i> Peers
+                    ${mayManage && partners.partners.some(partner => partner.hasOurToken) ? html`
+                        <button type="button" id="reveal" class="btn small" style="margin-left:auto">
+                            ${revealTokens ? 'Hide the tokens' : 'Show the tokens'}
+                        </button>
+                    ` : ''}
+                </h2>
 
-                    <p class="hint">
-                        A peer that is not in this list cannot call this hub, whatever token it presents. Each peer
-                        is on one OCPI version - the one it was added under, which is the one it registers on.
-                    </p>
+                <p class="hint">
+                    A peer that is not in this list cannot call this hub, whatever token it presents. Each peer
+                    is on one OCPI version - the one it was added under, which is the one it registers on.
+                </p>
 
-                    <p class="hint">
-                        <b>Connection</b> and <b>Peering</b> answer different questions, and a peer can be
-                        <span class="badge ok">registered</span> and <span class="chip conn OFFLINE">OFFLINE</span>
-                        at the same time. Peering is what was agreed once; connection is what is happening now, and
-                        it is what this hub tells every other peer over <code>hubclientinfo</code>. A peer this hub
-                        has not heard from for five minutes is taken to be offline - it does not have to be asked,
-                        because every OCPI call it makes is the answer.
-                    </p>
+                <p class="hint">
+                    <b>Connection</b> and <b>Peering</b> answer different questions, and a peer can be
+                    <span class="badge ok">registered</span> and <span class="chip conn OFFLINE">OFFLINE</span>
+                    at the same time. Peering is what was agreed once; connection is what is happening now, and
+                    it is what this hub tells every other peer over <code>hubclientinfo</code>. A peer this hub
+                    has not heard from for five minutes is taken to be offline - it does not have to be asked,
+                    because every OCPI call it makes is the answer.
+                </p>
 
-                    ${partners.partners.length === 0
-                          ? html`<p class="muted">No peer yet - this hub is a mesh of one.</p>`
-                          : html`
-                              <div class="table-scroll">
-                                  <table class="table">
-                                      <thead>
-                                          <tr>
-                                              <th>Peer</th>
-                                              <th>Role</th>
-                                              <th>OCPI</th>
-                                              <th>Connection</th>
-                                              <th>Peering</th>
-                                              <th>Their token, our token</th>
-                                              <th>Their versions URL</th>
-                                              <th>Added</th>
-                                              <th></th>
-                                          </tr>
-                                      </thead>
-                                      <tbody>
-                                          ${partners.partners.map(partner => row(partner))}
-                                      </tbody>
-                                  </table>
-                              </div>
-                          `}
+                ${partners.partners.length === 0
+                      ? html`<p class="muted">No peer yet - this hub is a mesh of one.</p>`
+                      : html`
+                          <div class="table-scroll">
+                              <table class="table">
+                                  <thead>
+                                      <tr>
+                                          <th>Peer</th>
+                                          <th>Role</th>
+                                          <th>OCPI</th>
+                                          <th>Connection</th>
+                                          <th>Peering</th>
+                                          <th>Their token, our token</th>
+                                          <th>Their versions URL</th>
+                                          <th>Added</th>
+                                          <th></th>
+                                      </tr>
+                                  </thead>
+                                  <tbody>
+                                      ${partners.partners.map(partner => row(partner))}
+                                  </tbody>
+                              </table>
+                          </div>
+                      `}
 
-                </section>
             `;
 
         }
@@ -330,16 +367,16 @@ export const peersPage: Page = {
                             </span>
                         </label>
 
-                        ${startHere ? html`
-                            <div class="form-grid">
-                                <label>The token they handed out
-                                    <input type="text" name="theirToken" maxlength="255" autocomplete="off" required />
-                                </label>
-                                <label>Their versions URL
-                                    <input type="url" name="versionsURL" placeholder="https://cpo.example.org/ocpi/versions" maxlength="255" required />
-                                </label>
-                            </div>
-                        ` : ''}
+                        <div class="form-grid" id="start-here" ${startHere ? '' : html`hidden`}>
+                            <label>The token they handed out
+                                <input type="text" name="theirToken" maxlength="255" autocomplete="off" required
+                                       ${startHere ? '' : html`disabled`} />
+                            </label>
+                            <label>Their versions URL
+                                <input type="url" name="versionsURL" placeholder="https://cpo.example.org/ocpi/versions" maxlength="255" required
+                                       ${startHere ? '' : html`disabled`} />
+                            </label>
+                        </div>
 
                         <div class="form-actions">
                             <button type="submit" class="btn primary">Add the peer</button>
@@ -354,11 +391,12 @@ export const peersPage: Page = {
         }
 
 
-        function wire(): void {
+        /** The list's buttons, each time the list is drawn. */
+        function wireList(): void {
 
             content.querySelector<HTMLButtonElement>('#reveal')?.addEventListener('click', () => {
                 revealTokens = !revealTokens;
-                draw();
+                drawList();
             });
 
             content.querySelectorAll<HTMLButtonElement>('.partner-remove').forEach(button => {
@@ -377,17 +415,35 @@ export const peersPage: Page = {
                 ));
             });
 
+        }
+
+
+        /** The form, once it is drawn - which is with the whole page, and only then. */
+        function wireForm(): void {
+
             const form = content.querySelector<HTMLFormElement>('#partner-form');
 
             if (!form)
                 return;
 
+            // The two fields for starting the peering from here are shown or
+            // hidden, and nothing else is drawn: what is typed above them
+            // stays, where drawing the page again emptied it. Hidden, they are
+            // disabled as well, so that the browser does not ask for them.
             form.querySelector<HTMLInputElement>('[name="startHere"]')?.addEventListener('change', event => {
+
                 startHere = (event.target as HTMLInputElement).checked;
-                // The typed fields survive the redraw only if kept; the form
-                // is short, so the redraw is cheap and the fields are re-read.
-                draw();
-                content.querySelector<HTMLInputElement>('#partner-form [name="theirToken"]')?.focus();
+
+                const fields = must<HTMLElement>(form, '#start-here');
+
+                fields.hidden = !startHere;
+
+                for (const input of fields.querySelectorAll<HTMLInputElement>('input'))
+                    input.disabled = !startHere;
+
+                if (startHere)
+                    form.querySelector<HTMLInputElement>('[name="theirToken"]')?.focus();
+
             });
 
             form.addEventListener('submit', event => {
@@ -460,7 +516,7 @@ export const peersPage: Page = {
                 lastRegistration  = { ok: answer.ok, message: answer.message };
                 justAdded         = null;
 
-                draw();
+                drawList();
 
             }
             catch (problem)
@@ -477,7 +533,7 @@ export const peersPage: Page = {
                     if (body.partners)
                         store = body.partners;
                     lastRegistration = { ok: false, message: body.message };
-                    draw();
+                    drawList();
                 }
                 else
                     window.alert(errorMessage(problem));
@@ -504,7 +560,7 @@ export const peersPage: Page = {
                 justAdded         = null;
                 lastRegistration  = null;
 
-                draw();
+                drawList();
 
             }
             catch (problem)
@@ -512,7 +568,7 @@ export const peersPage: Page = {
                 if (!cancelled)
                 {
                     window.alert(errorMessage(problem));
-                    void load();
+                    void reloadList();
                 }
             }
 
@@ -561,7 +617,7 @@ export const peersPage: Page = {
                 lastRegistration  = { ok: answer.ok, message: answer.message };
                 justAdded         = null;
 
-                draw();
+                drawList();
 
             }
             catch (problem)
@@ -569,13 +625,14 @@ export const peersPage: Page = {
                 if (!cancelled)
                 {
                     window.alert(errorMessage(problem));
-                    void load();
+                    void reloadList();
                 }
             }
 
         }
 
 
+        /** The whole page from the hub's list: when it is opened, and on Reload. */
         async function load(): Promise<void> {
 
             try
@@ -596,13 +653,43 @@ export const peersPage: Page = {
 
         }
 
+
+        /**
+         * The list from the hub again, and only the list: when a peer comes or
+         * goes, and after a change the hub refused. A list that cannot be read
+         * again is said above it, and the form below stays as it is.
+         */
+        async function reloadList(): Promise<void> {
+
+            try
+            {
+                const partners = await api.ocpi.partners.get();
+
+                if (cancelled)
+                    return;
+
+                store = partners;
+                drawList();
+            }
+            catch (problem)
+            {
+
+                const said = content.querySelector<HTMLElement>('#peer-notices');
+
+                if (!cancelled && said !== null)
+                    render(said, html`<div class="error-box">The peers could not be read again: ${errorMessage(problem)}</div>`);
+
+            }
+
+        }
+
         // A peer going quiet is something this hub notices by itself, without
         // anybody asking - so the page has to hear about it the same way. The
         // whole list is re-read rather than patched in place: a status change
         // is rare, and the alternative is a second copy of the merge rule.
         const stopListening = logs.onEvent<PeerPresence>('peer', () => {
             if (!cancelled)
-                void load();
+                void reloadList();
         });
 
         // A peer typed into the form and not yet added is a draft like any
