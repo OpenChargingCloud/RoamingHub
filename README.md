@@ -57,6 +57,14 @@ assembly by `RoamingHub.csproj` so that the hub is one thing to deploy. Built
 like the other components': one entry point, one sign-in at Hermod's HTTPExt
 API under `/ext`, and a menu down the left.
 
+What its pages stand on is not here but WWCP_Node's, the same for every kind
+of node: the HTML template, the router, the base path, what the page is told
+by the hub that serves it, and the question before a page's changes are left
+behind - asked in the name the hub goes by. It is in
+`libs/WWCP_Node/Frontend/src` and bundled in as `@node/...` through a webpack
+alias, so the hub gets that of the WWCP_Node it pins, and a change there
+rebuilds the bundle as a change here does.
+
 What it opens on is the traffic, and that is the whole difference. The other
 components open on their configuration, because that is what somebody sets up
 once and then leaves alone. A hub is set up once and *watched*, and the
@@ -484,7 +492,8 @@ roamingHub.ShareConsoleWith(cli.WriteBlock);   // line off, entry whole, line ba
 
 ```
 dotnet test RoamingHubTests
-npm test                     in RoamingHub/Frontend: node --test over src/**/*.test.ts
+npm test                     in RoamingHub/Frontend: node --test over src/**/*.test.ts,
+                             with WWCP_Node's hook that finds @node/... as webpack does
 npm run typecheck:test       the same files, typechecked as the page is
 ```
 
@@ -526,11 +535,13 @@ what the DNS page and the NTS page send when one server of the list is
 changed, with the pins of every other server still on it and beside each
 server what the page showed it held to - but not for one added on the page,
 and never as a change; pins as somebody types them and as they are read
-back, in words, and what the certificate store offers a server; a page left with something typed into it, which asks
-before it is left; which line of the log shows which entry, drawn newest
-first and filtered by position; and a stream the browser has given up on -
-the hub asked why, and a session that is gone, a role that went and a stream
-that was merely cut each answered in its own way.
+back, in words, and what the certificate store offers a server; which line
+of the log shows which entry, drawn newest first and filtered by position;
+and a stream the browser has given up on - the hub asked why, and a session
+that is gone, a role that went and a stream that was merely cut each
+answered in its own way. What the pages stand on is tested where it lives,
+in WWCP_Node - that a page with something typed into it asks before it is
+left, among the rest.
 
 
 ## Your participation

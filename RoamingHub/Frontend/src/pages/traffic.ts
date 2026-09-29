@@ -1,7 +1,7 @@
 import type { Call } from '../api/client';
 import { auth } from '../auth';
-import { escapeHTML, html, must, render } from '../html';
-import type { Page } from '../router';
+import { escapeHTML, html, must, render } from '@node/html';
+import type { Page } from '@node/router';
 import { shell } from '../shell';
 import { traffic } from '../traffic/store';
 import { formatTime, formatTimestamp } from '../ui';

@@ -1,7 +1,7 @@
 import { auth } from '../auth';
-import { toURL } from '../basePath';
-import { html, render } from '../html';
-import type { Page } from '../router';
+import { toURL } from '@node/basePath';
+import { html, render } from '@node/html';
+import type { Page } from '@node/router';
 import { menu, shell } from '../shell';
 
 export const notFoundPage: Page = {

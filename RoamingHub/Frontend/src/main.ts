@@ -6,9 +6,9 @@ import '@fortawesome/fontawesome-free/css/fontawesome.css';
 import '@fortawesome/fontawesome-free/css/solid.css';
 
 import { auth } from './auth';
-import { html, must, render } from './html';
+import { html, must, render } from '@node/html';
 import { logs } from './logs/store';
-import { Router } from './router';
+import { Router } from '@node/router';
 
 import { certificatesPage }   from './pages/certificates';
 import { configurationPage }  from './pages/configuration';
@@ -21,7 +21,7 @@ import { trafficPage }        from './pages/traffic';
 import { loginPage }          from './pages/login';
 import { logsPage }           from './pages/logs';
 import { notFoundPage }       from './pages/notFound';
-import { fromURL } from './basePath';
+import { fromURL } from '@node/basePath';
 
 
 const root = document.getElementById('app');

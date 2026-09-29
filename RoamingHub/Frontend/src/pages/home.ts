@@ -1,5 +1,5 @@
 import { auth } from '../auth';
-import type { Page } from '../router';
+import type { Page } from '@node/router';
 
 /**
  * Where "/" leads.

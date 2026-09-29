@@ -1,8 +1,8 @@
 import { api, type Certificate, type CertificateKind, type CertificateStore } from '../api/client';
 import { auth } from '../auth';
-import { toURL } from '../basePath';
-import { html, must, render } from '../html';
-import type { Page } from '../router';
+import { toURL } from '@node/basePath';
+import { html, must, render } from '@node/html';
+import type { Page } from '@node/router';
 import { shell } from '../shell';
 import { errorMessage, whileSaving } from '../ui';
 
