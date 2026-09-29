@@ -5,6 +5,7 @@ import { logs } from '@node/logs/store';
 import type { Page } from '@node/router';
 import { shell } from '@node/shell';
 import { errorMessage, field, formatSince, formatTimestamp } from '@node/ui';
+import { anyFormTypedSinceDrawn, unsaved } from '@node/unsaved';
 
 /**
  * The peers: who may call this hub and be reached through it, on which OCPI
@@ -44,7 +45,16 @@ export const peersPage: Page = {
 
         render(content, html`<div class="loading">Loading ...</div>`);
 
-        must<HTMLButtonElement>(root, '#reload').addEventListener('click', () => void load());
+        // Reload throws a peer typed in and not yet added away as thoroughly
+        // as leaving the page does, so it asks first.
+        must<HTMLButtonElement>(root, '#reload').addEventListener('click', () => {
+
+            if (!unsaved.mayBeLost())
+                return;
+
+            void load();
+
+        });
 
         const mayManage   = auth.can('peers', 'edit');
 
@@ -595,11 +605,16 @@ export const peersPage: Page = {
                 void load();
         });
 
+        // A peer typed into the form and not yet added is a draft like any
+        // other page's: leaving the page asks first.
+        const release = unsaved.heldBy(() => anyFormTypedSinceDrawn(content));
+
         void load();
 
         return () => {
             cancelled = true;
             stopListening();
+            release();
         };
 
     }
