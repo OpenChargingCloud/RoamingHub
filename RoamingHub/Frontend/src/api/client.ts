@@ -43,16 +43,15 @@ export interface Status extends NodeStatus {
 }
 
 /**
- * What the hub is made of: every node's sections, and its own. Only the shape
- * the Configuration page relies on is named; the rest is rendered from
- * whatever the hub sends, so that a new section on the server needs no change
- * here.
+ * What the hub is made of: every node's sections - what it was built from
+ * among them - and its own. Only the shape the Configuration page relies on is
+ * named; the fields of each section are rendered from whatever the hub sends,
+ * so that a field added on the server needs no change here.
  */
 export interface Configuration extends NodeConfiguration {
     RoamingHub:  Record<string, unknown>;
     ocpi:        Record<string, unknown>;
     traffic:     Record<string, unknown>;
-    assemblies:  Record<string, unknown>[];
 }
 
 
