@@ -3,7 +3,7 @@ import { auth } from '../auth';
 import { html, must, render, type HTMLFragment } from '@node/html';
 import { logs } from '@node/logs/store';
 import type { Page } from '@node/router';
-import { shell } from '@node/shell';
+import { mayButNot, shell } from '@node/shell';
 import { errorMessage, field, formatSince, formatTimestamp, isChecked } from '@node/ui';
 import { anyFormTypedSinceDrawn, unsaved } from '@node/unsaved';
 
@@ -91,8 +91,7 @@ export const peersPage: Page = {
 
                 ${mayManage ? '' : html`
                     <div class="notice">
-                        Signed in as ${auth.user?.roles.join(', ') ?? 'somebody'}, which may look at the peers but
-                        not change them. That needs the system administrator role.
+                        ${mayButNot('look at the peers', 'change them')}
                     </div>
                 `}
 
