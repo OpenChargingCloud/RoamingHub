@@ -4,7 +4,7 @@ import { html, must, render, type HTMLFragment } from '@node/html';
 import { logs } from '@node/logs/store';
 import type { Page } from '@node/router';
 import { shell } from '@node/shell';
-import { errorMessage, field, formatSince, formatTimestamp } from '@node/ui';
+import { errorMessage, field, formatSince, formatTimestamp, isChecked } from '@node/ui';
 import { anyFormTypedSinceDrawn, unsaved } from '@node/unsaved';
 
 /**
@@ -71,9 +71,6 @@ export const peersPage: Page = {
 
         /** What the last registration said. */
         let lastRegistration: { ok: boolean; message: string } | null = null;
-
-        /** Whether the form offers the fields for starting the peering from here. */
-        let startHere = false;
 
         /** Whether the tokens in the list are readable or dotted out. */
         let revealTokens = false;
@@ -166,7 +163,7 @@ export const peersPage: Page = {
                 <h2>
                     <i class="fa-solid fa-handshake"></i> Peers
                     ${mayManage && partners.partners.some(partner => partner.hasOurToken) ? html`
-                        <button type="button" id="reveal" class="btn small" style="margin-left:auto">
+                        <button type="button" id="reveal" class="btn small heading-action">
                             ${revealTokens ? 'Hide the tokens' : 'Show the tokens'}
                         </button>
                     ` : ''}
@@ -335,13 +332,13 @@ export const peersPage: Page = {
                             </label>
 
                             <label>Country code
-                                <input type="text" name="countryCode" placeholder="DE" maxlength="2" minlength="2" required
-                                       pattern="[A-Za-z]{2}" style="text-transform:uppercase" />
+                                <input type="text" name="countryCode" class="capitals" placeholder="DE" maxlength="2" minlength="2" required
+                                       pattern="[A-Za-z]{2}" />
                             </label>
 
                             <label>Party ID
-                                <input type="text" name="partyId" placeholder="GEF" maxlength="3" minlength="3" required
-                                       pattern="[A-Za-z0-9]{3}" style="text-transform:uppercase" />
+                                <input type="text" name="partyId" class="capitals" placeholder="GEF" maxlength="3" minlength="3" required
+                                       pattern="[A-Za-z0-9]{3}" />
                             </label>
 
                             <label>Name
@@ -359,7 +356,7 @@ export const peersPage: Page = {
                         </div>
 
                         <label class="checkbox">
-                            <input type="checkbox" name="startHere" ${startHere ? html`checked` : ''} />
+                            <input type="checkbox" name="startHere" />
                             This hub starts the peering
                             <span class="hint">
                                 Tick this when the peer has already handed out a token and a versions URL. Without
@@ -367,14 +364,13 @@ export const peersPage: Page = {
                             </span>
                         </label>
 
-                        <div class="form-grid" id="start-here" ${startHere ? '' : html`hidden`}>
+                        <div class="form-grid" id="start-here" hidden>
                             <label>The token they handed out
-                                <input type="text" name="theirToken" maxlength="255" autocomplete="off" required
-                                       ${startHere ? '' : html`disabled`} />
+                                <input type="text" name="theirToken" maxlength="255" autocomplete="off" required disabled />
                             </label>
                             <label>Their versions URL
                                 <input type="url" name="versionsURL" placeholder="https://cpo.example.org/ocpi/versions" maxlength="255" required
-                                       ${startHere ? '' : html`disabled`} />
+                                       disabled />
                             </label>
                         </div>
 
@@ -430,18 +426,22 @@ export const peersPage: Page = {
             // hidden, and nothing else is drawn: what is typed above them
             // stays, where drawing the page again emptied it. Hidden, they are
             // disabled as well, so that the browser does not ask for them.
+            //
+            // Whether the peering starts here is the box's to say, and read
+            // from it when the peer is added. Kept beside it as well, the box
+            // came back ticked after a Reload that had been agreed to throw
+            // the form away - drawn so, in a form taken for untouched.
             form.querySelector<HTMLInputElement>('[name="startHere"]')?.addEventListener('change', event => {
 
-                startHere = (event.target as HTMLInputElement).checked;
-
+                const ticked = (event.target as HTMLInputElement).checked;
                 const fields = must<HTMLElement>(form, '#start-here');
 
-                fields.hidden = !startHere;
+                fields.hidden = !ticked;
 
                 for (const input of fields.querySelectorAll<HTMLInputElement>('input'))
-                    input.disabled = !startHere;
+                    input.disabled = !ticked;
 
-                if (startHere)
+                if (ticked)
                     form.querySelector<HTMLInputElement>('[name="theirToken"]')?.focus();
 
             });
@@ -469,7 +469,7 @@ export const peersPage: Page = {
                 ourToken:     field(form, 'ourToken') || undefined
             };
 
-            if (startHere) {
+            if (isChecked(form, 'startHere')) {
                 spec.theirToken   = field(form, 'theirToken');
                 spec.versionsURL  = field(form, 'versionsURL');
             }
@@ -485,7 +485,6 @@ export const peersPage: Page = {
                 store             = answer.partners;
                 justAdded         = { id: answer.id, token: answer.ourToken, version: answer.version };
                 lastRegistration  = null;
-                startHere         = false;
 
                 draw();
 
