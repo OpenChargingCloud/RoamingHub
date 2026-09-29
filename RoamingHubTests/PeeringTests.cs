@@ -28,6 +28,8 @@ using NUnit.Framework;
 using org.GraphDefined.Vanaheimr.Hermod;
 using org.GraphDefined.Vanaheimr.Hermod.HTTP;
 
+using cloud.charging.open.protocols.WWCP.Node.TestKit;
+
 using cloud.charging.open.RoamingHub.Configuration;
 
 #endregion
@@ -490,12 +492,12 @@ namespace cloud.charging.open.RoamingHub.Tests
 
             await RoamingHub.Stop();
 
-            var again = TestRoamingHubs.New(Directory, Configuration, Clock);
+            // Its accounts are there from the first start, and stay where it is
+            // made again on a fresh port.
+            var again = await TestPorts.StartedOnFreshPorts(() => TestRoamingHubs.New(Directory, Configuration, Clock));
 
             try
             {
-
-                await again.Start();
 
                 var kept = again.OCPIVersions.SelectMany(version => version.RemoteParties).ToArray();
 

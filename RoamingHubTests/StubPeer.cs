@@ -17,9 +17,12 @@
 
 #region Usings
 
+using System.Net.Sockets;
 using System.Text;
 
 using Newtonsoft.Json.Linq;
+
+using NUnit.Framework;
 
 using org.GraphDefined.Vanaheimr.Hermod;
 using org.GraphDefined.Vanaheimr.Hermod.HTTP;
@@ -103,6 +106,14 @@ namespace cloud.charging.open.RoamingHub.Tests
         /// <summary>
         /// Start one, on a port nobody was listening on a moment ago.
         /// </summary>
+        /// <remarks>
+        /// Made again, on a fresh port, where another test run on this machine
+        /// took that port before it could be bound - as a node is by
+        /// TestPorts.StartedOnFreshPorts, which takes nothing but nodes: up to
+        /// TestPorts.StartAttempts times, and then the SocketException stands.
+        /// Started before this hub is given its versions URL, so that the URL
+        /// this hub is given names the port the peer listens on.
+        /// </remarks>
         /// <param name="Role">What this peer says it is.</param>
         /// <param name="PartyId">Its party identification.</param>
         /// <param name="Version">The single OCPI version it offers.</param>
@@ -113,9 +124,42 @@ namespace cloud.charging.open.RoamingHub.Tests
                                                  Boolean  WithHubClientInfo   = false)
         {
 
-            var port    = TestPorts.Free();
-            var server  = new HTTPServer(IPAddress: IPv4Address.Localhost, TCPPort: IPPort.Parse(port));
-            var origin  = $"http://127.0.0.1:{port}";
+            for (var attempt = 1; ; attempt++)
+            {
+
+                var stub = Made(TestPorts.Free(), Role, PartyId, Version, WithHubClientInfo);
+
+                try
+                {
+                    await stub.server.Start();
+                    return stub;
+                }
+                catch (SocketException taken) when (attempt < TestPorts.StartAttempts)
+                {
+                    TestContext.Progress.WriteLine($"The port of a stub peer at {stub.VersionsURL} was taken: {taken.Message} - made again on a fresh one, attempt {attempt + 1} of {TestPorts.StartAttempts}.");
+                    await stub.DisposeAsync();
+                }
+
+            }
+
+        }
+
+        #endregion
+
+        #region (private static) Made(Port, Role, PartyId, Version, WithHubClientInfo)
+
+        /// <summary>
+        /// One on the given port, with its routes, and not yet listening.
+        /// </summary>
+        private static StubPeer Made(UInt16   Port,
+                                     String   Role,
+                                     String   PartyId,
+                                     String   Version,
+                                     Boolean  WithHubClientInfo)
+        {
+
+            var server  = new HTTPServer(IPAddress: IPv4Address.Localhost, TCPPort: IPPort.Parse(Port));
+            var origin  = $"http://127.0.0.1:{Port}";
             var stub    = new StubPeer(server, $"{origin}/versions");
             var api     = server.AddHTTPAPI(HTTPPath.Root);
 
@@ -224,8 +268,6 @@ namespace cloud.charging.open.RoamingHub.Tests
                 );
 
             #endregion
-
-            await server.Start();
 
             return stub;
 

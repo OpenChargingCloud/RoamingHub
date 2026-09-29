@@ -24,6 +24,8 @@ using Newtonsoft.Json.Linq;
 
 using NUnit.Framework;
 
+using cloud.charging.open.protocols.WWCP.Node.TestKit;
+
 #endregion
 
 namespace cloud.charging.open.RoamingHub.Tests
@@ -42,7 +44,9 @@ namespace cloud.charging.open.RoamingHub.Tests
     /// Each one gets a directory of its own for the two files it writes, and a
     /// port the operating system has just confirmed is free and that no other
     /// test of the run is handed (TestPorts.Free) - so a developer with a
-    /// RoamingHub running on 2350 can still run the tests.
+    /// RoamingHub running on 2356 can still run the tests. Where another test
+    /// run on the same machine takes that port before the RoamingHub can bind
+    /// it, it is made again on a fresh one (TestPorts.StartedOnFreshPorts).
     ///
     /// **Nothing here reaches the network.** The configuration written before
     /// the RoamingHub is built switches the time client off, which is what
@@ -113,11 +117,12 @@ namespace cloud.charging.open.RoamingHub.Tests
 
             Directory   = TestRoamingHubs.TemporaryDirectory("tests");
 
-            RoamingHub  = TestRoamingHubs.New(Directory, Configuration, Clock);
+            // In the same directory at every attempt: the accounts a failed
+            // first start made go with it, and the next start is a first start
+            // again.
+            RoamingHub  = await TestPorts.StartedOnFreshPorts(() => TestRoamingHubs.New(Directory, Configuration, Clock));
 
             BaseURL     = RoamingHub.WebInterfaceURL.ToString();
-
-            await RoamingHub.Start();
 
             // After Start(), because that is what makes the account. Null would
             // mean accounts were already there, and the directory is new.

@@ -68,24 +68,22 @@ namespace cloud.charging.open.RoamingHub.Tests
 
             Directory.CreateDirectory(directory);
 
-            var port   = TestPorts.Free();
-
             var file   = Path.Combine(directory, WWCPConfigFile.DefaultFileName);
             File.WriteAllText(file, """{ "nts": { "enabled": false } }""");
 
-            hub        = new RoamingHub(
-                             HTTPPort:          IPPort.Parse(port),
+            hub        = await TestPorts.StartedOnFreshPorts(() => new RoamingHub(
+                             HTTPPort:          IPPort.Parse(TestPorts.Free()),
                              AccountsPath:      Path.Combine(directory, "accounts"),
                              ConfigFile:        new WWCPConfigFile(file),
                              CertificatesPath:  Path.Combine(directory, "certificates"),
                              LogToConsole:      false,
                              BridgeDebugLog:    false
-                         );
+                         ));
 
-            await hub.Start();
-
+            // The port it was started on - not the one it was first handed,
+            // where another test run on this machine took that one.
             client     = new HttpClient {
-                             BaseAddress  = new Uri($"http://127.0.0.1:{port}/"),
+                             BaseAddress  = new Uri($"http://127.0.0.1:{hub.HTTPPort}/"),
                              Timeout      = TimeSpan.FromSeconds(30)
                          };
 

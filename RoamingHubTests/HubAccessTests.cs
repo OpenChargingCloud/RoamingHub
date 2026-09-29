@@ -128,6 +128,19 @@ namespace cloud.charging.open.RoamingHub.Tests
 
         #endregion
 
+        #region (helper) StartedHub(Configuration)
+
+        /// <summary>
+        /// A hub with the given configuration file, started - and made again,
+        /// on a fresh port, where another test run on this machine took its
+        /// port before it could bind it.
+        /// </summary>
+        private Task<RoamingHub> StartedHub(String Configuration = NoTimeServers)
+
+            => TestPorts.StartedOnFreshPorts(() => Hub(Configuration));
+
+        #endregion
+
         #region (helper) SignedInAs(Name, Role)
 
         /// <summary>
@@ -290,7 +303,7 @@ namespace cloud.charging.open.RoamingHub.Tests
         public async Task AViewerMayLookAtTheDNSSettingsAndIsToldWhoMayChangeThem()
         {
 
-            await Hub().Start();
+            await StartedHub();
 
             using var viewer  = await SignedInAs("viewer1", "viewer");
 
@@ -330,7 +343,7 @@ namespace cloud.charging.open.RoamingHub.Tests
         public async Task AnOperatorMayRepointTheHubAndReadTheTrafficButNotLetInAPeer()
         {
 
-            await Hub().Start();
+            await StartedHub();
 
             using var operatorClient  = await SignedInAs("operator1", "hub");
 
@@ -361,12 +374,12 @@ namespace cloud.charging.open.RoamingHub.Tests
         public async Task ARoleFromTheConfigurationFileIsHeardByTheAPI()
         {
 
-            await Hub("""
-                      {
-                        "nts":   { "enabled": false },
-                        "roles": { "support": [ "dns:read", "traffic:read" ] }
-                      }
-                      """).Start();
+            await StartedHub("""
+                             {
+                               "nts":   { "enabled": false },
+                               "roles": { "support": [ "dns:read", "traffic:read" ] }
+                             }
+                             """);
 
             using var support  = await SignedInAs("supporter", "support");
 
@@ -400,7 +413,7 @@ namespace cloud.charging.open.RoamingHub.Tests
         public async Task TheStatusSaysWhoTheHubIsInOCPIAfterItsVersion()
         {
 
-            await Hub().Start();
+            await StartedHub();
 
             using var viewer  = await SignedInAs("viewer2", "viewer");
 
@@ -434,12 +447,12 @@ namespace cloud.charging.open.RoamingHub.Tests
         public async Task TheClockIsWhereEveryNodeHasItAndNeedsTheTimeServers()
         {
 
-            await Hub("""
-                      {
-                        "nts":   { "enabled": false },
-                        "roles": { "support": [ "dns:read", "traffic:read" ] }
-                      }
-                      """).Start();
+            await StartedHub("""
+                             {
+                               "nts":   { "enabled": false },
+                               "roles": { "support": [ "dns:read", "traffic:read" ] }
+                             }
+                             """);
 
             using var viewer     = await SignedInAs("viewer3",    "viewer");
             using var support    = await SignedInAs("supporter2", "support");
