@@ -138,7 +138,7 @@ export const peersPage: Page = {
                     <div class="notice ok">
                         <strong>'${justAdded.id}' was added on OCPI ${justAdded.version}. The token it signs in with is</strong>
                         <code class="password">${justAdded.token}</code><br />
-                        Hand it to the peer. They fetch <code>${partners.ourVersionsURL}</code> with it and POST their
+                        Hand it to the peer. They fetch <code class="path">${partners.ourVersionsURL}</code> with it and POST their
                         credentials to this hub; from then on the peering is complete. The token stays readable in the
                         list below for whoever may manage them.
                     </div>

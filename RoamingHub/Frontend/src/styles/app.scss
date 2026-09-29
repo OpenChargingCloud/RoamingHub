@@ -42,7 +42,9 @@
 
 }
 
-// A password that is shown once and never again.
+// A password that is shown once and never again. Allowed to break anywhere: a
+// peer's token is fifty characters with nothing to break at, and on a phone it
+// ran out of the notice it is shown in - the Peers page 516 pixels wide.
 code.password {
     display:        inline-block;
     padding:        0.15rem 0.4rem;
@@ -50,6 +52,7 @@ code.password {
     border-radius:  4px;
     background:     $color-surface;
     font-size:      1rem;
+    overflow-wrap:  anywhere;
     user-select:    all;
 }
 

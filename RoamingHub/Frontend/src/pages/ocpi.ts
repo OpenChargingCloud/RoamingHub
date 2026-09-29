@@ -52,8 +52,9 @@ export const ocpiPage: Page = {
                             <div class="kv"><span class="k">Versions</span><span class="v">${ocpi.versions.join(', ')}</span></div>
                         </div>
                         <p class="hint">
-                            Read once, at the start, from the <code>ocpi</code> section of ${ocpi.file}. A peer
-                            knows this hub by these, so they are not changed while it runs.
+                            Read once, at the start, from the <code>ocpi</code> section of
+                            <span class="path">${ocpi.file}</span>. A peer knows this hub by these, so they are not
+                            changed while it runs.
                         </p>
                     </section>
 
