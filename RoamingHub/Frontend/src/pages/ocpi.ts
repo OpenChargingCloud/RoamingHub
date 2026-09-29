@@ -2,7 +2,7 @@ import { api, type OCPIConfiguration } from '../api/client';
 import { toURL } from '@node/basePath';
 import { html, must, render } from '@node/html';
 import type { Page } from '@node/router';
-import { shell } from '../shell';
+import { shell } from '@node/shell';
 import { errorMessage, formatValue, humanizeKey } from '@node/ui';
 
 /**
@@ -98,7 +98,7 @@ export const ocpiPage: Page = {
                         </p>
                     </section>
 
-                    <section class="card wide">
+                    <section class="card wide endpoints">
                         <h2><i class="fa-solid fa-diagram-project"></i> Endpoints, per version</h2>
                         <p class="hint">
                             What a peer is told when it follows the versions list: where the version details are,

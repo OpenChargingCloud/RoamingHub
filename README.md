@@ -62,14 +62,19 @@ of node: the HTML template, the router, the base path, what the page is told
 by the hub that serves it, and the question before a page's changes are left
 behind - asked in the name the hub goes by; how the hub is asked, and the
 types and routes of everything every node answers; the log's store and the
-order its lines are drawn in; who is signed in; and the small things every
-page formats and says alike. It is in `libs/WWCP_Node/Frontend/src` and
+order its lines are drawn in; who is signed in; the small things every page
+formats and says alike; the frame with its menu, the sign-in, the Logs page,
+the page for an address with none, and how all of it starts; and the
+stylesheet, in the hub's colour. It is in `libs/WWCP_Node/Frontend/src` and
 bundled in as `@node/...` through a webpack alias, so the hub gets that of
 the WWCP_Node it pins, and a change there rebuilds the bundle as a change
-here does. `api/client.ts` is what a hub adds to it: its resources, its
-status with its party, its configuration's own sections and the four kinds
-of TLS its store keeps, its peers and the traffic between them, and their
-routes.
+here does. What is the hub's own: `main.ts`, one call that says what the hub
+is called, what its menu has - the traffic first, each entry for whoever may
+open its page - and which pages are its own; `app.scss`, what only those
+pages need; and `api/client.ts`, what a hub adds to what every node answers -
+its resources, its status with its party, its configuration's own sections
+and the four kinds of TLS its store keeps, its peers and the traffic between
+them, and their routes.
 
 What it opens on is the traffic, and that is the whole difference. The other
 components open on their configuration, because that is what somebody sets up
@@ -474,12 +479,13 @@ the stream, and the page behind it asks the hub why: signed out goes to the
 sign-in, and a role that went is said on the Traffic page rather than
 retried. The status, the log and its stream are for anybody signed in; the
 clock at `/api/v1/clock`, where every node has it, is `nts:read` on a hub,
-as it was while it sat below the time servers' configuration. `GET /api/v1/auth/me` lists what
-the account signed in may do, spelled out resource by resource, and the web
-interface greys out the rest: a button its user may not press, a menu entry
-for a page it may not read. The pages below Configuration sit below
-`configuration:read` in the menu, so a role of the file that is to find them
-there wants that as well, as `support` above has it.
+as it was while it sat below the time servers' configuration.
+`GET /api/v1/auth/me` lists what the account signed in may do, spelled out
+resource by resource, and says whether the log is for it - on a hub, always.
+The web interface shows the rest by it: a button its user may not press is
+greyed out, and a menu entry is there only for a page it may open. A page
+below Configuration that a role may open, where it may not read the
+configuration itself, stands in the menu in Configuration's place.
 
 
 ## At a console somebody types at

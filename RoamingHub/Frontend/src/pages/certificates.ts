@@ -3,7 +3,7 @@ import { auth } from '../auth';
 import { toURL } from '@node/basePath';
 import { html, must, render } from '@node/html';
 import type { Page } from '@node/router';
-import { shell } from '../shell';
+import { shell } from '@node/shell';
 import { errorMessage, whileSaving } from '@node/ui';
 
 /**
