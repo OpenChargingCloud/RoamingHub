@@ -528,22 +528,21 @@ stops; who may do what - what each of the three roles may and may not do, the
 viewer kept out of the traffic and the hub role out of the peering over the
 API, a refusal naming the roles that would have been let in, a role the
 configuration file adds heard by the API, and the clock read with the time
-servers' permission; what the certificate store keeps - TLS's four kinds and
-none of a vehicle's, and what each of them may be told, as the store says it;
-and what the hub says it was built from - its own assembly stamped, one line
-per repository, and two repositories of one name kept apart. None of them
-asks a name server or a time server anything.
+servers' permission; and what the certificate store keeps - TLS's four kinds
+and none of a vehicle's, and what each of them may be told, as the store says
+it. None of them asks a name server or a time server anything.
 
 What the node below does on its own - the configuration file and its
 sections, the log and the console, the time servers and what they are held
-to, name resolution, the certificate store, the accounts' roles and the
-ports - is tested in WWCP_Node's own `WWCP_Node_Tests`, against a node of no
-particular kind. And what every node has to answer over HTTP alike is
-WWCP_Node's conformance suite, `NodeConformanceTests` in `WWCP_Node_TestKit`,
-which `RoamingHubConformance` runs against a hub - the sign-in and the roles
-a configuration file adds, the start, the configuration, name resolution and
-the time servers, the log and its stream, stopping with browsers watching,
-the certificate store and the web interface; see
+to, name resolution, the certificate store, the accounts' roles, the ports,
+what it was built from and its command line - is tested in WWCP_Node's own
+`WWCP_Node_Tests`, against a node of no particular kind. And what every node
+has to answer over HTTP alike is WWCP_Node's conformance suite,
+`NodeConformanceTests` in `WWCP_Node_TestKit`, which `RoamingHubConformance`
+runs against a hub - the sign-in and the roles a configuration file adds, the
+start, the configuration and the commit it names for the hub's own assembly,
+name resolution and the time servers, the log and its stream, stopping with
+browsers watching, the certificate store and the web interface; see
 [WWCP_Node's README](https://github.com/OpenChargingCloud/WWCP_Node#testing-a-kind-of-node).
 
 The web interface has tests of its own for the traffic's stream when the

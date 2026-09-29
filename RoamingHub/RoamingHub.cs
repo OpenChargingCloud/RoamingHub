@@ -436,9 +436,9 @@ namespace cloud.charging.open.RoamingHub
 
         /// <summary>
         /// What this RoamingHub is made of, as the Configuration page of the
-        /// web interface reads it: what the node below says of itself, and on
-        /// top the hub, who it is in OCPI, its traffic, and the assemblies it
-        /// was built from.
+        /// web interface reads it: what the node below says of itself - the
+        /// repositories it was built from among it, each with its commit -
+        /// and on top the hub, who it is in OCPI and its traffic.
         /// </summary>
         /// <remarks>
         /// Read-only: it answers "what am I running", not "change it". Nothing
@@ -482,38 +482,12 @@ namespace cloud.charging.open.RoamingHub
                          new JProperty("parties",          new JArray(Traffic.KnownParties))
                      )));
 
-            json.Add(new JProperty("assemblies", new JArray(
-                         AssemblyJSON<HTTPServer>                                  ("Hermod"),
-                         AssemblyJSON<NTSClient>                                   ("Norn"),
-                         AssemblyJSON<WWCPNode>                                    ("WWCP Node"),
-                         AssemblyJSON<protocols.OCPI.CommonHTTPAPI>                ("OCPI"),
-                         AssemblyJSON<protocols.OCPIv2_2_1.CommonAPI>              ("OCPI 2.2.1"),
-                         AssemblyJSON<protocols.OCPIv2_3_0.CommonAPI>              ("OCPI 2.3.0")
-                     )));
-
             return json;
 
         }
 
         #endregion
 
-
-        #region (private static) AssemblyJSON<T>(Name)
-
-        private static JObject AssemblyJSON<T>(String Name)
-        {
-
-            var assembly = typeof(T).Assembly.GetName();
-
-            return new JObject(
-                       new JProperty("name",      Name),
-                       new JProperty("assembly",  assembly.Name),
-                       new JProperty("version",   assembly.Version?.ToString(3))
-                   );
-
-        }
-
-        #endregion
 
         #region (private static) IsEventStream(Request)
 
