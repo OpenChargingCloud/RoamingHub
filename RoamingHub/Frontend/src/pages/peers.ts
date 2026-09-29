@@ -1,5 +1,6 @@
 import { api, type Partner, type Partners, type PartnerSpec, type PeerPresence } from '../api/client';
 import { auth } from '../auth';
+import { keepDrafts } from '@node/drafts';
 import { html, must, render, type HTMLFragment } from '@node/html';
 import { logs } from '@node/logs/store';
 import type { Page } from '@node/router';
@@ -121,9 +122,11 @@ export const peersPage: Page = {
             const said  = content.querySelector<HTMLElement>('#peer-notices');
             const list  = content.querySelector<HTMLElement>('#peer-list');
 
-            // Nothing of the page drawn yet: then all of it.
+            // Nothing of the page drawn yet: then all of it, through
+            // keepDrafts like every drawing but load()'s - with no form on
+            // the page yet whose draft it would keep.
             if (store === null || said === null || list === null) {
-                draw();
+                keepDrafts(content, null, draw);
                 return;
             }
 
@@ -485,7 +488,7 @@ export const peersPage: Page = {
                 justAdded         = { id: answer.id, token: answer.ourToken, version: answer.version };
                 lastRegistration  = null;
 
-                draw();
+                keepDrafts(content, 'partner-form', draw);
 
             }
             catch (problem)
