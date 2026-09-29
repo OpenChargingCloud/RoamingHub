@@ -4,7 +4,7 @@ import { escapeHTML, html, must, render } from '@node/html';
 import type { Page } from '@node/router';
 import { shell } from '../shell';
 import { traffic } from '../traffic/store';
-import { formatTime, formatTimestamp } from '../ui';
+import { formatTime, formatTimestamp } from '@node/ui';
 
 /**
  * What went between the peers, as it happens.

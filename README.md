@@ -60,10 +60,16 @@ API under `/ext`, and a menu down the left.
 What its pages stand on is not here but WWCP_Node's, the same for every kind
 of node: the HTML template, the router, the base path, what the page is told
 by the hub that serves it, and the question before a page's changes are left
-behind - asked in the name the hub goes by. It is in
-`libs/WWCP_Node/Frontend/src` and bundled in as `@node/...` through a webpack
-alias, so the hub gets that of the WWCP_Node it pins, and a change there
-rebuilds the bundle as a change here does.
+behind - asked in the name the hub goes by; how the hub is asked, and the
+types and routes of everything every node answers; the log's store and the
+order its lines are drawn in; who is signed in; and the small things every
+page formats and says alike. It is in `libs/WWCP_Node/Frontend/src` and
+bundled in as `@node/...` through a webpack alias, so the hub gets that of
+the WWCP_Node it pins, and a change there rebuilds the bundle as a change
+here does. `api/client.ts` is what a hub adds to it: its resources, its
+status with its party, its configuration's own sections and the four kinds
+of TLS its store keeps, its peers and the traffic between them, and their
+routes.
 
 What it opens on is the traffic, and that is the whole difference. The other
 components open on their configuration, because that is what somebody sets up
@@ -528,20 +534,18 @@ the time servers, the log and its stream, stopping with browsers watching,
 the certificate store and the web interface; see
 [WWCP_Node's README](https://github.com/OpenChargingCloud/WWCP_Node#testing-a-kind-of-node).
 
-The web interface has tests of its own: what a page does with a hub that
-does not answer, or stops halfway through an answer, and what it then says -
-a read that changed nothing, a write that may have gone through, a sign-in;
-what the DNS page and the NTS page send when one server of the list is
-changed, with the pins of every other server still on it and beside each
-server what the page showed it held to - but not for one added on the page,
-and never as a change; pins as somebody types them and as they are read
-back, in words, and what the certificate store offers a server; which line
-of the log shows which entry, drawn newest first and filtered by position;
-and a stream the browser has given up on - the hub asked why, and a session
-that is gone, a role that went and a stream that was merely cut each
-answered in its own way. What the pages stand on is tested where it lives,
-in WWCP_Node - that a page with something typed into it asks before it is
-left, among the rest.
+The web interface has tests of its own: what the DNS page and the NTS page
+send when one server of the list is changed, with the pins of every other
+server still on it and beside each server what the page showed it held to -
+but not for one added on the page, and never as a change; pins as somebody
+types them and as they are read back, in words, and what the certificate
+store offers a server; and the traffic's stream when the browser has given
+up on it - the hub asked why, and a session that is gone, a role that went
+and a stream that was merely cut each answered in its own way. What the
+pages stand on is tested where it lives, in WWCP_Node - what a page does
+with a hub that does not answer and what it then says, which line of the
+log shows which entry, the log's stream, and a page with something typed
+into it asking before it is left, among the rest.
 
 
 ## Your participation

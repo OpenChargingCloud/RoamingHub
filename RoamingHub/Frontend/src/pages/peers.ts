@@ -1,10 +1,10 @@
-import { api, type Partner, type Partners, type PartnerSpec } from '../api/client';
+import { api, type Partner, type Partners, type PartnerSpec, type PeerPresence } from '../api/client';
 import { auth } from '../auth';
 import { html, must, render, type HTMLFragment } from '@node/html';
-import { logs } from '../logs/store';
+import { logs } from '@node/logs/store';
 import type { Page } from '@node/router';
 import { shell } from '../shell';
-import { errorMessage, field, formatSince, formatTimestamp } from '../ui';
+import { errorMessage, field, formatSince, formatTimestamp } from '@node/ui';
 
 /**
  * The peers: who may call this hub and be reached through it, on which OCPI
@@ -590,7 +590,7 @@ export const peersPage: Page = {
         // anybody asking - so the page has to hear about it the same way. The
         // whole list is re-read rather than patched in place: a status change
         // is rare, and the alternative is a second copy of the merge rule.
-        const stopListening = logs.onPeer(() => {
+        const stopListening = logs.onEvent<PeerPresence>('peer', () => {
             if (!cancelled)
                 void load();
         });

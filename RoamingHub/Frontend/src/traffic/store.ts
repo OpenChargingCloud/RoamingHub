@@ -41,7 +41,8 @@ const SNAPSHOT_SIZE = 1_000;
 /**
  * How long after the stream has given up before the hub is asked why, and how
  * long before asking again where it could not answer either - the event log's
- * two numbers, for the same reasons: see logs/store.ts.
+ * two numbers, for the same reasons: see WWCP_Node's logs/store.ts, imported
+ * here as @node/logs/store.
  */
 const ASK_WHY_AFTER   =  3_000;
 const ASK_AGAIN_AFTER = 10_000;

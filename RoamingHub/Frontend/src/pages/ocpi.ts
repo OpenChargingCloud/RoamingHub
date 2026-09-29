@@ -3,7 +3,7 @@ import { toURL } from '@node/basePath';
 import { html, must, render } from '@node/html';
 import type { Page } from '@node/router';
 import { shell } from '../shell';
-import { errorMessage, formatValue, humanizeKey } from '../ui';
+import { errorMessage, formatValue, humanizeKey } from '@node/ui';
 
 /**
  * Who this hub is in OCPI, where its peers find it, and how many of them there
