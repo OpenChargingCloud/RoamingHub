@@ -65,17 +65,19 @@ types and routes of everything every node answers; the log's store and the
 order its lines are drawn in; who is signed in; the small things every page
 formats and says alike; the frame with its menu, the sign-in, the Logs page,
 the page for an address with none, and how all of it starts; the DNS page and
-the NTS page, and what a server's certificate is held to; and the
-stylesheet, in the hub's colour. It is in `libs/WWCP_Node/Frontend/src` and
-bundled in as `@node/...` through a webpack alias, so the hub gets that of
-the WWCP_Node it pins, and a change there rebuilds the bundle as a change
-here does. What is the hub's own: `main.ts`, one call that says what the hub
-is called, what its menu has - the traffic first, each entry for whoever may
-open its page - and which pages are its own; `app.scss`, what only those
-pages need; and `api/client.ts`, what a hub adds to what every node answers -
-its resources, its status with its party, its configuration's own sections
-and the four kinds of TLS its store keeps, its peers and the traffic between
-them, and their routes.
+the NTS page, and what a server's certificate is held to; the certificate
+store's page; and the stylesheet, in the hub's colour. It is in
+`libs/WWCP_Node/Frontend/src` and bundled in as `@node/...` through a
+webpack alias, so the hub gets that of the WWCP_Node it pins, and a change
+there rebuilds the bundle as a change here does. What is the hub's own:
+`main.ts`, one call that says what the hub is called, what its menu has -
+the traffic first, each entry for whoever may open its page - which pages
+are its own, and what the store's page says in the hub's words: a client
+root and a TLS identity kept, and used by nothing here yet; `app.scss`,
+what only those pages need; and `api/client.ts`, what a hub adds to what
+every node answers - its resources, its status with its party, its
+configuration's own sections and the four kinds of TLS its store keeps, its
+peers and the traffic between them, and their routes.
 
 What it opens on is the traffic, and that is the whole difference. The other
 components open on their configuration, because that is what somebody sets up
