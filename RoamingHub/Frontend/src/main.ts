@@ -9,16 +9,14 @@ import { nodeMenu, startNode } from '@node/start';
 
 import { certificatesPage }   from './pages/certificates';
 import { configurationPage }  from './pages/configuration';
-import { dnsPage }            from './pages/dns';
-import { ntsPage }            from './pages/nts';
 import { ocpiPage }           from './pages/ocpi';
 import { peersPage }          from './pages/peers';
 import { trafficPage }        from './pages/traffic';
 
 // What a hub has pages for beside what every node has: the traffic between its
-// peers, and the peers themselves. The sign-in, the log, the frame and
-// following the log while somebody it is for is signed in are every node's -
-// see WWCP_Node's start.ts.
+// peers, and the peers themselves. The sign-in, the log, the name servers, the
+// time servers, the frame and following the log while somebody it is for is
+// signed in are every node's - see WWCP_Node's start.ts.
 //
 // The traffic has a stream of its own and is not followed there: it is behind
 // its own permission, it can run at a rate the event log never does, and
@@ -56,8 +54,6 @@ startNode({
         '/traffic':                       trafficPage,
 
         '/configuration':                 configurationPage,
-        '/configuration/dns':             dnsPage,
-        '/configuration/nts':             ntsPage,
         '/configuration/certificates':    certificatesPage,
         '/configuration/ocpi':            ocpiPage,
         // The path stays "partners" - it is what the JSON API calls them, and

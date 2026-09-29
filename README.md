@@ -64,7 +64,8 @@ behind - asked in the name the hub goes by; how the hub is asked, and the
 types and routes of everything every node answers; the log's store and the
 order its lines are drawn in; who is signed in; the small things every page
 formats and says alike; the frame with its menu, the sign-in, the Logs page,
-the page for an address with none, and how all of it starts; and the
+the page for an address with none, and how all of it starts; the DNS page and
+the NTS page, and what a server's certificate is held to; and the
 stylesheet, in the hub's colour. It is in `libs/WWCP_Node/Frontend/src` and
 bundled in as `@node/...` through a webpack alias, so the hub gets that of
 the WWCP_Node it pins, and a change there rebuilds the bundle as a change
@@ -353,8 +354,11 @@ root CA it ends at, with the SHA-256 fingerprints of both, which are what a
 pin is compared with; the key exchange and the authenticated request, each
 step timed - and an Edit, where the pins go: the fingerprint the server showed
 last and the certificates and roots the store keeps for it are offered with a
-click. Below them is what the group is held to. "Sync now" asks the group the
-way the clock check does. Neither steps the clock.
+click. Below them is what the group is held to, and what counts as legal
+time - who stands behind the servers' time, how far off the clock may be
+found and how old its last check may be - on a card of its own, after whose
+Save the clock is read again. "Sync now" asks the group the way the clock
+check does. Neither steps the clock.
 
 The check runs by itself every `nts.checkEverySeconds`, the first one a minute
 after starting. A new interval, and switching NTS off or on, reach a running
@@ -540,18 +544,15 @@ the time servers, the log and its stream, stopping with browsers watching,
 the certificate store and the web interface; see
 [WWCP_Node's README](https://github.com/OpenChargingCloud/WWCP_Node#testing-a-kind-of-node).
 
-The web interface has tests of its own: what the DNS page and the NTS page
-send when one server of the list is changed, with the pins of every other
-server still on it and beside each server what the page showed it held to -
-but not for one added on the page, and never as a change; pins as somebody
-types them and as they are read back, in words, and what the certificate
-store offers a server; and the traffic's stream when the browser has given
-up on it - the hub asked why, and a session that is gone, a role that went
-and a stream that was merely cut each answered in its own way. What the
-pages stand on is tested where it lives, in WWCP_Node - what a page does
-with a hub that does not answer and what it then says, which line of the
-log shows which entry, the log's stream, and a page with something typed
-into it asking before it is left, among the rest.
+The web interface has tests of its own for the traffic's stream when the
+browser has given up on it: the hub asked why, and a session that is gone, a
+role that went and a stream that was merely cut each answered in its own
+way. What the pages stand on is tested where it lives, in WWCP_Node - what a
+page does with a hub that does not answer and what it then says, which line
+of the log shows which entry, the log's stream, what the DNS page and the
+NTS page send when one server of the list is changed and what a server is
+held to, and a page with something typed into it asking before it is left,
+among the rest.
 
 
 ## Your participation
