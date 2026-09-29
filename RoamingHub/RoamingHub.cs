@@ -138,6 +138,25 @@ namespace cloud.charging.open.RoamingHub
         public const String  DefaultOrganization       = "RoamingHub";
 
         /// <summary>
+        /// What a hub is to the node below it: what it calls itself in
+        /// everything it says, the tag of its own entries, its product, the
+        /// one organization of its accounts and what its log files are
+        /// called. Known before one is made, for what -h shows.
+        /// </summary>
+        /// <remarks>
+        /// A day's log file is "roaminghub-2026-09-30.log", named after the
+        /// hub as every other kind's is after itself; the "rn" it had before
+        /// was never written.
+        /// </remarks>
+        public static readonly NodeKind  RoamingHubKind  = new (
+                                                               Name:           "roaming hub",
+                                                               Tag:            "roamingHub",
+                                                               Product:        "RoamingHub",
+                                                               Organization:   DefaultOrganization,
+                                                               LogFilePrefix:  "roaminghub"
+                                                           );
+
+        /// <summary>
         /// What a line the libraries below write has to contain to be tagged,
         /// and with what: the table the debug bridge of a hub reads by.
         /// Ordered, and searched regardless of case; a line may collect
@@ -187,8 +206,8 @@ namespace cloud.charging.open.RoamingHub
         /// recognised, and what this hub shows, with its key. Today the name
         /// servers and the time servers are what they are held against; the
         /// peers, reached over HTTPS and reaching this hub the same way, are
-        /// what a hub has more of than anybody. Public, so that a command line
-        /// can refuse a kind before the hub exists to refuse it.
+        /// what a hub has more of than anybody. Public, so that what -h shows
+        /// can name them before a hub is made.
         /// </remarks>
         public static readonly IReadOnlyList<CertificateKind> CertificateKinds = CertificateKindExtensions.TLS;
 
@@ -248,13 +267,7 @@ namespace cloud.charging.open.RoamingHub
                           Boolean                BridgeDebugLog     = true,
                           TimeProvider?          TimeProvider       = null)
 
-            : base(Kind:               new NodeKind(
-                                           Name:           "roaming hub",
-                                           Tag:            "roamingHub",
-                                           Product:        "RoamingHub",
-                                           Organization:   DefaultOrganization,
-                                           LogFilePrefix:  "rn"
-                                       ),
+            : base(Kind:               RoamingHubKind,
                    Version:            typeof(RoamingHub).Assembly.GetName().Version?.ToString(3) ?? "0.0.0",
                    HTTPPort:           HTTPPort ?? DefaultHTTPPort,
                    HTTPHostname:       HTTPHostname,
