@@ -97,11 +97,13 @@ table.table {
 }
 
 // A token as it is shown in a list: readable when revealed, dotted out until
-// then. Monospace, because it is copied and not read.
+// then. Monospace, because it is copied and not read. In one piece, as all
+// code in a table is (WWCP_Node's _tables.scss): broken anywhere it counted
+// as one letter wide, and on a phone the table narrowed its column to 38
+// pixels - a peer's token ten lines high, and its dots five.
 code.token {
     font-family:  $font-mono;
     font-size:    0.8rem;
-    word-break:   break-all;
     user-select:  all;
 }
 
