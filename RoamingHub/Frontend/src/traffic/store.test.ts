@@ -2,30 +2,21 @@
  * What the browser's copy of the traffic does when its stream stops.
  *
  * Run with `npm test`, which is Node's own runner reading the TypeScript as it
- * stands - no bundler, no browser, no dependency that is not already here.
+ * stands - no bundler, no browser, no dependency that is not already here. It
+ * loads WWCP_Node's test/resolve.ts first, which finds a relative import
+ * without its extension, and @node/..., as webpack does.
  *
  * The event log's store asks the hub why its stream stopped, and so does this
- * one - see logs/store.test.ts. What is pinned here is the answer the log
- * never gets: still signed in, and no longer allowed to read the traffic,
- * because the account was taken out of the role that let it. The hub ends
- * such a stream by itself, and a store that simply opened it again would be
- * refused again, every few seconds, for as long as the page stayed open.
+ * one - see WWCP_Node's logs/store.test.ts. What is pinned here is the answer
+ * the log never gets: still signed in, and no longer allowed to read the
+ * traffic, because the account was taken out of the role that let it. The hub
+ * ends such a stream by itself, and a store that simply opened it again would
+ * be refused again, every few seconds, for as long as the page stayed open.
  */
 
 import { strict as assert }       from 'node:assert';
 import { readFileSync }           from 'node:fs';
-import { registerHooks }          from 'node:module';
 import { describe, it, mock }     from 'node:test';
-
-// The pages are written for webpack, which does not want the extension in a
-// relative import; Node does.
-registerHooks({
-    resolve(specifier, context, next) {
-        return specifier.startsWith('.') && !specifier.endsWith('.ts')
-                   ? next(`${specifier}.ts`, context)
-                   : next(specifier, context);
-    }
-});
 
 // The client reads config.ts, which reads <meta> tags when it is loaded.
 (globalThis as unknown as { document: unknown }).document = { querySelector: () => null };
