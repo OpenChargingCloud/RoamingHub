@@ -145,7 +145,7 @@ namespace cloud.charging.open.RoamingHub
             var result = await RoamingHub.AddRemotePartyAsync(json);
 
             if (!result.Success)
-                return ErrorJSON(Request, HTTPStatusCode.BadRequest, result.Message);
+                return NotChanged(Request, HTTPStatusCode.BadRequest, result.Message, result.NotSaved);
 
             Log.Info($"'{user.Id}' added the peer '{result.Data?.Value<String>("id")}'.", "ocpi", "partner", "web");
 
@@ -282,7 +282,7 @@ namespace cloud.charging.open.RoamingHub
             var result = await RoamingHub.RemoveRemotePartyAsync(version, id);
 
             if (!result.Success)
-                return ErrorJSON(Request, HTTPStatusCode.NotFound, result.Message);
+                return NotChanged(Request, HTTPStatusCode.NotFound, result.Message, result.NotSaved);
 
             Log.Info($"'{user.Id}' removed the peer '{id}' (OCPI {version}).", "ocpi", "partner", "web");
 

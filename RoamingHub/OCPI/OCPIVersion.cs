@@ -165,16 +165,18 @@ namespace cloud.charging.open.RoamingHub.OCPI
     /// <param name="Success">Whether it worked.</param>
     /// <param name="Message">What happened, in a sentence the web interface can show.</param>
     /// <param name="Data">Whatever the operation has to hand back, or null.</param>
+    /// <param name="NotSaved">True where nothing was wrong with what was asked, and the file it is kept in could not be written: nothing changed.</param>
     public sealed record OCPIOperationResult(Boolean   Success,
                                              String    Message,
-                                             JObject?  Data   = null)
+                                             JObject?  Data       = null,
+                                             Boolean   NotSaved   = false)
     {
 
         public static OCPIOperationResult Ok    (String Message, JObject? Data = null)
             => new (true,  Message, Data);
 
-        public static OCPIOperationResult Failed(String Message)
-            => new (false, Message);
+        public static OCPIOperationResult Failed(String Message, Boolean NotSaved = false)
+            => new (false, Message, NotSaved: NotSaved);
 
     }
 
@@ -255,15 +257,19 @@ namespace cloud.charging.open.RoamingHub.OCPI
             => RemoteParties.FirstOrDefault(party => party.Id == Id);
 
         /// <summary>
-        /// Add a roaming partner. Answers with what went wrong, or null.
+        /// Add a roaming partner. Answers whether it was added, and what went
+        /// wrong where it was not - with NotSaved where it was only the file of
+        /// the partners that refused.
         /// </summary>
-        public abstract Task<String?>  AddRemoteParty(RemotePartySpec Spec);
+        public abstract Task<OCPIOperationResult>  AddRemoteParty(RemotePartySpec Spec);
 
         /// <summary>
         /// Forget a roaming partner: its tokens stop working the moment this
-        /// returns.
+        /// returns having removed it. Answers what went wrong where it was not
+        /// - with NotSaved where it was only the file of the partners that
+        /// refused, and the partner is still there.
         /// </summary>
-        public abstract Task<Boolean>  RemoveRemoteParty(RemoteParty_Id Id);
+        public abstract Task<OCPIOperationResult>  RemoveRemoteParty(RemoteParty_Id Id);
 
         /// <summary>
         /// Start the peering with a partner that handed out its token and its

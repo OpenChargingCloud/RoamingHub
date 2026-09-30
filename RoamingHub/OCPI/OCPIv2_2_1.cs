@@ -188,7 +188,7 @@ namespace cloud.charging.open.RoamingHub.OCPI
                });
 
 
-        public override async Task<String?> AddRemoteParty(RemotePartySpec Spec)
+        public override async Task<OCPIOperationResult> AddRemoteParty(RemotePartySpec Spec)
         {
 
             var roles = new[] {
@@ -224,19 +224,33 @@ namespace cloud.charging.open.RoamingHub.OCPI
                                      );
 
             if (!result.IsSuccess)
-                return result.ErrorResponse ?? "The library declined to add the peer and did not say why.";
+                return OCPIOperationResult.Failed(
+                           result.ErrorResponse ?? "The library declined to add the peer and did not say why.",
+                           result.NotSaved
+                       );
 
             // Nothing else to register the peer with: this hub builds no
             // hub API - see the constructor - so there is no second registry
             // to keep in step. The day one of the forwarding modules is
             // wired up, a peer that pushes will need to be in it as well.
-            return null;
+            return OCPIOperationResult.Ok($"The peer '{Spec.Id}' was added on OCPI {Label}.");
 
         }
 
 
-        public override Task<Boolean> RemoveRemoteParty(RemoteParty_Id Id)
-            => commonAPI.RemoveRemoteParty(Id);
+        public override async Task<OCPIOperationResult> RemoveRemoteParty(RemoteParty_Id Id)
+        {
+
+            var result = await commonAPI.TryRemoveRemoteParty(Id);
+
+            return result.IsSuccess
+                       ? OCPIOperationResult.Ok($"The peer '{Id}' was removed from OCPI {Label}.")
+                       : OCPIOperationResult.Failed(
+                             result.ErrorResponse ?? "The library declined to remove the peer and did not say why.",
+                             result.NotSaved
+                         );
+
+        }
 
 
         public override async Task<OCPIOperationResult> Register(RemoteParty_Id Id)

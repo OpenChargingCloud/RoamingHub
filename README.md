@@ -226,7 +226,9 @@ one nobody is peered with.
 
 The peers themselves are in none of it. The OCPI library keeps them in
 append-only files of its own below an `ocpi/` directory beside the
-configuration, one set per version, and reads them back at every start.
+configuration, one set per version, and reads them back at every start. A peer
+is added or removed only once its file has it: where that file cannot be
+written, the Peers page is answered 500 with why, and nothing changes.
 
 ```json
 {
@@ -517,7 +519,9 @@ npm run typecheck:test       the same files, typechecked as the page is
 
 Both directions of the peering - a peer coming here, and this hub walking to a
 peer that handed out a token and a versions URL - against a stub with the three
-routes the credentials handshake touches. And the traffic: what a call is
+routes the credentials handshake touches; and a peer added or removed while the
+file of its version cannot be written - 500, and nothing changed, then or at
+the next start. And the traffic: what a call is
 written down as, what a stranger's refused call is written down as, that the
 hub's own JSON API is not traffic, the filter, catching up with `after`, the
 permission, and a call arriving on the stream while it is open.

@@ -289,7 +289,7 @@ namespace cloud.charging.open.RoamingHub.OCPI
                });
 
 
-        public override async Task<String?> AddRemoteParty(RemotePartySpec Spec)
+        public override async Task<OCPIOperationResult> AddRemoteParty(RemotePartySpec Spec)
         {
 
             var roles = new[] {
@@ -325,20 +325,34 @@ namespace cloud.charging.open.RoamingHub.OCPI
                                      );
 
             if (!result.IsSuccess)
-                return result.ErrorResponse ?? "The library declined to add the peer and did not say why.";
+                return OCPIOperationResult.Failed(
+                           result.ErrorResponse ?? "The library declined to add the peer and did not say why.",
+                           result.NotSaved
+                       );
 
             // Nothing to register the peer with beyond the Common API: the
             // hub API of this version has no registry of remote parties at
             // all, where 2.2.1's has one for the CPO side. It costs nothing
             // for the peering, which is all this version is used for here,
             // and it would cost something the day a peer pushes.
-            return null;
+            return OCPIOperationResult.Ok($"The peer '{Spec.Id}' was added on OCPI {Label}.");
 
         }
 
 
-        public override Task<Boolean> RemoveRemoteParty(RemoteParty_Id Id)
-            => commonAPI.RemoveRemoteParty(Id);
+        public override async Task<OCPIOperationResult> RemoveRemoteParty(RemoteParty_Id Id)
+        {
+
+            var result = await commonAPI.TryRemoveRemoteParty(Id);
+
+            return result.IsSuccess
+                       ? OCPIOperationResult.Ok($"The peer '{Id}' was removed from OCPI {Label}.")
+                       : OCPIOperationResult.Failed(
+                             result.ErrorResponse ?? "The library declined to remove the peer and did not say why.",
+                             result.NotSaved
+                         );
+
+        }
 
 
         public override async Task<OCPIOperationResult> Register(RemoteParty_Id Id)

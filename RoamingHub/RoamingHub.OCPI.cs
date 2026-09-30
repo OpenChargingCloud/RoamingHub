@@ -554,10 +554,12 @@ namespace cloud.charging.open.RoamingHub
 
             #endregion
 
-            var error = await version.AddRemoteParty(spec);
+            var result = await version.AddRemoteParty(spec);
 
-            if (error is not null)
-                return OCPIOperationResult.Failed(error);
+            if (!result.Success)
+                return result.NotSaved
+                           ? OCPIOperationResult.Failed($"The peer '{spec.Id}' was not added: {result.Message}", NotSaved: true)
+                           : OCPIOperationResult.Failed(result.Message);
 
             Log.Notice(
                 $"The peer '{spec.Id}' ('{name}') was added on OCPI {version.Label}" +
@@ -661,8 +663,12 @@ namespace cloud.charging.open.RoamingHub
             if (version.GetRemoteParty(remotePartyId) is null)
                 return OCPIOperationResult.Failed($"There is no peer '{remotePartyId}' on OCPI {version.Label}.");
 
-            if (!await version.RemoveRemoteParty(remotePartyId))
-                return OCPIOperationResult.Failed($"The peer '{remotePartyId}' could not be removed.");
+            var removed = await version.RemoveRemoteParty(remotePartyId);
+
+            if (!removed.Success)
+                return removed.NotSaved
+                           ? OCPIOperationResult.Failed($"The peer '{remotePartyId}' was not removed, and its token still opens this hub: {removed.Message}", NotSaved: true)
+                           : OCPIOperationResult.Failed($"The peer '{remotePartyId}' could not be removed.");
 
             Log.Notice($"The peer '{remotePartyId}' was removed from OCPI {version.Label}; its token no longer opens this hub.", "ocpi", "partner");
 
