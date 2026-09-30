@@ -349,6 +349,35 @@ describe('a traffic page the browser keeps for the way back', () => {
 
     });
 
+    it('says it is no longer live as it lets go, so that the page shown again claims nothing', async () => {
+
+        hubHasNoTraffic();
+
+        const store = new TrafficStore();
+        store.start();
+
+        const reloaded = new Promise<void>(resolve => store.onChange(event => {
+                             if (event.type === 'reloaded')
+                                 resolve();
+                         }));
+
+        Stream.latest!.fire('open');
+        await reloaded;
+
+        const told: string[] = [];
+        store.onChange(event => told.push(`${event.type}, ${store.streamConnected ? 'live' : 'down'}`));
+
+        store.pause();
+
+        // Unsaid, the traffic page came out of the cache saying "live", and
+        // went on saying it where the hub had gone meanwhile: a stream that
+        // never opens has nothing to say (found by the meter, on the log's).
+        assert.deepEqual(told, [ 'stream, down' ], 'the page was not told its stream is down');
+
+        store.stop();
+
+    });
+
     it('is looked after by main.ts, as the log is by startNode', () => {
 
         // main.ts starts the web interface, which needs a page Node has not

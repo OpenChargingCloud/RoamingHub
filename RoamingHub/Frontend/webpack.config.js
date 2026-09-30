@@ -86,13 +86,18 @@ module.exports = (env, argv) => {
             new MiniCssExtractPlugin({
                 filename: 'assets/[name].[contenthash].css'
             }),
+            // The page is every kind of node's, WWCP_Node's index.html, and
+            // this says which kind it is: its name, what it is, its version.
             new HtmlWebpackPlugin({
-                template:  './src/index.html',
-                filename:  'index.html',
-                chunks:    ['main'],
-                favicon:   './src/favicon.svg',
-                title:     'RoamingHub',
-                version:   appVersion
+                template:     path.resolve(__dirname, '../../../WWCP_Node/Frontend/src/index.html'),
+                filename:     'index.html',
+                chunks:       ['main'],
+                favicon:      './src/favicon.svg',
+                title:        'RoamingHub',
+                description:  'The web interface of an OpenChargingCloud RoamingHub - an OCPI roaming hub between the ' +
+                              'charge point operators and the e-mobility service providers - served by the Hermod ' +
+                              'HTTP/1.1 server',
+                version:      appVersion
             })
         ],
 

@@ -244,6 +244,11 @@ export class TrafficStore {
      * browser gives a host for every such page, and in a headless Chrome the
      * fifth page in a row waited three seconds, the ninth 15 and said the hub
      * had not answered.
+     *
+     * The page is told its stream is down before it goes: unsaid, it came out
+     * of the cache saying "live", and went on saying it where the hub had gone
+     * meanwhile - a stream that never opens has nothing to say (found by the
+     * meter, on the log's).
      */
     pause(): void {
 
@@ -255,8 +260,12 @@ export class TrafficStore {
         }
 
         this.source?.close();
-        this.source          = null;
-        this.streamConnected = false;
+        this.source = null;
+
+        if (this.streamConnected) {
+            this.streamConnected = false;
+            this.emit({ type: 'stream' });
+        }
 
     }
 
