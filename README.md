@@ -548,12 +548,13 @@ browsers watching, the certificate store and the web interface; see
 The web interface has tests of its own for the traffic's stream when the
 browser has given up on it: the hub asked why, and a session that is gone, a
 role that went and a stream that was merely cut each answered in its own
-way. What the pages stand on is tested where it lives, in WWCP_Node - what a
-page does with a hub that does not answer and what it then says, which line
-of the log shows which entry, the log's stream, what the DNS page and the
-NTS page send when one server of the list is changed and what a server is
-held to, and a page with something typed into it asking before it is left,
-among the rest.
+way. And for a page the browser keeps for the way back: it lets go of the
+stream while it waits there, and opens it again when it is shown. What the
+pages stand on is tested where it lives, in WWCP_Node - what a page does
+with a hub that does not answer and what it then says, which line of the log
+shows which entry, the log's stream, what the DNS page and the NTS page send
+when one server of the list is changed and what a server is held to, and a
+page with something typed into it asking before it is left, among the rest.
 
 
 ## Your participation

@@ -18,7 +18,8 @@ import { api, ApiError, type Call } from '../api/client';
 // page shows what happened while somebody was reading the configuration. This
 // one starts and stops with its page: it is behind a permission of its own,
 // and a busy hub puts far more through here than it writes to its log. A
-// stream nobody is looking at is a stream worth closing.
+// stream nobody is looking at is a stream worth closing - and a page the
+// browser keeps for the way back is a page nobody is looking at: see pause().
 
 export type StoreEvent =
     | { type: 'calls';  added: Call[] }
@@ -83,6 +84,9 @@ export class TrafficStore {
 
     /** The next attempt to find out, so that stopping cancels it. */
     private askAgain: ReturnType<typeof setTimeout> | null = null;
+
+    /** Whether pause() closed a stream that resume() is to open again. */
+    private paused = false;
 
 
     onChange(listener: Listener): () => void {
@@ -219,10 +223,52 @@ export class TrafficStore {
         this.source = null;
 
         this.streamConnected = false;
+        this.paused          = false;
         this.lastId          = 0;
 
         this.calls.length = 0;
         this.peers.clear();
+
+    }
+
+    /**
+     * Close the stream while the page waits in the browser's back/forward
+     * cache, and keep what is known - resume() opens it again when the page
+     * is shown.
+     *
+     * The traffic page is where "/" opens for whoever may read the traffic,
+     * so it is where a hub's address typed or bookmarked lands. Left for
+     * another page in the same tab it is kept whole for the way back, and its
+     * stream with it: with the log's stream let go of (WWCP_Node's
+     * LogStore.pause()), this one alone held one of the six connections a
+     * browser gives a host for every such page, and in a headless Chrome the
+     * fifth page in a row waited three seconds, the ninth 15 and said the hub
+     * had not answered.
+     */
+    pause(): void {
+
+        this.paused = this.source !== null;
+
+        if (this.askAgain !== null) {
+            clearTimeout(this.askAgain);
+            this.askAgain = null;
+        }
+
+        this.source?.close();
+        this.source          = null;
+        this.streamConnected = false;
+
+    }
+
+    /** Open the stream again where pause() closed one; the 'open' reloads what was missed. */
+    resume(): void {
+
+        if (!this.paused)
+            return;
+
+        this.paused = false;
+
+        this.start();
 
     }
 

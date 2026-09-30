@@ -6,12 +6,13 @@ import '@fortawesome/fontawesome-free/css/fontawesome.css';
 import '@fortawesome/fontawesome-free/css/solid.css';
 
 import { html } from '@node/html';
-import { nodeMenu, startNode } from '@node/start';
+import { followAcrossTheCache, nodeMenu, startNode } from '@node/start';
 
 import { configurationPage }  from './pages/configuration';
 import { ocpiPage }           from './pages/ocpi';
 import { peersPage }          from './pages/peers';
 import { trafficPage }        from './pages/traffic';
+import { traffic }            from './traffic/store';
 
 // What a hub has pages for beside what every node has: the traffic between its
 // peers, and the peers themselves. The sign-in, the log, the name servers, the
@@ -83,3 +84,8 @@ startNode({
     }
 
 });
+
+// The traffic's stream is let go of, like the log's, while the page waits in
+// the browser's back/forward cache, and opened again when it is shown - see
+// TrafficStore.pause().
+followAcrossTheCache(window, traffic);

@@ -13,6 +13,7 @@
  */
 
 import { strict as assert }       from 'node:assert';
+import { readFileSync }           from 'node:fs';
 import { registerHooks }          from 'node:module';
 import { describe, it, mock }     from 'node:test';
 
@@ -102,6 +103,26 @@ const hubAnswers = (How: 'may read it' | 'may not any more' | 'signed out') => {
                                                                            : [ 'configuration:read' ]
                                                      })
                                                    : JSON.stringify({ error: 'Not signed in.' }))
+        } as unknown as Response);
+
+    };
+
+};
+
+/** A hub with no traffic yet, answering the snapshot a stream's 'open' asks for. */
+const hubHasNoTraffic = () => {
+
+    askedFor = [];
+
+    (globalThis as unknown as { fetch: unknown }).fetch = (url: string) => {
+
+        askedFor.push(url);
+
+        return Promise.resolve({
+            ok:          true,
+            status:      200,
+            statusText:  '',
+            text:        () => Promise.resolve(JSON.stringify({ calls: [], lastId: 0, capacity: 1_000, payloads: false, peers: [] }))
         } as unknown as Response);
 
     };
@@ -257,6 +278,85 @@ describe('a traffic stream that stops', () => {
         {
             mock.timers.reset();
         }
+
+    });
+
+});
+
+
+describe('a traffic page the browser keeps for the way back', () => {
+
+    it('lets go of its stream while it waits there, and keeps what it knows', async () => {
+
+        hubHasNoTraffic();
+
+        const store = new TrafficStore();
+        store.start();
+
+        const stream   = Stream.latest!;
+        const reloaded = new Promise<void>(resolve => store.onChange(event => {
+                             if (event.type === 'reloaded')
+                                 resolve();
+                         }));
+
+        stream.fire('open');
+        await reloaded;
+
+        stream.fire('call', { data: JSON.stringify({ id: 7, peer: 'DE*CPO', from: 'DE*CPO', to: 'DE*EMP' }) });
+
+        store.pause();
+
+        assert.equal(stream.closed,          true,  'a stream held open for a page nobody sees - one of the six connections a browser gives a host');
+        assert.equal(store.calls.length,     1,     'what the page knew was thrown away');
+        assert.equal(store.streamConnected,  false, 'a stream let go of is still said to be up');
+
+        store.stop();
+
+    });
+
+    it('opens it again when it is shown, and a store whose page was not open opens nothing', () => {
+
+        const store = new TrafficStore();
+        store.start();
+
+        const first = Stream.latest!;
+
+        store.pause();
+        store.resume();
+
+        assert.notEqual(Stream.latest,          first, 'shown again, the page followed nothing');
+        assert.equal   (Stream.latest!.closed,  false);
+
+        // Kept while another page was open: the traffic's stream opens and
+        // closes with its own page, so there was nothing to let go of.
+        const idle    = new TrafficStore();
+        const before  = Stream.latest;
+
+        idle.pause();
+        idle.resume();
+
+        assert.equal(Stream.latest, before, 'a stream was opened for a page that followed none');
+
+        // Stopped in between: what was paused is not the store's to open.
+        store.pause();
+        store.stop();
+
+        const stopped = Stream.latest;
+
+        store.resume();
+
+        assert.equal(Stream.latest, stopped, 'a stream was opened again for a page that had been left');
+
+    });
+
+    it('is looked after by main.ts, as the log is by startNode', () => {
+
+        // main.ts starts the web interface, which needs a page Node has not
+        // got: what is asked here is that it asks for the above, with the
+        // traffic's store.
+        const main = readFileSync(new URL('../main.ts', import.meta.url), 'utf-8');
+
+        assert.match(main, /^followAcrossTheCache\(window, traffic\);/m);
 
     });
 
