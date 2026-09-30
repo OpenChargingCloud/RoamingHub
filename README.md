@@ -530,7 +530,9 @@ API, a refusal naming the roles that would have been let in, a role the
 configuration file adds heard by the API, and the clock read with the time
 servers' permission; and what the certificate store keeps - TLS's four kinds
 and none of a vehicle's, and what each of them may be told, as the store says
-it. None of them asks a name server or a time server anything.
+it. None of them asks a name server or a time server anything. And the hub's
+own code is held to what the kit holds every kind's to, SourceRules: nothing
+it says puts "a" or "an" in front of a name it is handed.
 
 What the node below does on its own - the configuration file and its
 sections, the log and the console, the time servers and what they are held
