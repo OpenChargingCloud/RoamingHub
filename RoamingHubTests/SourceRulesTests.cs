@@ -46,7 +46,12 @@ namespace cloud.charging.open.RoamingHub.Tests
         public void NoTextOfThisRoamingHubPutsAnArticleBeforeAName()
         {
 
-            var repository = SourceRules.RepositoryAbove(AppContext.BaseDirectory, "RoamingHub", "RoamingHubTests");
+            // By a file of each project, not by its directory: built with
+            // --artifacts-path, artifacts/bin holds a directory named after
+            // each, and was taken for the repository (found by the charging
+            // station).
+            var repository = SourceRules.RepositoryAbove(AppContext.BaseDirectory, "RoamingHub/RoamingHub.csproj",
+                                                                                   "RoamingHubTests/RoamingHubTests.csproj");
 
             Assert.That(SourceRules.ArticlesBeforeANameIn(Path.Combine(repository, "RoamingHub")), Is.Empty);
 

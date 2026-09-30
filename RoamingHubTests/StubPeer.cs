@@ -17,12 +17,9 @@
 
 #region Usings
 
-using System.Net.Sockets;
 using System.Text;
 
 using Newtonsoft.Json.Linq;
-
-using NUnit.Framework;
 
 using org.GraphDefined.Vanaheimr.Hermod;
 using org.GraphDefined.Vanaheimr.Hermod.HTTP;
@@ -108,41 +105,23 @@ namespace cloud.charging.open.RoamingHub.Tests
         /// </summary>
         /// <remarks>
         /// Made again, on a fresh port, where another test run on this machine
-        /// took that port before it could be bound - as a node is by
-        /// TestPorts.StartedOnFreshPorts, which takes nothing but nodes: up to
-        /// TestPorts.StartAttempts times, and then the SocketException stands.
-        /// Started before this hub is given its versions URL, so that the URL
-        /// this hub is given names the port the peer listens on.
+        /// took that port before it could be bound - by the kit's
+        /// TestPorts.StartedOnAFreshPort, as a node is by StartedOnFreshPorts:
+        /// up to TestPorts.StartAttempts times, and then the SocketException
+        /// stands. Started before this hub is given its versions URL, so that
+        /// the URL this hub is given names the port the peer listens on.
         /// </remarks>
         /// <param name="Role">What this peer says it is.</param>
         /// <param name="PartyId">Its party identification.</param>
         /// <param name="Version">The single OCPI version it offers.</param>
         /// <param name="WithHubClientInfo">Whether it offers the HubClientInfo receiver endpoint a hub pushes to.</param>
-        public static async Task<StubPeer> Start(String   Role                = "CPO",
-                                                 String   PartyId             = "GEF",
-                                                 String   Version             = "2.2.1",
-                                                 Boolean  WithHubClientInfo   = false)
-        {
+        public static Task<StubPeer> Start(String   Role                = "CPO",
+                                           String   PartyId             = "GEF",
+                                           String   Version             = "2.2.1",
+                                           Boolean  WithHubClientInfo   = false)
 
-            for (var attempt = 1; ; attempt++)
-            {
-
-                var stub = Made(TestPorts.Free(), Role, PartyId, Version, WithHubClientInfo);
-
-                try
-                {
-                    await stub.server.Start();
-                    return stub;
-                }
-                catch (SocketException taken) when (attempt < TestPorts.StartAttempts)
-                {
-                    TestContext.Progress.WriteLine($"The port of a stub peer at {stub.VersionsURL} was taken: {taken.Message} - made again on a fresh one, attempt {attempt + 1} of {TestPorts.StartAttempts}.");
-                    await stub.DisposeAsync();
-                }
-
-            }
-
-        }
+            => TestPorts.StartedOnAFreshPort(port => Made(port, Role, PartyId, Version, WithHubClientInfo),
+                                             stub => stub.server.Start());
 
         #endregion
 
