@@ -261,6 +261,13 @@ namespace cloud.charging.open.RoamingHub
 
                       );
 
+            // A line the OCPI library could not write into its files is a
+            // change the next start will not know, and the library says so to
+            // nobody but this event. Which file and why - not the line, which
+            // can hold a session, a CDR or a token.
+            ocpiAPI.OnDatabaseLineNotWritten += (timestamp, writer, fileName, line, exception) =>
+                Log.Exception(exception, $"OCPI: a change the next start will not know, because '{fileName}' could not be written", "ocpi", "files");
+
             foreach (var version in ocpiSettings.EffectiveVersions)
             {
 

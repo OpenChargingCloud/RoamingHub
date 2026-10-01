@@ -445,6 +445,37 @@ namespace cloud.charging.open.RoamingHub
 
         #endregion
 
+        #region DisposeAsync()
+
+        /// <summary>
+        /// Stop listening, write out what the OCPI library still holds for its
+        /// files, and then let go of what the node below holds.
+        /// </summary>
+        public override async ValueTask DisposeAsync()
+        {
+
+            // Stopped first, so that no peer changes anything once the queue
+            // is written out; the node below stops again, which does no harm.
+            // Before the node below lets go of its log, which is where a line
+            // that could not be written is said - and the node below lets go
+            // of what it holds even where this throws.
+            try
+            {
+
+                await Stop();
+
+                await ocpiAPI.DisposeAsync();
+
+            }
+            finally
+            {
+                await base.DisposeAsync();
+            }
+
+        }
+
+        #endregion
+
         #region ConfigurationJSON()
 
         /// <summary>
