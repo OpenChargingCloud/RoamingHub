@@ -274,9 +274,20 @@ namespace cloud.charging.open.RoamingHub.OCPI
         /// <summary>
         /// Start the peering with a partner that handed out its token and its
         /// versions URL: fetch their versions, and POST this hub's
-        /// credentials to them.
+        /// credentials to them. Answers NotSaved where the file of the
+        /// partners refused - before anything was sent, and nothing changed;
+        /// or after they accepted, and what they answered is kept, see
+        /// UnsavedRemoteParties.
         /// </summary>
         public abstract Task<OCPIOperationResult>  Register(RemoteParty_Id Id);
+
+        /// <summary>
+        /// The partners whose last change the file of the partners refused
+        /// and that were kept all the same - a registration they accepted: in
+        /// effect, and written down with the next change the file takes, or
+        /// when this hub stops.
+        /// </summary>
+        public abstract IEnumerable<RemoteParty_Id>  UnsavedRemoteParties { get; }
 
         #endregion
 
@@ -445,11 +456,30 @@ namespace cloud.charging.open.RoamingHub.OCPI
         /// <summary>
         /// A registration outcome in one sentence.
         /// </summary>
+        /// <param name="Id">The partner.</param>
+        /// <param name="StatusCode">The OCPI status code of their answer, or of why nothing was sent.</param>
+        /// <param name="StatusMessage">Its status message.</param>
+        /// <param name="GotCredentials">Whether they answered with their credentials.</param>
+        /// <param name="NotSaved">Whether the file of the partners refused what the registration changed.</param>
+        /// <param name="Reason">Why it refused.</param>
         protected static OCPIOperationResult DescribeRegistration(RemoteParty_Id  Id,
                                                                   StatusCode?     StatusCode,
                                                                   String?         StatusMessage,
-                                                                  Boolean         GotCredentials)
+                                                                  Boolean         GotCredentials,
+                                                                  Boolean         NotSaved   = false,
+                                                                  String?         Reason     = null)
         {
+
+            // Where they accepted, what they answered is kept, because they use
+            // the new tokens already; where nothing was sent, nothing changed.
+            if (NotSaved)
+                return OCPIOperationResult.Failed(
+                           GotCredentials
+                               ? $"'{Id}' accepted this hub's credentials, and they are in effect, but could not be stored - {Reason?.TrimEnd('.') ?? "the file of the partners refused them"}. " +
+                                  "Repair the file before this hub stops: they are written down with the next change the file takes, and when this hub stops at the latest."
+                               : $"Nothing was sent to '{Id}', and nothing has changed: the token they would call back with could not be stored - {Reason?.TrimEnd('.') ?? "the file of the partners refused it"}.",
+                           NotSaved: true
+                       );
 
             if (GotCredentials && StatusCode == protocols.OCPI.StatusCode.Success)
                 return OCPIOperationResult.Ok($"Registered with '{Id}': they accepted this hub's credentials and handed out theirs.");

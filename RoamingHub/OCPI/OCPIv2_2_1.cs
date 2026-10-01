@@ -146,6 +146,15 @@ namespace cloud.charging.open.RoamingHub.OCPI
             });
 
 
+            // A line the file of the peers refused: the change is taken back -
+            // or, a registration a peer accepted, kept and written down later.
+            // The file, why and the command; not the line, which holds tokens.
+            commonAPI.OnRemotePartyNotSaved += (timestamp, command, fileName, exception) => {
+                RoamingHub.Log.Exception(exception, $"OCPI {Label}: '{fileName}' could not be written ({command})", "ocpi", "files");
+                return Task.CompletedTask;
+            };
+
+
             void LogHandshake(String What, V.OCPIRequest Request, V.OCPIResponse Response)
             {
 
@@ -186,6 +195,10 @@ namespace cloud.charging.open.RoamingHub.OCPI
                           );
 
                });
+
+
+        public override IEnumerable<RemoteParty_Id> UnsavedRemoteParties
+            => commonAPI.UnsavedRemoteParties;
 
 
         public override async Task<OCPIOperationResult> AddRemoteParty(RemotePartySpec Spec)
@@ -273,9 +286,16 @@ namespace cloud.charging.open.RoamingHub.OCPI
                                    DNSClient:    RoamingHub.DNSClient
                                );
 
-            var response = await client.Register();
+            var result = await client.TryRegister();
 
-            return DescribeRegistration(Id, response.StatusCode, response.StatusMessage, response.Data is not null);
+            return DescribeRegistration(
+                       Id,
+                       result.Response.StatusCode,
+                       result.Response.StatusMessage,
+                       result.Response.Data is not null,
+                       result.NotSaved,
+                       result.Reason
+                   );
 
         }
 

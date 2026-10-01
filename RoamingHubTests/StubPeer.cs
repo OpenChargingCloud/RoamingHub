@@ -85,6 +85,12 @@ namespace cloud.charging.open.RoamingHub.Tests
         /// </summary>
         public List<JObject> ClientInfosPushed    { get; } = [];
 
+        /// <summary>
+        /// Something to do once this hub's credentials have arrived, before
+        /// the answer goes back: a test making a file unwritable there, say.
+        /// </summary>
+        public Action?       WhenCredentialsArrive  { get; set; }
+
         #endregion
 
         #region Constructor(s)
@@ -200,6 +206,7 @@ namespace cloud.charging.open.RoamingHub.Tests
                 request => {
                     stub.Remember(request);
                     stub.ReceivedCredentials = JObject.Parse(request.HTTPBodyAsUTF8String ?? "{}");
+                    stub.WhenCredentialsArrive?.Invoke();
                     return Task.FromResult(JSON(request, new JObject(
                         new JProperty("token",  TokenC),
                         new JProperty("url",    stub.VersionsURL),
