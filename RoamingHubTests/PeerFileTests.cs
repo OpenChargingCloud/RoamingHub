@@ -25,10 +25,7 @@ using Newtonsoft.Json.Linq;
 
 using NUnit.Framework;
 
-using org.GraphDefined.Vanaheimr.Hermod;
-
 using cloud.charging.open.protocols.WWCP.Node.Logging;
-using cloud.charging.open.protocols.WWCP.Node.Configuration;
 using cloud.charging.open.protocols.WWCP.Node.TestKit;
 
 using cloud.charging.open.RoamingHub.OCPI;
@@ -88,12 +85,7 @@ namespace cloud.charging.open.RoamingHub.Tests
         /// HubWhoseStopCanFail.
         /// </summary>
         protected override RoamingHub NewRoamingHub()
-
-            => new HubWhoseStopCanFail(
-                   AccountsPath:  Path.Combine(Directory, "accounts"),
-                   ConfigFile:    TestRoamingHubs.ConfigFile(Directory, Configuration),
-                   Clock:         Clock
-               );
+            => HubWhoseStopCanFail.In(Directory, Configuration, Clock);
 
         #endregion
 
@@ -929,48 +921,6 @@ namespace cloud.charging.open.RoamingHub.Tests
             finally
             {
                 await again.DisposeAsync();
-            }
-
-        }
-
-        #endregion
-
-
-        #region (private class) HubWhoseStopCanFail
-
-        /// <summary>
-        /// A hub as TestRoamingHubs builds any other, whose next stop can be
-        /// made to fail - the way stopping a server that had not begun to
-        /// listen yet once failed.
-        /// </summary>
-        private sealed class HubWhoseStopCanFail(String          AccountsPath,
-                                                 WWCPConfigFile  ConfigFile,
-                                                 TimeProvider?   Clock)
-
-            : RoamingHub(HTTPPort:        IPPort.Parse(TestPorts.Free()),
-                         AccountsPath:    AccountsPath,
-                         ConfigFile:      ConfigFile,
-                         LogToConsole:    false,
-                         BridgeDebugLog:  false,
-                         TimeProvider:    Clock)
-
-        {
-
-            /// <summary>
-            /// Whether the next stop fails, once this hub has ended what it
-            /// ends before its server stops. The node below closes the server
-            /// all the same, and a stop after that does nothing.
-            /// </summary>
-            public Boolean NextStopFails { get; set; }
-
-            protected override async Task OnStopping()
-            {
-
-                await base.OnStopping();
-
-                if (NextStopFails)
-                    throw new InvalidOperationException("This hub was made to fail to stop.");
-
             }
 
         }

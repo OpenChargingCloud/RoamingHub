@@ -182,6 +182,13 @@ The bodies are not kept unless `ocpi.logging.payloads` says so: what travels
 through a hub is a location somebody operates, a session somebody is having, a
 card somebody is holding, and none of it is the hub's to keep.
 
+A call this hub fails to handle - a peer's, or one at the versions list from
+anybody - is answered OCPI 3000 with HTTP 500, a message that says nothing of
+the hub, and the request and correlation ids to quote, as headers and in the
+body. What failed is an error in the log, tagged `ocpi` and `http`, with the
+call's method and path, the peer or the address it came from, and the same
+ids - not its headers, whose `Authorization` is a token.
+
 It is in memory and nowhere else, because how long a hub may keep its peers'
 business is a question with a different answer in every jurisdiction. A
 deployment that has to keep more should read the stream and put it where it
@@ -527,7 +534,11 @@ peer that handed out a token and a versions URL - against a stub with the three
 routes the credentials handshake touches; and a peer added, removed or
 registered, in either direction, while the file of its version cannot be
 written - 500, and nothing changed, then or at the next start, but for a
-registration the peer accepted, which is kept and written down later. And the
+registration the peer accepted, which is kept and written down later, when
+the hub stops at the latest, and where stopping it fails as well. A hub whose
+stopping fails every time closes its port all the same, and a call whose
+handling fails tells its caller its ids and nothing else, and the log the
+rest. And the
 traffic: what a call is
 written down as, what a stranger's refused call is written down as, that the
 hub's own JSON API is not traffic, the filter, catching up with `after`, the
