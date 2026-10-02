@@ -29,6 +29,7 @@ using cloud.charging.open.protocols.WWCP.Node;
 using cloud.charging.open.protocols.WWCP.Node.Certificates;
 using cloud.charging.open.protocols.WWCP.Node.Configuration;
 using cloud.charging.open.protocols.WWCP.Node.Logging;
+using cloud.charging.open.protocols.WWCP.Node.SecureShell;
 
 using cloud.charging.open.RoamingHub.Configuration;
 using cloud.charging.open.RoamingHub.Logging;
@@ -247,6 +248,7 @@ namespace cloud.charging.open.RoamingHub
         /// <param name="LogPath">The directory a log file per day is written to, or null to write none.</param>
         /// <param name="BridgeDebugLog">Whether what the libraries below write with DebugX ends up in the log.</param>
         /// <param name="TimeProvider">Where this RoamingHub reads the time; the system clock by default.</param>
+        /// <param name="SSH">What the program says about serving the command line over SSH; nothing by default - see SSHSettings.</param>
         public RoamingHub(DNSClient?             DNSClient          = null,
                           NTSClient?             NTSClient          = null,
                           HTTPServer?            HTTPServer         = null,
@@ -265,7 +267,8 @@ namespace cloud.charging.open.RoamingHub
                           LogLevel               ConsoleLogLevel    = LogLevel.Info,
                           String?                LogPath            = null,
                           Boolean                BridgeDebugLog     = true,
-                          TimeProvider?          TimeProvider       = null)
+                          TimeProvider?          TimeProvider       = null,
+                          SSHSettings?           SSH                = null)
 
             : base(Kind:               RoamingHubKind,
                    Version:            typeof(RoamingHub).Assembly.GetName().Version?.ToString(3) ?? "0.0.0",
@@ -290,7 +293,8 @@ namespace cloud.charging.open.RoamingHub
                    LogPath:            LogPath,
                    BridgeDebugLog:     BridgeDebugLog,
                    TraceTags:          TraceTags,
-                   TimeProvider:       TimeProvider)
+                   TimeProvider:       TimeProvider,
+                   SSH:                SSH)
 
         {
 
