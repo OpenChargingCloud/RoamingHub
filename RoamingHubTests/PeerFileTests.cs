@@ -25,7 +25,10 @@ using Newtonsoft.Json.Linq;
 
 using NUnit.Framework;
 
+using org.GraphDefined.Vanaheimr.Hermod;
+
 using cloud.charging.open.protocols.WWCP.Node.Logging;
+using cloud.charging.open.protocols.WWCP.Node.Configuration;
 using cloud.charging.open.protocols.WWCP.Node.TestKit;
 
 using cloud.charging.open.RoamingHub.OCPI;
@@ -74,6 +77,22 @@ namespace cloud.charging.open.RoamingHub.Tests
                    new JProperty("ocpi",  new JObject(
                        new JProperty("versions",  new JArray("2.2.1", "2.3.0"))
                    ))
+               );
+
+        #endregion
+
+        #region NewRoamingHub() - a hub whose stopping can be made to fail
+
+        /// <summary>
+        /// A hub as any other, whose next stop can be made to fail - see
+        /// HubWhoseStopCanFail.
+        /// </summary>
+        protected override RoamingHub NewRoamingHub()
+
+            => new HubWhoseStopCanFail(
+                   AccountsPath:  Path.Combine(Directory, "accounts"),
+                   ConfigFile:    TestRoamingHubs.ConfigFile(Directory, Configuration),
+                   Clock:         Clock
                );
 
         #endregion
@@ -322,6 +341,91 @@ namespace cloud.charging.open.RoamingHub.Tests
             await RegisterAcceptedAndNotSaved(admin, Version);
 
             await RoamingHub.DisposeAsync();
+
+            var said = RoamingHub.Log.Recent(100, Tag: "files").
+                                      Where (entry => entry.Message.Contains("the next start will not know it")).
+                                      ToArray();
+
+            // So that the TearDown's second disposal has nothing left to say.
+            UnblockPeersFile(Version);
+
+            Assert.That(said, Has.Length.EqualTo(1), "The registration the next start will not know is not in the log, or more than once.");
+
+            Assert.Multiple(() => {
+                Assert.That(said[0].Level,    Is.EqualTo(LogLevel.Error));
+                Assert.That(said[0].Tags,     Does.Contain("ocpi"));
+                Assert.That(said[0].Message,  Does.Contain(PeerId), "The log does not name the peer.");
+            });
+
+        }
+
+        #endregion
+
+        #region ARegistrationThePeerAcceptedIsWrittenDownWhereThisHubFailsToStop(Version)
+
+        /// <summary>
+        /// A registration kept is written down when this hub stops, where the
+        /// file takes it by then - even where stopping fails, which is said
+        /// all the same.
+        /// </summary>
+        [TestCase("2.2.1")]
+        [TestCase("2.3.0")]
+        public async Task ARegistrationThePeerAcceptedIsWrittenDownWhereThisHubFailsToStop(String Version)
+        {
+
+            using var admin = await SignedIn();
+
+            await using var peer = await StubPeer.Start(Version: Version);
+
+            await AddRegistrablePeer(admin, Version, peer);
+
+            peer.WhenCredentialsArrive = () => BlockPeersFile(Version);
+
+            await RegisterAcceptedAndNotSaved(admin, Version);
+
+            UnblockPeersFile(Version);
+
+            ((HubWhoseStopCanFail) RoamingHub).NextStopFails = true;
+
+            Assert.ThrowsAsync<InvalidOperationException>(async () => await RoamingHub.DisposeAsync(),
+                                                          "The stop that was made to fail is not said to have failed.");
+
+            var after = await PeerAfterARestart(Version);
+
+            Assert.Multiple(() => {
+                Assert.That(after?.Registered,              Is.True,                     "The registration kept is not known at the next start, though the file took lines when this hub failed to stop.");
+                Assert.That(after?.TheirToken?.ToString(),  Is.EqualTo(StubPeer.TokenC), "The token the peer handed out is not known at the next start.");
+            });
+
+        }
+
+        #endregion
+
+        #region ARegistrationTheFileStillRefusesWhereThisHubFailsToStopIsInTheLog(Version)
+
+        /// <summary>
+        /// A registration kept that the file still refuses when this hub stops
+        /// is an error in the log - even where stopping fails.
+        /// </summary>
+        [TestCase("2.2.1")]
+        [TestCase("2.3.0")]
+        public async Task ARegistrationTheFileStillRefusesWhereThisHubFailsToStopIsInTheLog(String Version)
+        {
+
+            using var admin = await SignedIn();
+
+            await using var peer = await StubPeer.Start(Version: Version);
+
+            await AddRegistrablePeer(admin, Version, peer);
+
+            peer.WhenCredentialsArrive = () => BlockPeersFile(Version);
+
+            await RegisterAcceptedAndNotSaved(admin, Version);
+
+            ((HubWhoseStopCanFail) RoamingHub).NextStopFails = true;
+
+            Assert.ThrowsAsync<InvalidOperationException>(async () => await RoamingHub.DisposeAsync(),
+                                                          "The stop that was made to fail is not said to have failed.");
 
             var said = RoamingHub.Log.Recent(100, Tag: "files").
                                       Where (entry => entry.Message.Contains("the next start will not know it")).
@@ -825,6 +929,51 @@ namespace cloud.charging.open.RoamingHub.Tests
             finally
             {
                 await again.DisposeAsync();
+            }
+
+        }
+
+        #endregion
+
+
+        #region (private class) HubWhoseStopCanFail
+
+        /// <summary>
+        /// A hub as TestRoamingHubs builds any other, whose next stop can be
+        /// made to fail - the way stopping a server that had not begun to
+        /// listen yet once failed.
+        /// </summary>
+        private sealed class HubWhoseStopCanFail(String          AccountsPath,
+                                                 WWCPConfigFile  ConfigFile,
+                                                 TimeProvider?   Clock)
+
+            : RoamingHub(HTTPPort:        IPPort.Parse(TestPorts.Free()),
+                         AccountsPath:    AccountsPath,
+                         ConfigFile:      ConfigFile,
+                         LogToConsole:    false,
+                         BridgeDebugLog:  false,
+                         TimeProvider:    Clock)
+
+        {
+
+            /// <summary>
+            /// Whether the next stop fails, once this hub has ended what it
+            /// ends before its server stops. Once: the node below stops it
+            /// again, and that stop stops the server.
+            /// </summary>
+            public Boolean NextStopFails { get; set; }
+
+            protected override async Task OnStopping()
+            {
+
+                await base.OnStopping();
+
+                if (NextStopFails)
+                {
+                    NextStopFails = false;
+                    throw new InvalidOperationException("This hub was made to fail to stop.");
+                }
+
             }
 
         }

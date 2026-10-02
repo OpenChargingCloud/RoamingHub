@@ -107,6 +107,17 @@ namespace cloud.charging.open.RoamingHub.Tests
         protected virtual TimeProvider? Clock
             => null;
 
+        /// <summary>
+        /// The RoamingHub itself, built from the above in its directory, and
+        /// not started.
+        /// </summary>
+        /// <remarks>
+        /// Overridden by a fixture that needs one of a kind of its own: one
+        /// that can be made to fail where a real one fails only now and then.
+        /// </remarks>
+        protected virtual RoamingHub NewRoamingHub()
+            => TestRoamingHubs.New(Directory, Configuration, Clock);
+
         #endregion
 
         #region SetUp / TearDown
@@ -120,7 +131,7 @@ namespace cloud.charging.open.RoamingHub.Tests
             // In the same directory at every attempt: the accounts a failed
             // first start made go with it, and the next start is a first start
             // again.
-            RoamingHub  = await TestPorts.StartedOnFreshPorts(() => TestRoamingHubs.New(Directory, Configuration, Clock));
+            RoamingHub  = await TestPorts.StartedOnFreshPorts(() => NewRoamingHub());
 
             BaseURL     = RoamingHub.WebInterfaceURL.ToString();
 

@@ -165,7 +165,7 @@ namespace cloud.charging.open.RoamingHub.OCPI
     /// <param name="Success">Whether it worked.</param>
     /// <param name="Message">What happened, in a sentence the web interface can show.</param>
     /// <param name="Data">Whatever the operation has to hand back, or null.</param>
-    /// <param name="NotSaved">True where nothing was wrong with what was asked, and the file it is kept in could not be written: nothing changed.</param>
+    /// <param name="NotSaved">True where nothing was wrong with what was asked, and the file it is kept in could not be written: nothing changed - but for a registration the partner accepted, which is in effect and written down later, see <see cref="OCPIVersion.UnsavedRemoteParties"/>.</param>
     public sealed record OCPIOperationResult(Boolean   Success,
                                              String    Message,
                                              JObject?  Data       = null,

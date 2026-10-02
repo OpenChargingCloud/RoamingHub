@@ -449,33 +449,43 @@ namespace cloud.charging.open.RoamingHub
 
         /// <summary>
         /// Stop listening, write out what the OCPI library still holds for its
-        /// files, and then let go of what the node below holds.
+        /// files, and then let go of what the node below holds - the last two
+        /// even where stopping fails.
         /// </summary>
         public override async ValueTask DisposeAsync()
         {
 
             // Stopped first, so that no peer changes anything once the queue
             // is written out; the node below stops again, which does no harm.
-            // Before the node below lets go of its log, which is where a line
-            // that could not be written is said - and the node below lets go
-            // of what it holds even where this throws.
+            // Written out where stopping fails as well: whatever failed, what
+            // is not written out now is lost. Before the node below lets go of
+            // its log, which is where a line that could not be written is
+            // said - and the node below lets go of what it holds even where
+            // this throws.
             try
             {
 
-                await Stop();
+                try
+                {
+                    await Stop();
+                }
+                finally
+                {
 
-                await ocpiAPI.DisposeAsync();
+                    await ocpiAPI.DisposeAsync();
 
-                // A registration a peer accepted and the file of the peers
-                // refused was kept, and the OCPI API wrote it down just now
-                // where the file took it at last. Where it still did not, the
-                // next start will not know it.
-                foreach (var version in ocpiVersions)
-                    foreach (var remotePartyId in version.UnsavedRemoteParties)
-                        Log.Error(
-                            $"OCPI {version.Label}: what this hub holds about the peer '{remotePartyId}' could not be written, and the next start will not know it.",
-                            "ocpi", "files"
-                        );
+                    // A registration a peer accepted and the file of the peers
+                    // refused was kept, and the OCPI API wrote it down just
+                    // now where the file took it at last. Where it still did
+                    // not, the next start will not know it.
+                    foreach (var version in ocpiVersions)
+                        foreach (var remotePartyId in version.UnsavedRemoteParties)
+                            Log.Error(
+                                $"OCPI {version.Label}: what this hub holds about the peer '{remotePartyId}' could not be written, and the next start will not know it.",
+                                "ocpi", "files"
+                            );
+
+                }
 
             }
             finally

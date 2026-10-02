@@ -65,6 +65,35 @@ namespace cloud.charging.open.RoamingHub.Tests
                                      TimeProvider?  Clock           = null)
         {
 
+            var configFile = ConfigFile(Directory, Configuration);
+
+            // Its log on neither the console nor the disk: a test run's
+            // console is for the test run.
+            return new RoamingHub(
+                       HTTPPort:         IPPort.Parse(TestPorts.Free()),
+                       AccountsPath:     Path.Combine(Directory, "accounts"),
+                       ConfigFile:       configFile,
+                       LogToConsole:     false,
+                       BridgeDebugLog:   false,
+                       TimeProvider:     Clock
+                   );
+
+        }
+
+        #endregion
+
+        #region ConfigFile(Directory, Configuration = null)
+
+        /// <summary>
+        /// The configuration file of a RoamingHub in the given directory - for
+        /// a test that builds one of a kind of its own.
+        /// </summary>
+        /// <param name="Directory">Where it goes; created when it does not exist.</param>
+        /// <param name="Configuration">What it says, or null for a RoamingHub nobody has configured.</param>
+        public static WWCPConfigFile ConfigFile(String    Directory,
+                                                JObject?  Configuration   = null)
+        {
+
             System.IO.Directory.CreateDirectory(Directory);
 
             var configFile = Path.Combine(Directory, "configuration.json");
@@ -72,16 +101,7 @@ namespace cloud.charging.open.RoamingHub.Tests
             if (Configuration is not null)
                 File.WriteAllText(configFile, Configuration.ToString());
 
-            // Its log on neither the console nor the disk: a test run's
-            // console is for the test run.
-            return new RoamingHub(
-                       HTTPPort:         IPPort.Parse(TestPorts.Free()),
-                       AccountsPath:     Path.Combine(Directory, "accounts"),
-                       ConfigFile:       new WWCPConfigFile(configFile),
-                       LogToConsole:     false,
-                       BridgeDebugLog:   false,
-                       TimeProvider:     Clock
-                   );
+            return new WWCPConfigFile(configFile);
 
         }
 
