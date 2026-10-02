@@ -576,6 +576,53 @@ namespace cloud.charging.open.RoamingHub.Tests
 
         #endregion
 
+        #region ALineTheNextStartCannotReadIsInTheLog(Version)
+
+        /// <summary>
+        /// A line of the file of the peers that the next start cannot read is
+        /// passed over, and an error in the log of that start, naming the
+        /// file - and not the line, which can hold a token. The peers it can
+        /// read are there, and nothing else is said.
+        /// </summary>
+        [TestCase("2.2.1")]
+        [TestCase("2.3.0")]
+        public async Task ALineTheNextStartCannotReadIsInTheLog(String Version)
+        {
+
+            using var admin = await SignedIn();
+
+            await AddPeer(admin, Version);
+
+            const String secret = "a-token-the-log-must-not-hold";
+
+            await File.AppendAllTextAsync(PeersFile(Version), $"no command at all, but {secret}{Environment.NewLine}");
+
+            var (peers, said) = await PeersAfterARestart(hub => (
+                                    hub.OCPIVersions.
+                                        Where     (version => version.Label == Version).
+                                        SelectMany(version => version.RemoteParties).
+                                        Select    (peer    => peer.Id.ToString()).
+                                        ToArray(),
+                                    hub.Log.Recent(100, Tag: "files").
+                                        Where (entry => entry.Message.Contains("could not be read")).
+                                        ToArray()
+                                ));
+
+            Assert.That(peers, Does.Contain(PeerId), "The peer the file holds is gone at the next start.");
+
+            Assert.That(said, Has.Length.EqualTo(1), "The line the next start cannot read is not in its log, or more than once, or other lines are.");
+
+            Assert.Multiple(() => {
+                Assert.That(said[0].Level,    Is.EqualTo(LogLevel.Error));
+                Assert.That(said[0].Tags,     Does.Contain("ocpi"));
+                Assert.That(said[0].Message,  Does.Contain(Path.GetFileName(PeersFile(Version))), "The log does not name the file.");
+                Assert.That(said[0].Message,  Does.Not.Contain(secret),                          "The log holds the line.");
+            });
+
+        }
+
+        #endregion
+
 
         #region (private static) PeerId / Peer(Version)
 

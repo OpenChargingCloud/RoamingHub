@@ -268,6 +268,15 @@ namespace cloud.charging.open.RoamingHub
             ocpiAPI.OnDatabaseLineNotWritten += (timestamp, writer, fileName, line, exception) =>
                 Log.Exception(exception, $"OCPI: a change the next start will not know, because '{fileName}' could not be written", "ocpi", "files");
 
+            // And the other way round: a line of those files that cannot be
+            // read at the start is passed over - a peer, or what one sent,
+            // that this hub then does not know - and said to nobody but this
+            // event. Here, before the versions below are made, because making
+            // them is what reads the files. Which file and why - not the line,
+            // which can hold a token.
+            ocpiAPI.OnDatabaseLineNotRead += (timestamp, reader, fileName, line, reason) =>
+                Log.Error($"OCPI: a line of '{fileName}' could not be read, and this start passes over it: {reason}", "ocpi", "files");
+
             // A request whose handling threw is answered OCPI 3000 and its
             // ids, nothing more: what was thrown would tell whoever asked what
             // runs here and where it was built - at the versions list without

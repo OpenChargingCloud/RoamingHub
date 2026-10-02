@@ -233,7 +233,9 @@ one nobody is peered with.
 
 The peers themselves are in none of it. The OCPI library keeps them in
 append-only files of its own below an `ocpi/` directory beside the
-configuration, one set per version, and reads them back at every start. A peer
+configuration, one set per version, and reads them back at every start; a line
+it cannot read is passed over, and an error in the log names the file and why,
+not the line. A peer
 is added, removed or registered only once its file has it: where that file
 cannot be written, the Peers page is answered 500 with why, and nothing
 changes - but for a registration the peer has accepted already. That one is in
@@ -538,7 +540,8 @@ registration the peer accepted, which is kept and written down later, when
 the hub stops at the latest, and where stopping it fails as well. A hub whose
 stopping fails every time closes its port all the same, and a call whose
 handling fails tells its caller its ids and nothing else, and the log the
-rest. And the
+rest; a line of a peers' file the next start cannot read is passed over, and
+in that start's log. And the
 traffic: what a call is
 written down as, what a stranger's refused call is written down as, that the
 hub's own JSON API is not traffic, the filter, catching up with `after`, the
