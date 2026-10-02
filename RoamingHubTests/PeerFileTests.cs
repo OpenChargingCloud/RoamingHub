@@ -958,8 +958,8 @@ namespace cloud.charging.open.RoamingHub.Tests
 
             /// <summary>
             /// Whether the next stop fails, once this hub has ended what it
-            /// ends before its server stops. Once: the node below stops it
-            /// again, and that stop stops the server.
+            /// ends before its server stops. The node below closes the server
+            /// all the same, and a stop after that does nothing.
             /// </summary>
             public Boolean NextStopFails { get; set; }
 
@@ -969,10 +969,7 @@ namespace cloud.charging.open.RoamingHub.Tests
                 await base.OnStopping();
 
                 if (NextStopFails)
-                {
-                    NextStopFails = false;
                     throw new InvalidOperationException("This hub was made to fail to stop.");
-                }
 
             }
 

@@ -268,6 +268,28 @@ namespace cloud.charging.open.RoamingHub
             ocpiAPI.OnDatabaseLineNotWritten += (timestamp, writer, fileName, line, exception) =>
                 Log.Exception(exception, $"OCPI: a change the next start will not know, because '{fileName}' could not be written", "ocpi", "files");
 
+            // A request whose handling threw is answered OCPI 3000 and its
+            // ids, nothing more: what was thrown would tell whoever asked what
+            // runs here and where it was built - at the versions list without
+            // a token as well. The library says it to nobody but this event.
+            // Its line and who sent it, with the ids the caller can quote - not
+            // its headers, whose Authorization is a token.
+            ocpiAPI.OnRequestFailed += (timestamp, request, requestId, correlationId, remotePartyId, exception) => {
+
+                Log.Exception(
+                    exception,
+                    $"OCPI: {request.HTTPMethod} {request.Path} from " +
+                    (remotePartyId.HasValue
+                         ? $"the peer '{remotePartyId}'"
+                         : $"somebody at {request.RemoteSocket}") +
+                    $" failed (request id {requestId}, correlation id {correlationId})",
+                    "ocpi", "http"
+                );
+
+                return Task.CompletedTask;
+
+            };
+
             foreach (var version in ocpiSettings.EffectiveVersions)
             {
 
