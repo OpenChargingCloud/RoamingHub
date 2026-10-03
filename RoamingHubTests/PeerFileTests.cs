@@ -379,8 +379,8 @@ namespace cloud.charging.open.RoamingHub.Tests
 
             ((HubWhoseStopCanFail) RoamingHub).NextStopFails = true;
 
-            Assert.ThrowsAsync<InvalidOperationException>(async () => await RoamingHub.DisposeAsync(),
-                                                          "The stop that was made to fail is not said to have failed.");
+            await Assert.ThrowsAsync<InvalidOperationException>(async () => await RoamingHub.DisposeAsync(),
+                                                                "The stop that was made to fail is not said to have failed.");
 
             var after = await PeerAfterARestart(Version);
 
@@ -416,8 +416,8 @@ namespace cloud.charging.open.RoamingHub.Tests
 
             ((HubWhoseStopCanFail) RoamingHub).NextStopFails = true;
 
-            Assert.ThrowsAsync<InvalidOperationException>(async () => await RoamingHub.DisposeAsync(),
-                                                          "The stop that was made to fail is not said to have failed.");
+            await Assert.ThrowsAsync<InvalidOperationException>(async () => await RoamingHub.DisposeAsync(),
+                                                                "The stop that was made to fail is not said to have failed.");
 
             var said = RoamingHub.Log.Recent(100, Tag: "files").
                                       Where (entry => entry.Message.Contains("the next start will not know it")).

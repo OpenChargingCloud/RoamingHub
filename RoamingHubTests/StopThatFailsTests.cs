@@ -61,7 +61,7 @@ namespace cloud.charging.open.RoamingHub.Tests
         /// refused.
         /// </summary>
         [Test]
-        public void AHubThatFailsToStopEveryTimeSaysSoAndStillClosesItsPort()
+        public async Task AHubThatFailsToStopEveryTimeSaysSoAndStillClosesItsPort()
         {
 
             var hub   = (HubWhoseStopCanFail) RoamingHub;
@@ -77,8 +77,8 @@ namespace cloud.charging.open.RoamingHub.Tests
 
             using var client  = new TcpClient();
 
-            var refused = Assert.CatchAsync<SocketException>(async () => await client.ConnectAsync(IPAddress.Loopback, port),
-                                                              "The hub still listens on its port.");
+            var refused = await Assert.CatchAsync<SocketException>(async () => await client.ConnectAsync(IPAddress.Loopback, port),
+                                                                    "The hub still listens on its port.");
 
             Assert.That(refused?.SocketErrorCode, Is.EqualTo(SocketError.ConnectionRefused));
 
