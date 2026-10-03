@@ -279,8 +279,12 @@ namespace cloud.charging.open.RoamingHub.Tests
                                     new JProperty("name",         "Somebody else")
                                 ));
 
-            Assert.That(refused.StatusCode, Is.EqualTo(HttpStatusCode.BadRequest));
-            Assert.That(await refused.Content.ReadAsStringAsync(), Does.Contain("CPO, EMSP and HUB"));
+            var why = await refused.Content.ReadAsStringAsync();
+
+            Assert.Multiple(() => {
+                Assert.That(refused.StatusCode, Is.EqualTo(HttpStatusCode.BadRequest));
+                Assert.That(why,                Does.Contain("CPO, EMSP and HUB"));
+            });
 
         }
 

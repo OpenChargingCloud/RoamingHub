@@ -251,15 +251,15 @@ namespace cloud.charging.open.RoamingHub.Tests
 
             Assert.Multiple(() => {
 
-                Assert.That(all.Count, Is.EqualTo(3));
+                Assert.That(all, Has.Count.EqualTo(3));
 
                 // The peer as this hub knows it: one call came in on its token.
-                Assert.That(justCPO.Count, Is.EqualTo(1));
+                Assert.That(justCPO, Has.Count.EqualTo(1));
 
                 // And the party as the headers write it, which catches the
                 // calls it was the other end of as well: the CPO's one call
                 // was addressed to DE-GDF, and the EMSP made two of its own.
-                Assert.That(byParty.Count, Is.EqualTo(3));
+                Assert.That(byParty, Has.Count.EqualTo(3));
 
             });
 
@@ -408,8 +408,10 @@ namespace cloud.charging.open.RoamingHub.Tests
 
             var response = await admin.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, listening.Token);
 
-            Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK));
-            Assert.That(response.Content.Headers.ContentType?.MediaType, Is.EqualTo("text/event-stream"));
+            Assert.Multiple(() => {
+                Assert.That(response.StatusCode,                             Is.EqualTo(HttpStatusCode.OK));
+                Assert.That(response.Content.Headers.ContentType?.MediaType, Is.EqualTo("text/event-stream"));
+            });
 
             using var stream = new StreamReader(await response.Content.ReadAsStreamAsync(listening.Token));
 
