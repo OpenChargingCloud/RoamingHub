@@ -103,14 +103,12 @@ namespace cloud.charging.open.RoamingHub.OCPI
 
             // The library's HUB_HTTPAPI is deliberately not built here.
             //
-            // Two reasons, and either would be enough. Nothing it serves is
-            // wired up yet - this hub does the peering and no forwarding - so
-            // it would add endpoints that answer nothing. And it cannot be
-            // constructed at all as the library stands: it registers
-            // "hub/locations/{country_code}/{party_id}" beside
-            // "hub/locations/{locationId}", and Hermod refuses two sibling
-            // parameter routes on the same segment as ambiguous, which throws
-            // in its constructor.
+            // Nothing it serves is wired up yet - this hub does the peering
+            // and no forwarding - so it would add endpoints that answer
+            // nothing. And building it is announcing it: it tells the Common
+            // API where the hub modules are, and the version details then
+            // offer every peer locations, tariffs, sessions, cdrs, tokens and
+            // commands this hub does not carry.
             //
             // The peering needs none of it: the versions, the version details
             // and the credentials are all on the Common API above, and the
