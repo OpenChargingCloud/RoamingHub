@@ -1,10 +1,159 @@
 import type { Call } from '../api/client';
 import { auth } from '../auth';
-import { escapeHTML, html, must, render } from '@node/html';
+import { must } from '@node/html';
 import type { Page } from '@node/router';
 import { shell } from '@node/shell';
 import { traffic } from '../traffic/store';
 import { formatTime, formatTimestamp } from '@node/ui';
+import { html, render } from '@node/view';
+
+/** An element of the given kind and class, with the given text - as text, which needs no escaping. */
+function element<K extends keyof HTMLElementTagNameMap>(Tag: K, Class = '', Text?: string): HTMLElementTagNameMap[K] {
+    const made = document.createElement(Tag);
+    if (Class !== '')
+        made.className = Class;
+    if (Text !== undefined)
+        made.textContent = Text;
+    return made;
+}
+
+/** A Font Awesome icon. */
+function icon(Name: string): HTMLElement {
+    return element('i', `fa-solid ${Name}`);
+}
+
+/** The status as one chip: the HTTP code, and the OCPI one when there is one. */
+function statusElement(Call: Call): HTMLSpanElement {
+
+    const chip = element('span', `chip status ${Call.ok ? 'ok' : 'bad'}`,
+                         Call.ocpiStatusCode === null
+                             ? String(Call.httpStatusCode)
+                             : `${Call.httpStatusCode}/${Call.ocpiStatusCode}`);
+
+    chip.title = Call.ocpiStatusCode === null
+                     ? `HTTP ${Call.httpStatusCode}`
+                     : `HTTP ${Call.httpStatusCode}, OCPI ${Call.ocpiStatusCode}`;
+
+    return chip;
+
+}
+
+/** The two parties out of the OCPI headers, from the one to the other. */
+function partiesElement(Call: Call): HTMLSpanElement {
+
+    const parties = element('span', 'parties');
+
+    if (!Call.from && !Call.to)
+        parties.append(element('span', 'muted', '-'));
+    else
+        parties.append(Call.from ?? '?', icon('fa-arrow-right-long'), Call.to ?? '?');
+
+    return parties;
+
+}
+
+/**
+ * One line, made once - and made anew only when it is unfolded or folded
+ * again, in place of the one it was.
+ *
+ * Made as elements, not drawn by view.ts: a line is never drawn again, and
+ * comparing a list of the thousands the hub keeps with itself, for every call
+ * that goes through it, would put back the cost that making a line once takes
+ * away. What a call says - a path, a party, a message somebody else wrote -
+ * goes in as text, which needs no escaping: it was markup once, escaped by
+ * hand at every place it went in, and one place that forgot would have let a
+ * peer write into this page.
+ */
+export function lineElement(Call: Call, Open = false, Payloads = true): HTMLElement {
+
+    const line = element('div', `line call ${Call.ok ? '' : 'failed'} ${Open ? 'open' : ''}`);
+    line.dataset.id = String(Call.id);
+
+    const head = element('div', 'call-head');
+    head.setAttribute('role', 'button');
+    head.tabIndex = 0;
+    head.setAttribute('aria-expanded', String(Open));
+
+    const time = element('time', '', formatTime(Call.timestamp));
+    time.dateTime = Call.timestamp;
+    time.title    = formatTimestamp(Call.timestamp);
+
+    const direction = element('span', `chip dir ${Call.direction}`);
+    direction.title = Call.direction === 'in' ? 'A peer called this hub' : 'This hub called a peer';
+    direction.append(icon(Call.direction === 'in' ? 'fa-arrow-right-to-bracket' : 'fa-arrow-right-from-bracket'));
+
+    const message = element('span', 'message');
+    message.append(element('b', '', Call.method), ` ${Call.path}`);
+
+    head.append(time,
+                direction,
+                statusElement(Call),
+                element('span', 'peer', Call.peer ?? '-'),
+                partiesElement(Call),
+                element('span', 'chip module', `${Call.module ?? '-'}${Call.version ? ' ' + Call.version : ''}`),
+                message,
+                element('span', 'duration', `${Call.durationMs} ms`));
+
+    line.append(head);
+
+    if (Open)
+        line.append(detailElement(Call, Payloads));
+
+    return line;
+
+}
+
+/** Everything the line had no room for, unfolded under it. */
+function detailElement(Call: Call, Payloads: boolean): HTMLElement {
+
+    const rows: [string, string | null][] = [
+        ['Status message',  Call.statusMessage],
+        ['Error',           Call.error],
+        ['Request size',    Call.requestSize  === null ? null : `${Call.requestSize} bytes`],
+        ['Response size',   Call.responseSize === null ? null : `${Call.responseSize} bytes`],
+        ['Request ID',      Call.requestId],
+        ['Correlation ID',  Call.correlationId],
+        ['Remote socket',   Call.remoteSocket],
+        ['When',            formatTimestamp(Call.timestamp)]
+    ];
+
+    const detail = element('div', 'call-detail');
+    const kvList = element('div', 'kv-list');
+
+    for (const [key, value] of rows) {
+        if (value !== null && value !== '') {
+            const kv = element('div', 'kv');
+            kv.append(element('span', 'k', key), element('span', 'v', value));
+            kvList.append(kv);
+        }
+    }
+
+    detail.append(kvList);
+
+    for (const [label, value] of [['Request', Call.requestBody], ['Response', Call.responseBody]] as const) {
+        if (value !== null && value !== '') {
+            const body = element('div', 'call-body');
+            body.append(element('h4', '', label), element('pre', '', value));
+            detail.append(body);
+        }
+    }
+
+    if (!Payloads) {
+        const note = element('p', 'muted small', 'The bodies are not kept. Set ');
+        note.append(element('code', '', 'ocpi.logging.payloads'), ' to keep them.');
+        detail.append(note);
+    }
+
+    return detail;
+
+}
+
+/** An option of a chooser. */
+function option(Value: string, Text: string): HTMLOptionElement {
+    const made = element('option', '', Text);
+    made.value = Value;
+    return made;
+}
 
 /**
  * What went between the peers, as it happens.
@@ -40,7 +189,8 @@ export const trafficPage: Page = {
             subtitle:  'Every OCPI call that touched this hub, and the two parties it was between.',
             actions:   html`
                 <span id="stream-state" class="stream-state"></span>
-                <button type="button" id="clear" class="btn small" title="Clear what this page shows; the hub keeps its record">Clear view</button>
+                <button type="button" id="clear" class="btn small" title="Clear what this page shows; the hub keeps its record"
+                        @click=${() => traffic.clear()}>Clear view</button>
             `
         });
 
@@ -100,7 +250,6 @@ export const trafficPage: Page = {
         const failed      = must<HTMLInputElement>  (content, '#failed');
         const follow      = must<HTMLInputElement>  (content, '#follow');
         const streamState = must<HTMLElement>       (root,    '#stream-state');
-        const clear       = must<HTMLButtonElement> (root,    '#clear');
 
         /** The ids whose details are unfolded. */
         const opened = new Set<number>();
@@ -133,82 +282,12 @@ export const trafficPage: Page = {
 
         }
 
-
-        /** The status as one chip: the HTTP code, and the OCPI one when there is one. */
-        function statusHTML(call: Call): string {
-
-            const label = call.ocpiStatusCode === null
-                              ? String(call.httpStatusCode)
-                              : `${call.httpStatusCode}/${call.ocpiStatusCode}`;
-
-            const title = call.ocpiStatusCode === null
-                              ? `HTTP ${call.httpStatusCode}`
-                              : `HTTP ${call.httpStatusCode}, OCPI ${call.ocpiStatusCode}`;
-
-            return `<span class="chip status ${call.ok ? 'ok' : 'bad'}" title="${escapeHTML(title)}">${escapeHTML(label)}</span>`;
-        }
-
-        function partiesHTML(call: Call): string {
-
-            if (!call.from && !call.to)
-                return '<span class="muted">-</span>';
-
-            return `${escapeHTML(call.from ?? '?')}<i class="fa-solid fa-arrow-right-long"></i>${escapeHTML(call.to ?? '?')}`;
-
-        }
-
-        function lineHTML(call: Call): string {
-
-            const open = opened.has(call.id);
-
-            return `<div class="line call ${call.ok ? '' : 'failed'} ${open ? 'open' : ''}" data-id="${call.id}">` +
-                       `<div class="call-head" role="button" tabindex="0" aria-expanded="${open}">` +
-                           `<time datetime="${escapeHTML(call.timestamp)}" title="${escapeHTML(formatTimestamp(call.timestamp))}">${escapeHTML(formatTime(call.timestamp))}</time>` +
-                           `<span class="chip dir ${call.direction}" title="${call.direction === 'in' ? 'A peer called this hub' : 'This hub called a peer'}">` +
-                               `<i class="fa-solid ${call.direction === 'in' ? 'fa-arrow-right-to-bracket' : 'fa-arrow-right-from-bracket'}"></i>` +
-                           `</span>` +
-                           statusHTML(call) +
-                           `<span class="peer">${escapeHTML(call.peer ?? '-')}</span>` +
-                           `<span class="parties">${partiesHTML(call)}</span>` +
-                           `<span class="chip module">${escapeHTML(call.module ?? '-')}${call.version ? ' ' + escapeHTML(call.version) : ''}</span>` +
-                           `<span class="message"><b>${escapeHTML(call.method)}</b> ${escapeHTML(call.path)}</span>` +
-                           `<span class="duration">${escapeHTML(String(call.durationMs))} ms</span>` +
-                       `</div>` +
-                       (open ? detailHTML(call) : '') +
-                   `</div>`;
-
-        }
-
-        /** Everything the line had no room for, unfolded under it. */
-        function detailHTML(call: Call): string {
-
-            const rows: [string, string | null][] = [
-                ['Status message',  call.statusMessage],
-                ['Error',           call.error],
-                ['Request size',    call.requestSize  === null ? null : `${call.requestSize} bytes`],
-                ['Response size',   call.responseSize === null ? null : `${call.responseSize} bytes`],
-                ['Request ID',      call.requestId],
-                ['Correlation ID',  call.correlationId],
-                ['Remote socket',   call.remoteSocket],
-                ['When',            formatTimestamp(call.timestamp)]
-            ];
-
-            const kv = rows.filter(([, value]) => value !== null && value !== '').
-                            map(([key, value]) => `<div class="kv"><span class="k">${escapeHTML(key)}</span><span class="v">${escapeHTML(String(value))}</span></div>`).
-                            join('');
-
-            const body = (label: string, value: string | null): string =>
-                value === null || value === ''
-                    ? ''
-                    : `<div class="call-body"><h4>${escapeHTML(label)}</h4><pre>${escapeHTML(value)}</pre></div>`;
-
-            return `<div class="call-detail">` +
-                       `<div class="kv-list">${kv}</div>` +
-                       body('Request',  call.requestBody) +
-                       body('Response', call.responseBody) +
-                       (traffic.payloads ? '' : `<p class="muted small">The bodies are not kept. Set <code>ocpi.logging.payloads</code> to keep them.</p>`) +
-                   `</div>`;
-
+        /** Lines for the calls given, in their order, to go into the list at once. */
+        function linesOf(calls: readonly Call[]): DocumentFragment {
+            const lines = document.createDocumentFragment();
+            for (const call of calls)
+                lines.append(lineElement(call, opened.has(call.id), traffic.payloads));
+            return lines;
         }
 
         function atBottom(): boolean {
@@ -226,9 +305,11 @@ export const trafficPage: Page = {
         function redraw(): void {
 
             const stick = follow.checked && atBottom();
+            const shown = traffic.calls.filter(matches);
 
-            list.innerHTML = traffic.calls.filter(matches).map(lineHTML).join('') ||
-                             '<div class="log-empty">Nothing to show. Nothing has gone between the peers yet, or the filters are too narrow.</div>';
+            list.replaceChildren(shown.length > 0
+                                     ? linesOf(shown)
+                                     : element('div', 'log-empty', 'Nothing to show. Nothing has gone between the peers yet, or the filters are too narrow.'));
 
             if (stick || follow.checked)
                 scrollToBottom();
@@ -248,7 +329,7 @@ export const trafficPage: Page = {
                 const stick = follow.checked && atBottom();
 
                 list.querySelector('.log-empty')?.remove();
-                list.insertAdjacentHTML('beforeend', wanted.map(lineHTML).join(''));
+                list.append(linesOf(wanted));
 
                 // The hub keeps a bounded record and so does this page; what
                 // fell out of the store has to leave the list as well.
@@ -283,7 +364,7 @@ export const trafficPage: Page = {
 
         }
 
-        /** The party filter, redrawn only when the hub has seen a new one. */
+        /** The party filter, made anew only when the hub has seen a new one. */
         function drawPeers(): void {
 
             const all = [...traffic.peers].sort();
@@ -296,8 +377,8 @@ export const trafficPage: Page = {
 
             const chosen = peer.value;
 
-            peer.innerHTML = '<option value="">everybody</option>' +
-                             all.map(party => `<option value="${escapeHTML(party)}">${escapeHTML(party)}</option>`).join('');
+            peer.replaceChildren(option('', 'everybody'),
+                                 ...all.map(party => option(party, party)));
 
             // A party that has gone out of the window would otherwise silently
             // reset the filter to "everybody" and show more than was asked for.
@@ -327,7 +408,12 @@ export const trafficPage: Page = {
             }
         });
 
-        /** Unfold a line, or fold it again. Redraws only that line. */
+        /**
+         * Unfold a line, or fold it again: that line made anew, in its place.
+         * Somebody who did it from the keyboard is still on it afterwards -
+         * the line that had the focus is gone, and the focus would have gone
+         * with it, to the top of the page.
+         */
         function toggle(target: Element | null): void {
 
             const line = target?.closest<HTMLElement>('.line.call');
@@ -346,7 +432,13 @@ export const trafficPage: Page = {
             else
                 opened.add(id);
 
-            line.outerHTML = lineHTML(call);
+            const hadFocus = line.contains(document.activeElement);
+            const made     = lineElement(call, opened.has(id), traffic.payloads);
+
+            line.replaceWith(made);
+
+            if (hadFocus)
+                made.querySelector<HTMLElement>('.call-head')?.focus();
 
         }
 
@@ -356,7 +448,6 @@ export const trafficPage: Page = {
         failed   .addEventListener('change', () => redraw());
         follow   .addEventListener('change', () => { if (follow.checked) scrollToBottom(); });
         toBottom .addEventListener('click',  () => scrollToBottom());
-        clear    .addEventListener('click',  () => traffic.clear());
 
         list.addEventListener('scroll', () => {
             if (atBottom())
@@ -386,9 +477,12 @@ export const trafficPage: Page = {
 
                     break;
 
-                case 'error':
-                    list.insertAdjacentHTML('beforeend', `<div class="line error"><span class="message">${escapeHTML(event.text)}</span></div>`);
+                case 'error': {
+                    const line = element('div', 'line error');
+                    line.append(element('span', 'message', event.text));
+                    list.append(line);
                     break;
+                }
 
             }
 

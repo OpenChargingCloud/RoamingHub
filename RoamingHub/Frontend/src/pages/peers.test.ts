@@ -6,7 +6,7 @@
  * only starting the peering here needs, and says its token once.
  */
 
-import { asked, change, field, open, refused, said, submit, until, type Asked } from '../../test/hub.ts';
+import { asked, change, field, open, refused, said, settled, submit, until, type Asked } from '../../test/hub.ts';
 
 import { strict as assert }  from 'node:assert';
 import { describe, it }      from 'node:test';
@@ -192,6 +192,33 @@ describe('the peers', () => {
         await until(() => field(root, '#partner-form', 'name').value === '', 'Reload kept what was typed');
 
         assert.equal(asked.filter(one => one.method === 'GET' && one.path === '/ocpi/partners').length, 2);
+        assert.equal(said.length, 1, 'Reload did not ask before it threw what was typed away');
+
+    });
+
+    it('keep the form on Reload, when it was not agreed to', async () => {
+
+        const root = await opened();
+
+        field(root, '#partner-form', 'name').value = 'XYZ Charging';
+        field(root, '#partner-form', 'name').dispatchEvent(new Event('input', { bubbles: true }));
+
+        const confirm  = window.confirm;
+        window.confirm = (text?: unknown) => { said.push(String(text)); return false; };
+
+        try
+        {
+            root.querySelector<HTMLButtonElement>('#reload')!.click();
+            await settled();
+        }
+        finally
+        {
+            window.confirm = confirm;
+        }
+
+        assert.equal(said.length, 1, 'Reload did not ask');
+        assert.equal(field(root, '#partner-form', 'name').value, 'XYZ Charging', 'Reload threw what was typed away without a yes');
+        assert.equal(asked.filter(one => one.method === 'GET' && one.path === '/ocpi/partners').length, 1, 'Reload loaded anew without a yes');
 
     });
 

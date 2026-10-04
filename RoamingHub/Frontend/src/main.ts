@@ -5,7 +5,7 @@ import './styles/app.scss';
 import '@fortawesome/fontawesome-free/css/fontawesome.css';
 import '@fortawesome/fontawesome-free/css/solid.css';
 
-import { html } from '@node/html';
+import { html } from '@node/view';
 import { followAcrossTheCache, nodeMenu, startNode } from '@node/start';
 
 import { configurationPage }  from './pages/configuration';

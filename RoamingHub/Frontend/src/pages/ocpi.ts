@@ -1,8 +1,7 @@
 import { api, type OCPIConfiguration } from '../api/client';
 import { toURL } from '@node/basePath';
-import { html as stringHTML, must } from '@node/html';
 import type { Page } from '@node/router';
-import { shell } from '@node/shell';
+import { reloadButton, shell } from '@node/shell';
 import { errorMessage, formatValue, humanizeKey } from '@node/ui';
 import { html, render } from '@node/view';
 
@@ -29,12 +28,10 @@ export const ocpiPage: Page = {
             active:    '/configuration/ocpi',
             title:     'OCPI',
             subtitle:  'Who this hub is to its peers, and where they find it.',
-            actions:   stringHTML`<button type="button" id="reload" class="btn small">Reload</button>`
+            actions:   reloadButton(() => load())
         });
 
         render(content, html`<div class="loading">Loading ...</div>`);
-
-        must<HTMLButtonElement>(root, '#reload').addEventListener('click', () => void load());
 
         let cancelled = false;
 

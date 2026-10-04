@@ -1,9 +1,9 @@
 import { api, type Partner, type Partners, type PartnerSpec, type PeerPresence } from '../api/client';
 import { auth } from '../auth';
-import { html as stringHTML, must } from '@node/html';
+import { must } from '@node/html';
 import { logs } from '@node/logs/store';
 import type { Page } from '@node/router';
-import { mayButNot, shell } from '@node/shell';
+import { mayButNot, reloadButton, shell } from '@node/shell';
 import { errorMessage, field, formatSince, formatTimestamp, isChecked } from '@node/ui';
 import { anyFormTypedSinceDrawn, unsaved } from '@node/unsaved';
 import { html, nothing, render, repeat, type TemplateResult } from '@node/view';
@@ -46,17 +46,13 @@ export const peersPage: Page = {
             active:    '/configuration/ocpi/partners',
             title:     'Peers',
             subtitle:  'Who is peered with this hub over OCPI, and who is on the way.',
-            actions:   stringHTML`<button type="button" id="reload" class="btn small">Reload</button>`
+            // Reload throws a peer typed in and not yet added away as thoroughly
+            // as leaving the page does, so it asks first - reloadButton does -
+            // and then resets the forms as well: reload(), not load().
+            actions:   reloadButton(() => reload())
         });
 
         render(content, html`<div class="loading">Loading ...</div>`);
-
-        // Reload throws a peer typed in and not yet added away as thoroughly
-        // as leaving the page does, so it asks first.
-        must<HTMLButtonElement>(root, '#reload').addEventListener('click', () => {
-            if (unsaved.mayBeLost())
-                void reload();
-        });
 
         const mayManage   = auth.can('peers', 'edit');
 
