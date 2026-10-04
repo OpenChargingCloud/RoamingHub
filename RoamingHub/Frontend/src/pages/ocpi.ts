@@ -1,9 +1,10 @@
 import { api, type OCPIConfiguration } from '../api/client';
 import { toURL } from '@node/basePath';
-import { html, must, render } from '@node/html';
+import { html as stringHTML, must } from '@node/html';
 import type { Page } from '@node/router';
 import { shell } from '@node/shell';
 import { errorMessage, formatValue, humanizeKey } from '@node/ui';
+import { html, render } from '@node/view';
 
 /**
  * Who this hub is in OCPI, where its peers find it, and how many of them there
@@ -14,6 +15,9 @@ import { errorMessage, formatValue, humanizeKey } from '@node/ui';
  * registration would not rename the hub, it would make it a second one nobody
  * is peered with. So they are read from the configuration file at the start,
  * and this page says where that file is.
+ *
+ * Drawn by view.ts, as the other pages are: nothing here is typed into, but a
+ * Reload changes only what differs.
  */
 export const ocpiPage: Page = {
 
@@ -25,7 +29,7 @@ export const ocpiPage: Page = {
             active:    '/configuration/ocpi',
             title:     'OCPI',
             subtitle:  'Who this hub is to its peers, and where they find it.',
-            actions:   html`<button type="button" id="reload" class="btn small">Reload</button>`
+            actions:   stringHTML`<button type="button" id="reload" class="btn small">Reload</button>`
         });
 
         render(content, html`<div class="loading">Loading ...</div>`);

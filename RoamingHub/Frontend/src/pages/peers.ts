@@ -1,12 +1,12 @@
 import { api, type Partner, type Partners, type PartnerSpec, type PeerPresence } from '../api/client';
 import { auth } from '../auth';
-import { keepDrafts } from '@node/drafts';
-import { html, must, render, type HTMLFragment } from '@node/html';
+import { html as stringHTML, must } from '@node/html';
 import { logs } from '@node/logs/store';
 import type { Page } from '@node/router';
 import { mayButNot, shell } from '@node/shell';
 import { errorMessage, field, formatSince, formatTimestamp, isChecked } from '@node/ui';
 import { anyFormTypedSinceDrawn, unsaved } from '@node/unsaved';
+import { html, nothing, render, repeat, type TemplateResult } from '@node/view';
 
 /**
  * The peers: who may call this hub and be reached through it, on which OCPI
@@ -30,6 +30,11 @@ import { anyFormTypedSinceDrawn, unsaved } from '@node/unsaved';
  * The wire names stay "partner" - it is what the JSON API calls them and what
  * the other components call the same page. Only the word on the screen is
  * "peer", because that is what they are to a hub.
+ *
+ * Drawn by view.ts: a draw changes only what differs, so that a peer half
+ * typed into the form below the list outlives every change of the list - a
+ * peer registered, suspended or removed, one going quiet somewhere else, the
+ * tokens shown or hidden - and so does its focus.
  */
 export const peersPage: Page = {
 
@@ -41,7 +46,7 @@ export const peersPage: Page = {
             active:    '/configuration/ocpi/partners',
             title:     'Peers',
             subtitle:  'Who is peered with this hub over OCPI, and who is on the way.',
-            actions:   html`<button type="button" id="reload" class="btn small">Reload</button>`
+            actions:   stringHTML`<button type="button" id="reload" class="btn small">Reload</button>`
         });
 
         render(content, html`<div class="loading">Loading ...</div>`);
@@ -49,12 +54,8 @@ export const peersPage: Page = {
         // Reload throws a peer typed in and not yet added away as thoroughly
         // as leaving the page does, so it asks first.
         must<HTMLButtonElement>(root, '#reload').addEventListener('click', () => {
-
-            if (!unsaved.mayBeLost())
-                return;
-
-            void load();
-
+            if (unsaved.mayBeLost())
+                void reload();
         });
 
         const mayManage   = auth.can('peers', 'edit');
@@ -70,17 +71,24 @@ export const peersPage: Page = {
         /** The token that was just made up, offered once with its instructions. */
         let justAdded: { id: string; token: string; version: string } | null = null;
 
-        /** What the last registration said. */
+        /** What the last registration, suspension or resumption said. */
         let lastRegistration: { ok: boolean; message: string } | null = null;
+
+        /** Why the list could not be read again, while it could not. */
+        let listError: string | null = null;
 
         /** Whether the tokens in the list are readable or dotted out. */
         let revealTokens = false;
 
-
         /**
-         * The whole page: when it is opened, on Reload, and after a peer was
-         * added, which empties the form for the next one.
+         * The buttons whose call is on its way: drawn disabled, the Register
+         * one saying so, until the hub has answered. Kept here rather than on
+         * the button, which a draw would leave as it was set by hand.
          */
+        const busy = new Set<string>();
+
+
+        /** The whole page, as it is now; what is typed into the form stays. */
         function draw(): void {
 
             if (store === null)
@@ -90,85 +98,56 @@ export const peersPage: Page = {
 
             render(content, html`
 
-                ${mayManage ? '' : html`
+                ${mayManage ? nothing : html`
                     <div class="notice">
                         ${mayButNot('look at the peers', 'change them')}
                     </div>
                 `}
 
-                <div id="peer-notices"></div>
+                <div id="peer-notices">
+
+                    ${listError === null ? nothing : html`
+                        <div class="error-box">The peers could not be read again: ${listError}</div>
+                    `}
+
+                    ${justAdded === null ? nothing : html`
+                        <div class="notice ok">
+                            <strong>'${justAdded.id}' was added on OCPI ${justAdded.version}. The token it signs in with is</strong>
+                            <code class="password">${justAdded.token}</code><br />
+                            Hand it to the peer. They fetch <code class="path">${partners.ourVersionsURL}</code> with it and POST their
+                            credentials to this hub; from then on the peering is complete. The token stays readable in the
+                            list below for whoever may manage them.
+                        </div>
+                    `}
+
+                    ${lastRegistration === null ? nothing : html`
+                        <div class="notice ${lastRegistration.ok ? 'ok' : 'warn'}">${lastRegistration.message}</div>
+                    `}
+
+                </div>
 
                 <div class="cards">
-                    <section class="card wide" id="peer-list"></section>
-                    ${mayManage ? addCard(partners) : ''}
+                    <section class="card wide" id="peer-list">${listCard(partners)}</section>
+                    ${mayManage ? addCard(partners) : nothing}
                 </div>
             `);
-
-            drawList();
-            wireForm();
-
-        }
-
-
-        /**
-         * What the hub said last, and the list: after a change of one peer,
-         * when one comes or goes, and when the tokens are shown or hidden -
-         * with the form below left as it is. Drawn with the whole page, a peer
-         * half typed into the form went with every one of them, without a
-         * question: a peer going quiet somewhere else was enough.
-         */
-        function drawList(): void {
-
-            const said  = content.querySelector<HTMLElement>('#peer-notices');
-            const list  = content.querySelector<HTMLElement>('#peer-list');
-
-            // Nothing of the page drawn yet: then all of it, through
-            // keepDrafts like every drawing but load()'s - with no form on
-            // the page yet whose draft it would keep.
-            if (store === null || said === null || list === null) {
-                keepDrafts(content, null, draw);
-                return;
-            }
-
-            const partners = store;
-
-            render(said, html`
-
-                ${justAdded === null ? '' : html`
-                    <div class="notice ok">
-                        <strong>'${justAdded.id}' was added on OCPI ${justAdded.version}. The token it signs in with is</strong>
-                        <code class="password">${justAdded.token}</code><br />
-                        Hand it to the peer. They fetch <code class="path">${partners.ourVersionsURL}</code> with it and POST their
-                        credentials to this hub; from then on the peering is complete. The token stays readable in the
-                        list below for whoever may manage them.
-                    </div>
-                `}
-
-                ${lastRegistration === null ? '' : html`
-                    <div class="notice ${lastRegistration.ok ? 'ok' : 'warn'}">${lastRegistration.message}</div>
-                `}
-
-            `);
-
-            render(list, listCard(partners));
-
-            wireList();
 
         }
 
 
         /** What is on the list's card: the peers, and what its columns say. */
-        function listCard(partners: Partners): HTMLFragment {
+        function listCard(partners: Partners): TemplateResult {
 
             return html`
 
                 <h2>
                     <i class="fa-solid fa-handshake"></i> Peers
                     ${mayManage && partners.partners.some(partner => partner.hasOurToken) ? html`
-                        <button type="button" id="reveal" class="btn small heading-action">
+                        <button type="button" id="reveal" class="btn small heading-action"
+                                @click=${() => { revealTokens = !revealTokens; draw(); }}>
                             ${revealTokens ? 'Hide the tokens' : 'Show the tokens'}
                         </button>
-                    ` : ''}
+                    ` : nothing}
                 </h2>
 
                 <p class="hint">
@@ -204,7 +183,7 @@ export const peersPage: Page = {
                                       </tr>
                                   </thead>
                                   <tbody>
-                                      ${partners.partners.map(partner => row(partner))}
+                                      ${repeat(partners.partners, partner => `${partner.version}/${partner.id}`, partner => row(partner))}
                                   </tbody>
                               </table>
                           </div>
@@ -215,25 +194,30 @@ export const peersPage: Page = {
         }
 
 
-        function row(partner: Partner): HTMLFragment {
+        function row(partner: Partner): TemplateResult {
 
-            const peering = partner.registered
-                                ? html`<span class="badge ok">registered</span>`
-                                : partner.canRegister
-                                    ? html`<span class="badge">ready to register</span>`
-                                    : html`<span class="badge warn">waiting for them</span>`;
+            const peering    = partner.registered
+                                   ? html`<span class="badge ok">registered</span>`
+                                   : partner.canRegister
+                                       ? html`<span class="badge">ready to register</span>`
+                                       : html`<span class="badge warn">waiting for them</span>`;
+
+            const party      = `${partner.countryCode}${partner.partyId}`;
+            const suspended  = partner.connection === 'SUSPENDED';
+            const registers  = busy.has(`register ${partner.version}/${partner.id}`);
+            const switching  = busy.has(`suspension ${party}`);
 
             return html`
                 <tr class="${partner.status === 'ENABLED' ? '' : 'dimmed'}">
 
                     <td>
                         <code>${partner.id}</code>
-                        <div class="small muted">${partner.name}${partner.website ? html` &middot; <a href="${partner.website}" target="_blank" rel="noopener">${partner.website}</a>` : ''}</div>
+                        <div class="small muted">${partner.name}${partner.website ? html` &middot; <a href="${partner.website}" target="_blank" rel="noopener">${partner.website}</a>` : nothing}</div>
                     </td>
 
                     <td>${partner.role}</td>
 
-                    <td>${partner.version}${partner.selectedVersion && partner.selectedVersion !== partner.version ? html`<div class="small muted">they chose ${partner.selectedVersion}</div>` : ''}</td>
+                    <td>${partner.version}${partner.selectedVersion && partner.selectedVersion !== partner.version ? html`<div class="small muted">they chose ${partner.selectedVersion}</div>` : nothing}</td>
 
                     <td>
                         <span class="chip conn ${partner.connection}" title="${connectionTitle(partner)}">${partner.connection}</span>
@@ -263,21 +247,26 @@ export const peersPage: Page = {
                     <td class="right">
                         ${mayRegister && partner.canRegister ? html`
                             <button type="button" class="btn small partner-register" data-version="${partner.version}" data-id="${partner.id}"
-                                    title="Fetch their versions with the token they handed out, and POST this hub's credentials to them">
-                                ${partner.registered ? 'Register again' : 'Register'}
+                                    title="Fetch their versions with the token they handed out, and POST this hub's credentials to them"
+                                    ?disabled=${registers}
+                                    @click=${() => void register(partner.version, partner.id)}>
+                                ${registers ? 'Registering ...' : partner.registered ? 'Register again' : 'Register'}
                             </button>
-                        ` : ''}
+                        ` : nothing}
                         ${mayManage ? html`
-                            <button type="button" class="btn small peer-suspension" data-party="${partner.countryCode}${partner.partyId}"
-                                    data-suspend="${partner.connection === 'SUSPENDED' ? 'no' : 'yes'}"
-                                    title="${partner.connection === 'SUSPENDED'
+                            <button type="button" class="btn small peer-suspension" data-party="${party}"
+                                    data-suspend="${suspended ? 'no' : 'yes'}"
+                                    title="${suspended
                                                 ? 'Talk to this peer again, and tell the others'
-                                                : 'Stop talking to this peer without forgetting it, and tell the others'}">
-                                ${partner.connection === 'SUSPENDED' ? 'Resume' : 'Suspend'}
+                                                : 'Stop talking to this peer without forgetting it, and tell the others'}"
+                                    ?disabled=${switching}
+                                    @click=${() => void setSuspension(party, !suspended)}>
+                                ${suspended ? 'Resume' : 'Suspend'}
                             </button>
-                        ` : ''}
+                        ` : nothing}
                         <button type="button" class="btn small danger partner-remove" data-version="${partner.version}" data-id="${partner.id}"
-                                ${mayManage ? '' : html`disabled`}>
+                                ?disabled=${!mayManage}
+                                @click=${() => void remove(partner.version, partner.id)}>
                             Remove
                         </button>
                     </td>
@@ -289,7 +278,7 @@ export const peersPage: Page = {
 
 
         /** A token as a cell: dotted out until revealed, "none" when there is none. */
-        function token(value: string | null, present: boolean): HTMLFragment {
+        function token(value: string | null, present: boolean): TemplateResult {
 
             if (!present)
                 return html`<span class="muted">none</span>`;
@@ -304,7 +293,7 @@ export const peersPage: Page = {
         }
 
 
-        function addCard(partners: Partners): HTMLFragment {
+        function addCard(partners: Partners): TemplateResult {
 
             const newest = partners.versions[partners.versions.length - 1] ?? '';
 
@@ -313,14 +302,16 @@ export const peersPage: Page = {
 
                     <h2><i class="fa-solid fa-plus"></i> Add a peer</h2>
 
-                    <form id="partner-form" class="form-stack">
+                    <form id="partner-form" class="form-stack"
+                          @submit=${(event: SubmitEvent) => { event.preventDefault(); void add(event.currentTarget as HTMLFormElement); }}
+                          @reset=${(event: Event) => startHere(event.currentTarget as HTMLFormElement, false)}>
 
                         <div class="form-grid">
 
                             <label>OCPI version
                                 <select name="version">
                                     ${partners.versions.map(version => html`
-                                        <option value="${version}" ${version === newest ? html`selected` : ''}>${version}</option>
+                                        <option value="${version}" ?selected=${version === newest}>${version}</option>
                                     `)}
                                 </select>
                             </label>
@@ -328,7 +319,7 @@ export const peersPage: Page = {
                             <label>Role
                                 <select name="role">
                                     ${partners.roles.map(role => html`
-                                        <option value="${role}" ${role === 'CPO' ? html`selected` : ''}>${role}</option>
+                                        <option value="${role}" ?selected=${role === 'CPO'}>${role}</option>
                                     `)}
                                 </select>
                             </label>
@@ -358,7 +349,11 @@ export const peersPage: Page = {
                         </div>
 
                         <label class="checkbox">
-                            <input type="checkbox" name="startHere" />
+                            <input type="checkbox" name="startHere"
+                                   @change=${(event: Event) => {
+                                       const box = event.target as HTMLInputElement;
+                                       startHere(box.form!, box.checked);
+                                   }} />
                             This hub starts the peering
                             <span class="hint">
                                 Tick this when the peer has already handed out a token and a versions URL. Without
@@ -389,69 +384,26 @@ export const peersPage: Page = {
         }
 
 
-        /** The list's buttons, each time the list is drawn. */
-        function wireList(): void {
+        /**
+         * The two fields for starting the peering from here, shown or hidden -
+         * and, hidden, disabled as well, so that the browser does not ask for
+         * them. Whether the peering starts here is the box's to say, and read
+         * from it when the peer is added: kept beside it as well, the box came
+         * back ticked after a Reload that had been agreed to throw the form
+         * away. A reset - after a peer was added, or on Reload - hides them
+         * with the box it unticks.
+         */
+        function startHere(form: HTMLFormElement, ticked: boolean): void {
 
-            content.querySelector<HTMLButtonElement>('#reveal')?.addEventListener('click', () => {
-                revealTokens = !revealTokens;
-                drawList();
-            });
+            const fields = must<HTMLElement>(form, '#start-here');
 
-            content.querySelectorAll<HTMLButtonElement>('.partner-remove').forEach(button => {
-                button.addEventListener('click', () => void remove(button.dataset.version ?? '', button.dataset.id ?? ''));
-            });
+            fields.hidden = !ticked;
 
-            content.querySelectorAll<HTMLButtonElement>('.partner-register').forEach(button => {
-                button.addEventListener('click', () => void register(button, button.dataset.version ?? '', button.dataset.id ?? ''));
-            });
+            for (const input of fields.querySelectorAll<HTMLInputElement>('input'))
+                input.disabled = !ticked;
 
-            content.querySelectorAll<HTMLButtonElement>('.peer-suspension').forEach(button => {
-                button.addEventListener('click', () => void setSuspension(
-                    button,
-                    button.dataset.party   ?? '',
-                    button.dataset.suspend === 'yes'
-                ));
-            });
-
-        }
-
-
-        /** The form, once it is drawn - which is with the whole page, and only then. */
-        function wireForm(): void {
-
-            const form = content.querySelector<HTMLFormElement>('#partner-form');
-
-            if (!form)
-                return;
-
-            // The two fields for starting the peering from here are shown or
-            // hidden, and nothing else is drawn: what is typed above them
-            // stays, where drawing the page again emptied it. Hidden, they are
-            // disabled as well, so that the browser does not ask for them.
-            //
-            // Whether the peering starts here is the box's to say, and read
-            // from it when the peer is added. Kept beside it as well, the box
-            // came back ticked after a Reload that had been agreed to throw
-            // the form away - drawn so, in a form taken for untouched.
-            form.querySelector<HTMLInputElement>('[name="startHere"]')?.addEventListener('change', event => {
-
-                const ticked = (event.target as HTMLInputElement).checked;
-                const fields = must<HTMLElement>(form, '#start-here');
-
-                fields.hidden = !ticked;
-
-                for (const input of fields.querySelectorAll<HTMLInputElement>('input'))
-                    input.disabled = !ticked;
-
-                if (ticked)
-                    form.querySelector<HTMLInputElement>('[name="theirToken"]')?.focus();
-
-            });
-
-            form.addEventListener('submit', event => {
-                event.preventDefault();
-                void add(form);
-            });
+            if (ticked)
+                form.querySelector<HTMLInputElement>('[name="theirToken"]')?.focus();
 
         }
 
@@ -487,8 +439,13 @@ export const peersPage: Page = {
                 store             = answer.partners;
                 justAdded         = { id: answer.id, token: answer.ourToken, version: answer.version };
                 lastRegistration  = null;
+                listError         = null;
 
-                keepDrafts(content, 'partner-form', draw);
+                draw();
+
+                // A draw leaves the form as it is typed into; this peer was
+                // added, so the form is emptied for the next one.
+                form.reset();
 
             }
             catch (problem)
@@ -500,10 +457,12 @@ export const peersPage: Page = {
         }
 
 
-        async function register(button: HTMLButtonElement, version: string, id: string): Promise<void> {
+        async function register(version: string, id: string): Promise<void> {
 
-            button.disabled     = true;
-            button.textContent  = 'Registering ...';
+            const key = `register ${version}/${id}`;
+
+            busy.add(key);
+            draw();
 
             try
             {
@@ -516,8 +475,7 @@ export const peersPage: Page = {
                 store             = answer.partners;
                 lastRegistration  = { ok: answer.ok, message: answer.message };
                 justAdded         = null;
-
-                drawList();
+                listError         = null;
 
             }
             catch (problem)
@@ -534,12 +492,18 @@ export const peersPage: Page = {
                     if (body.partners)
                         store = body.partners;
                     lastRegistration = { ok: false, message: body.message };
-                    drawList();
                 }
                 else
                     window.alert(errorMessage(problem));
 
             }
+            finally
+            {
+                busy.delete(key);
+            }
+
+            if (!cancelled)
+                draw();
 
         }
 
@@ -560,8 +524,9 @@ export const peersPage: Page = {
                 store             = answer;
                 justAdded         = null;
                 lastRegistration  = null;
+                listError         = null;
 
-                drawList();
+                draw();
 
             }
             catch (problem)
@@ -600,9 +565,12 @@ export const peersPage: Page = {
         }
 
 
-        async function setSuspension(button: HTMLButtonElement, partyId: string, suspend: boolean): Promise<void> {
+        async function setSuspension(partyId: string, suspend: boolean): Promise<void> {
 
-            button.disabled = true;
+            const key = `suspension ${partyId}`;
+
+            busy.add(key);
+            draw();
 
             try
             {
@@ -617,8 +585,7 @@ export const peersPage: Page = {
                 store             = answer.partners;
                 lastRegistration  = { ok: answer.ok, message: answer.message };
                 justAdded         = null;
-
-                drawList();
+                listError         = null;
 
             }
             catch (problem)
@@ -629,11 +596,22 @@ export const peersPage: Page = {
                     void reloadList();
                 }
             }
+            finally
+            {
+                busy.delete(key);
+            }
+
+            if (!cancelled)
+                draw();
 
         }
 
 
-        /** The whole page from the hub's list: when it is opened, and on Reload. */
+        /**
+         * The peers as the hub has them now, drawn over the page as it is -
+         * what is typed into the form kept, as a draw keeps it. Reload empties
+         * it itself.
+         */
         async function load(): Promise<void> {
 
             try
@@ -643,7 +621,8 @@ export const peersPage: Page = {
                 if (cancelled)
                     return;
 
-                store = partners;
+                store      = partners;
+                listError  = null;
                 draw();
             }
             catch (problem)
@@ -656,9 +635,23 @@ export const peersPage: Page = {
 
 
         /**
-         * The list from the hub again, and only the list: when a peer comes or
-         * goes, and after a change the hub refused. A list that cannot be read
-         * again is said above it, and the form below stays as it is.
+         * Loaded anew - Reload - is what the hub has, the form too, which a
+         * draw on its own would leave as typed.
+         */
+        async function reload(): Promise<void> {
+
+            await load();
+
+            if (!cancelled)
+                content.querySelectorAll('form').forEach(form => form.reset());
+
+        }
+
+
+        /**
+         * The list from the hub again: when a peer comes or goes, and after a
+         * change the hub refused. A list that cannot be read again is said
+         * above it, and the form below stays as it is.
          */
         async function reloadList(): Promise<void> {
 
@@ -669,18 +662,18 @@ export const peersPage: Page = {
                 if (cancelled)
                     return;
 
-                store = partners;
-                drawList();
+                store      = partners;
+                listError  = null;
             }
             catch (problem)
             {
+                if (cancelled)
+                    return;
 
-                const said = content.querySelector<HTMLElement>('#peer-notices');
-
-                if (!cancelled && said !== null)
-                    render(said, html`<div class="error-box">The peers could not be read again: ${errorMessage(problem)}</div>`);
-
+                listError = errorMessage(problem);
             }
+
+            draw();
 
         }
 
