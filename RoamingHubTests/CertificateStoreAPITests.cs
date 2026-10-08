@@ -170,10 +170,14 @@ namespace cloud.charging.open.RoamingHub.Tests
                 // store says it for this hub rather than as the kind says it.
                 Assert.That(store["kinds"]!["tlsRoot"]!["usages"]?.Values<String>(),         Is.EqualTo(new[] { "dns", "nts" }), "what a page may offer a root");
                 Assert.That(store["kinds"]!["tlsServer"]!["usages"]?.Values<String>(),       Is.EqualTo(new[] { "dns", "nts" }));
-                Assert.That(store["kinds"]!["tlsIdentity"]!["hasUsages"]!.Value<Boolean>(),  Is.False,
+                // Every kind may be marked with a usage of one's own; what the
+                // hub itself offers is another matter.
+                Assert.That(store["kinds"]!["tlsIdentity"]!["hasUsages"]!.Value<Boolean>(),  Is.True);
+                Assert.That(store["kinds"]!["tlsIdentity"]!["usages"]?.Children().Any(),     Is.False,
                             "a hub names no listener an identity could be told of, so a page offers it nothing - not the services a root vouches for");
-                Assert.That(store["kinds"]!["tlsIdentity"]!["usages"]?.Children().Any(),     Is.False);
-                Assert.That(store["kinds"]!["clientRoot"]!["hasUsages"]!.Value<Boolean>(),   Is.False);
+                Assert.That(store["kinds"]!["clientRoot"]!["hasUsages"]!.Value<Boolean>(),   Is.True);
+                Assert.That(store["kinds"]!["clientRoot"]!["usages"]?.Children().Any(),      Is.False,
+                            "the hub offers a client root nothing");
 
             });
 
