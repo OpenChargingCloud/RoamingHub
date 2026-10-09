@@ -404,7 +404,7 @@ and none of the seven of ISO 15118, which are a vehicle's:
 | `tlsRoot` | what a time server, or a name server over TLS or HTTPS, may chain to - kept for `nts`, `dns` or both |
 | `tlsServer` | a server's own certificate, kept to hold the server to by its fingerprint - for `nts`, `dns` or both |
 | `clientRoot` | what a client connecting to this hub will have to chain to - the root, or the CA that issues the clients |
-| `tlsIdentity` | what this hub will present in TLS, with its private key - on every listener, as a hub names none it could be kept for |
+| `tlsIdentity` | who this hub is to a server that asks, with its private key - looked after on the **Identities** page, as every certificate with a key is |
 
 The first two are used today; the other two are kept, and used by nothing
 here yet. The peers are what they are waiting for: a hub reaches more servers
@@ -416,7 +416,7 @@ calls it, whether it is switched on and, for a root or a server certificate,
 what it is kept for. So a store copied to another machine arrives complete,
 and a lost index costs labels, switches and usages rather than certificates.
 Certificates copied into the directory by hand are adopted at the next start,
-or at once with **Re-read the directory** on the Certificates page. Switching
+or at once with a `POST` to `/api/v1/certificates/reload`. Switching
 one off leaves its file where it is; deleting it deletes the file, private key
 and all. Time switches a certificate off as well, and separately: an expired
 one stays listed and stops being used.
@@ -426,7 +426,7 @@ its password once, at import, and written back without one. What guards them
 is the file system - the directory is made for its owner alone where the
 platform allows saying so in one call - so the store belongs on a machine
 whose users are all trusted with this hub's identity. The hub says so at every
-start with a key in the store, and the Certificates page says it where the
+start with a key in the store, and the Identities page says it where the
 keys are listed.
 
 | | |

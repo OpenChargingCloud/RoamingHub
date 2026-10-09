@@ -179,6 +179,17 @@ namespace cloud.charging.open.RoamingHub.Tests
                 Assert.That(store["kinds"]!["clientRoot"]!["usages"]?.Children().Any(),      Is.False,
                             "the hub offers a client root nothing");
 
+                // Where each is looked after: a certificate alone in the store,
+                // one with a private key - the identity - among the identities,
+                // which the hub's menu has below the store.
+                Assert.That(((JObject) store["kinds"]!).Properties().ToDictionary(kind => kind.Name, kind => kind.Value["page"]?.Value<String>()),
+                            Is.EquivalentTo(new Dictionary<String, String?> {
+                                { "tlsRoot",      "certificates" },
+                                { "clientRoot",   "certificates" },
+                                { "tlsServer",    "certificates" },
+                                { "tlsIdentity",  "identities"   }
+                            }));
+
             });
 
         }

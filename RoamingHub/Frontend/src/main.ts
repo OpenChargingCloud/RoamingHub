@@ -43,8 +43,10 @@ startNode({
         nodeMenu.configuration([
             nodeMenu.dns,
             nodeMenu.nts,
+            nodeMenu.ssh,
             nodeMenu.certificates,
-            { path: '/configuration/ocpi',           label: 'OCPI',   icon: 'fa-plug',       permission: [ 'configuration:read' ] },
+            nodeMenu.identities,
+            { path: '/configuration/ocpi',          label: 'OCPI',   icon: 'fa-plug',       permission: [ 'configuration:read' ] },
             { path: '/configuration/ocpi/partners',  label: 'Peers',  icon: 'fa-handshake',  permission: [ 'peers:read' ]         }
         ]),
         nodeMenu.logs
@@ -69,16 +71,18 @@ startNode({
 
     // The certificate store in the node's words, but for what a hub keeps and
     // nothing here uses yet: a client root, and the TLS identity it will
-    // present. A hub has no session to choose a certificate for, so no row
-    // says what it was chosen for.
+    // show a server that asks who it is - on the Identities page, as every
+    // certificate with a private key is. A hub keeps no server identity, so
+    // it has no Server identities page in its menu. A hub has no session to
+    // choose a certificate for, so no row says what it was chosen for.
     certificates: {
         hints: {
             believes:     html`Trust anchors. Every switched-on root of a kind is believed at once. A TLS root vouches
                                for the time servers and the name servers it is kept for, beside the roots of the
                                machine this hub runs on. A client root is what a client connecting to this hub will
                                have to chain to - kept, and used by nothing here yet.`,
-            presents:     html`A TLS identity, with its private key: what this hub will present in TLS - kept, and
-                               used by nothing here yet.`,
+            presents:     html`A TLS identity, with its private key: who this hub is to a server that asks - kept,
+                               and used by nothing here yet.`,
             unencrypted:  html`can take the TLS identity kept there for this hub.`
         }
     }

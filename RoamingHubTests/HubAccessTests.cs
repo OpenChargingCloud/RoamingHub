@@ -240,7 +240,7 @@ namespace cloud.charging.open.RoamingHub.Tests
 
             Assert.Multiple(() => {
                 Assert.That(roamingHub.Roles,             Is.EqualTo(new[] { "viewer", "hub", WWCPNode.AdminRole }));
-                Assert.That(roamingHub.Access.Resources,  Is.EqualTo(new[] { "configuration", "dns", "nts", "certificates", "peers", "traffic" }));
+                Assert.That(roamingHub.Access.Resources,  Is.EqualTo(new[] { "configuration", "dns", "nts", "certificates", "ssh", "peers", "traffic" }));
             });
 
         }
@@ -264,6 +264,7 @@ namespace cloud.charging.open.RoamingHub.Tests
         [TestCase("viewer",       "dns:edit",           false)]
         [TestCase("viewer",       "dns:run",            false)]
         [TestCase("viewer",       "nts:run",            false)]
+        [TestCase("viewer",       "ssh:read",           false)]
 
         [TestCase("hub",          "dns:edit",           true)]
         [TestCase("hub",          "dns:run",            true)]
@@ -274,11 +275,14 @@ namespace cloud.charging.open.RoamingHub.Tests
         [TestCase("hub",          "peers:edit",         false)]
         [TestCase("hub",          "peers:run",          false)]
         [TestCase("hub",          "certificates:edit",  false)]
+        [TestCase("hub",          "ssh:read",           false)]
+        [TestCase("hub",          "ssh:edit",           false)]
 
         [TestCase("systemadmin",  "peers:edit",         true)]
         [TestCase("systemadmin",  "peers:run",          true)]
         [TestCase("systemadmin",  "certificates:edit",  true)]
         [TestCase("systemadmin",  "traffic:read",       true)]
+        [TestCase("systemadmin",  "ssh:edit",           true)]
         public void EachRoleMayDoWhatItAlwaysMayDo(String Role, String Permission, Boolean Allowed)
         {
 
