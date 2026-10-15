@@ -389,6 +389,13 @@ namespace cloud.charging.open.RoamingHub
 
             #endregion
 
+            #region The points of interest, below "/poi"
+
+            // Public, beside the web interface: see RoamingHub.POI.cs.
+            BuildPOI();
+
+            #endregion
+
         }
 
         #endregion
@@ -413,6 +420,9 @@ namespace cloud.charging.open.RoamingHub
                         "ocpi");
             Log.Info   ($"What goes between the peers is at {APIURL}v1/traffic, and on the stream at {APIURL}v1/traffic/events.",
                         "ocpi", "traffic");
+            Log.Info   ($"The points of interest are at {WebInterfaceURL.ToString().TrimEnd('/')}/{POIPathSegment}/RNs " +
+                        $"({POI.RoamingNetworks.Count()} roaming network(s)).",
+                        "poi");
 
             return Task.CompletedTask;
 
@@ -494,7 +504,16 @@ namespace cloud.charging.open.RoamingHub
             }
             finally
             {
-                await base.DisposeAsync();
+
+                try
+                {
+                    await DisposePOI();
+                }
+                finally
+                {
+                    await base.DisposeAsync();
+                }
+
             }
 
         }

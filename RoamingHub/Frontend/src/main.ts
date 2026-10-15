@@ -11,6 +11,7 @@ import { followAcrossTheCache, nodeMenu, startNode } from '@node/start';
 import { configurationPage }  from './pages/configuration';
 import { ocpiPage }           from './pages/ocpi';
 import { peersPage }          from './pages/peers';
+import { poiHome, poiPages }  from './pages/poi';
 import { trafficPage }        from './pages/traffic';
 import { traffic }            from './traffic/store';
 
@@ -49,7 +50,10 @@ startNode({
             { path: '/configuration/ocpi',          label: 'OCPI',   icon: 'fa-plug',       permission: [ 'configuration:read' ] },
             { path: '/configuration/ocpi/partners',  label: 'Peers',  icon: 'fa-handshake',  permission: [ 'peers:read' ]         }
         ]),
-        nodeMenu.logs
+        nodeMenu.logs,
+        // Last, so that "/" still opens what somebody signed in looks after. Open to
+        // everybody, as the POI API is: see pages/poi.ts.
+        { path: poiHome,  label: 'Points of interest',  icon: 'fa-map-location-dot',  permission: () => true }
     ],
 
     pages: {
@@ -64,6 +68,10 @@ startNode({
         '/configuration/ocpi/partners':   peersPage
 
     },
+
+    // The roaming networks this hub serves, and what they hold: at the URLs of the
+    // POI API's lists, below /poi, where a browser opening one of them gets its page.
+    publicPages: poiPages,
 
     signIn: {
         line: 'Sign in to look after this hub: its peers, what went between them, and its log.'
