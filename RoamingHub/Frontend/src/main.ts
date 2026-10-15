@@ -8,12 +8,13 @@ import '@fortawesome/fontawesome-free/css/solid.css';
 import { html } from '@node/view';
 import { followAcrossTheCache, nodeMenu, startNode } from '@node/start';
 
-import { configurationPage }  from './pages/configuration';
-import { ocpiPage }           from './pages/ocpi';
-import { peersPage }          from './pages/peers';
-import { poiHome, poiPages }  from './pages/poi';
-import { trafficPage }        from './pages/traffic';
-import { traffic }            from './traffic/store';
+import { configurationPage }      from './pages/configuration';
+import { ocpiPage }               from './pages/ocpi';
+import { peersPage }              from './pages/peers';
+import { poiHome, poiListPages }  from './pages/poi';
+import { poiEntityPages }         from './pages/poiEntities';
+import { trafficPage }            from './pages/traffic';
+import { traffic }                from './traffic/store';
 
 // What a hub has pages for beside what every node has: the traffic between its
 // peers, and the peers themselves. The sign-in, the log, the name servers, the
@@ -70,8 +71,9 @@ startNode({
     },
 
     // The roaming networks this hub serves, and what they hold: at the URLs of the
-    // POI API's lists, below /poi, where a browser opening one of them gets its page.
-    publicPages: poiPages,
+    // POI API's lists and entities, below /poi, where a browser opening one of them
+    // gets its page.
+    publicPages: { ...poiListPages, ...poiEntityPages },
 
     signIn: {
         line: 'Sign in to look after this hub: its peers, what went between them, and its log.'

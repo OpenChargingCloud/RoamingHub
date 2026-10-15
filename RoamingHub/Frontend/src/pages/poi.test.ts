@@ -84,12 +84,12 @@ describe('the points of interest', () => {
 
     });
 
-    it('list the roaming networks, each leading to its charging pools', async () => {
+    it('list the roaming networks, each leading to its page', async () => {
 
         const root = await open(poiNetworksPage, '/poi/RNs', null, poiAPI, root => root.querySelector('tbody') !== null);
 
         assert.deepEqual(rows(root), [ 'rn1' ]);
-        assert.equal(root.querySelector<HTMLAnchorElement>('tbody a')!.getAttribute('href'), '/poi/RNs/rn1/CPs');
+        assert.equal(root.querySelector<HTMLAnchorElement>('tbody a')!.getAttribute('href'), '/poi/RNs/rn1');
         assert.equal(count(root), '1 - 1 of 1');
         assert.equal(asked[0]!.query.get('limit'), '25');
 
@@ -107,6 +107,10 @@ describe('the points of interest', () => {
         assert.match(first, /Example Charging DE\*EXA/);
         assert.match(first, /Nordstraße 1, 07743 Jena, DEU/);
         assert.match(first, / 1 2 $/, 'one station with two EVSEs');
+
+        // Each pool leading to its page, below its operator, and its operator to its own.
+        assert.deepEqual([ ...root.querySelectorAll<HTMLAnchorElement>('tbody tr:first-child a') ].map(link => link.getAttribute('href')),
+                         [ '/poi/RNs/rn1/CSOs/DE*EXA/CPs/DE*EXA*P1', '/poi/RNs/rn1/CSOs/DE*EXA' ]);
 
         // The operators to narrow the list to, beside every operator.
         assert.deepEqual([ ...root.querySelectorAll('#poi-operator option') ].map(option => option.textContent!.trim()),
@@ -174,6 +178,15 @@ describe('the points of interest', () => {
         const root = await open(poiOperatorsPage, '/poi/RNs/rn2/CSOs', null, poiAPI, root => root.querySelector('.error-box') !== null);
 
         assert.match(root.querySelector('.error-box')!.textContent!, /The roaming network 'rn2' is unknown!/);
+
+    });
+
+    it('lead from a list in short to the page of each entry', async () => {
+
+        const root = await open(poiOperatorsPage, '/poi/RNs/rn1/CSOs', null, poiAPI, root => root.querySelector('tbody') !== null);
+
+        assert.deepEqual([ ...root.querySelectorAll<HTMLAnchorElement>('tbody a') ].map(link => link.getAttribute('href')),
+                         [ '/poi/RNs/rn1/CSOs/DE*EXA', '/poi/RNs/rn1/CSOs/DE*GEF' ]);
 
     });
 

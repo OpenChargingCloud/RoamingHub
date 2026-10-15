@@ -1,4 +1,4 @@
-import { poiList, poiURL, textOf, type Address, type ChargingPool, type ListPart, type Query, type Summary } from '../api/poi';
+import { poiBase, poiList, poiURL, textOf, type Address, type ChargingPool, type ListPart, type Query, type Summary } from '../api/poi';
 import { fromURL, toURL } from '@node/basePath';
 import type { Page } from '@node/router';
 import { reloadButton, shell } from '@node/shell';
@@ -30,16 +30,26 @@ const typingPause_ms = 300;
 
 
 /** What a roaming network holds, in the order of its sections: the charging pools first, as what is looked for. */
-const sections = [
-    { segment: 'CPs',   label: 'Charging pools'                  },
-    { segment: 'CSOs',  label: 'Charging station operators'      },
-    { segment: 'GOs',   label: 'Grid operators'                  },
-    { segment: 'EMPs',  label: 'E-mobility providers'            },
-    { segment: 'CSMs',  label: 'Charging station manufacturers'  },
-    { segment: 'POs',   label: 'Parking operators'               }
+export const sections = [
+    { segment: 'CPs',   label: 'Charging pools',                  icon: 'fa-charging-station'  },
+    { segment: 'CSOs',  label: 'Charging station operators',      icon: 'fa-building'          },
+    { segment: 'GOs',   label: 'Grid operators',                  icon: 'fa-bolt'              },
+    { segment: 'EMPs',  label: 'E-mobility providers',            icon: 'fa-id-card'           },
+    { segment: 'CSMs',  label: 'Charging station manufacturers',  icon: 'fa-industry'          },
+    { segment: 'POs',   label: 'Parking operators',               icon: 'fa-square-parking'    }
 ] as const;
 
-type Segment = typeof sections[number]['segment'];
+export type Segment = typeof sections[number]['segment'];
+
+/** The page of a roaming network, or of an entity below it, by its path below /poi: /RNs/rn1/CSOs/DE*GEF. */
+export function entityURL(path: string): string {
+    return toURL(`${poiBase}${path}`);
+}
+
+/** The path of a roaming network below /poi. */
+export function networkPath(roamingNetworkId: string): string {
+    return `/RNs/${encodeURIComponent(roamingNetworkId)}`;
+}
 
 
 /** The roaming network a page of it is of, from its URL: /poi/RNs/{RN_Id}/... */
@@ -286,14 +296,14 @@ function countOf<T>(first: number, last: number, part: ListPart<T>): string {
 
 }
 
-/** The sections of a roaming network, the one shown marked. */
-function sectionsView(roamingNetworkId: string, active: Segment): TemplateResult {
+/** The sections of a roaming network, the one shown marked; none on the page of the roaming network. */
+export function sectionsView(roamingNetworkId: string, active?: Segment): TemplateResult {
 
     return html`
         <nav class="poi-sections">
             <a href=${toURL(poiHome)}>Roaming networks</a>
             <span class="muted">/</span>
-            <strong>${roamingNetworkId}</strong>
+            <a href=${entityURL(networkPath(roamingNetworkId))} class=${active === undefined ? 'active' : ''}><strong>${roamingNetworkId}</strong></a>
             <span class="muted">/</span>
             ${sections.map(section => html`
                 <a href=${toURL(`${poiHome}/${encodeURIComponent(roamingNetworkId)}/${section.segment}`)}
@@ -315,11 +325,11 @@ export function addressLine(address: Address | undefined): string {
 
 }
 
-/** The rows of a list in short: its identification, name and description. */
-function summaryRow(entry: Summary): TemplateResult {
+/** The rows of a list in short: its identification, leading to its page, name and description. */
+function summaryRow(section: Segment, entry: Summary, roamingNetworkId: string): TemplateResult {
     return html`
         <tr>
-            <td><code>${entry['@id']}</code></td>
+            <td><a href=${entityURL(`${networkPath(roamingNetworkId)}/${section}/${encodeURIComponent(entry['@id'])}`)}><code>${entry['@id']}</code></a></td>
             <td>${textOf(entry.name)}</td>
             <td class="muted">${textOf(entry.description)}</td>
         </tr>`;
@@ -328,7 +338,7 @@ function summaryRow(entry: Summary): TemplateResult {
 const summaryHead = html`<tr><th>Identification</th><th>Name</th><th>Description</th></tr>`;
 
 
-/** The roaming networks this hub serves, each leading to its charging pools. */
+/** The roaming networks this hub serves, each leading to its page. */
 export const poiNetworksPage: Page = listPage<Summary>({
     title:        () => 'Roaming networks',
     subtitle:     'The points of interest of this hub, by roaming network.',
@@ -338,7 +348,7 @@ export const poiNetworksPage: Page = listPage<Summary>({
     key:          entry => entry['@id'],
     row:          entry => html`
         <tr>
-            <td><a href=${toURL(`${poiHome}/${encodeURIComponent(entry['@id'])}/CPs`)}><code>${entry['@id']}</code></a></td>
+            <td><a href=${entityURL(networkPath(entry['@id']))}><code>${entry['@id']}</code></a></td>
             <td>${textOf(entry.name)}</td>
             <td class="muted">${textOf(entry.description)}</td>
         </tr>`
@@ -354,17 +364,28 @@ export const poiChargingPoolsPage: Page = listPage<ChargingPool>({
     byOperator:   true,
     head:         html`<tr><th>Identification</th><th>Name</th><th>Operator</th><th>Address</th><th>Stations</th><th>EVSEs</th></tr>`,
     key:          pool => pool['@id'],
-    row:          pool => html`
+    row:          (pool, roamingNetworkId) => {
+
+        const operatorPath = `${networkPath(roamingNetworkId)}/CSOs/${encodeURIComponent(pool.chargingStationOperator['@id'])}`;
+
+        return html`
         <tr>
-            <td><code>${pool['@id']}</code></td>
+            <td><a href=${entityURL(`${operatorPath}/CPs/${encodeURIComponent(pool['@id'])}`)}><code>${pool['@id']}</code></a></td>
             <td>${textOf(pool.name)}</td>
-            <td>${textOf(pool.chargingStationOperator.name) || pool.chargingStationOperator['@id']}
+            <td><a href=${entityURL(operatorPath)}>${textOf(pool.chargingStationOperator.name) || pool.chargingStationOperator['@id']}</a>
                 <span class="muted">${pool.chargingStationOperator['@id']}</span></td>
             <td>${addressLine(pool.address)}</td>
             <td class="poi-number">${pool.chargingStations?.length ?? 0}</td>
-            <td class="poi-number">${(pool.chargingStations ?? []).reduce((evses, station) => evses + (station.EVSEs?.length ?? 0), 0)}</td>
-        </tr>`
+            <td class="poi-number">${evseCountOf(pool)}</td>
+        </tr>`;
+
+    }
 });
+
+/** How many EVSEs the stations of a charging pool have. */
+export function evseCountOf(pool: Pick<ChargingPool, 'chargingStations'>): number {
+    return (pool.chargingStations ?? []).reduce((evses, station) => evses + (station.EVSEs?.length ?? 0), 0);
+}
 
 /** A list in short of a section of a roaming network beside its charging pools. */
 function summaryPage(section: Exclude<Segment, 'CPs'>, subtitle: string): Page {
@@ -379,7 +400,7 @@ function summaryPage(section: Exclude<Segment, 'CPs'>, subtitle: string): Page {
         placeholder:  `Search the ${label.toLowerCase()} ...`,
         head:         summaryHead,
         key:          entry => entry['@id'],
-        row:          summaryRow
+        row:          (entry, roamingNetworkId) => summaryRow(section, entry, roamingNetworkId)
     });
 
 }
@@ -390,8 +411,8 @@ export const poiProvidersPage:      Page = summaryPage('EMPs', 'Who drivers char
 export const poiManufacturersPage:  Page = summaryPage('CSMs', 'Who makes the charging stations.');
 export const poiParkingPage:        Page = summaryPage('POs',  'Who runs the parking garages and spaces.');
 
-/** The pages of the points of interest, by their paths: public, as the POI API is. */
-export const poiPages: Record<string, Page> = {
+/** The pages of the lists of the points of interest, by their paths: public, as the POI API is. */
+export const poiListPages: Record<string, Page> = {
     [poiHome]:                  poiNetworksPage,
     [`${poiHome}/:rn/CPs`]:     poiChargingPoolsPage,
     [`${poiHome}/:rn/CSOs`]:    poiOperatorsPage,

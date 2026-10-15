@@ -3,8 +3,8 @@ import { ApiError } from '@node/api/client';
 
 /**
  * The points of interest this hub serves with POI 3 - its QUERY interface, below "/poi". A page of it
- * stands at the very URL of its list: a browser opening /poi/RNs/rn1/CPs gets this web interface, and
- * the page asks the same URL for the data, as JSON. The POI API is public: nobody signs in for it.
+ * stands at the very URL of its list or entity: a browser opening /poi/RNs/rn1/CPs gets this web interface,
+ * and the page asks the same URL for the data, as JSON. The POI API is public: nobody signs in for it.
  */
 
 /** Where the POI API is, below the base of this hub. */
@@ -67,7 +67,8 @@ export function poiURL(path: string, query: Query = {}): string {
     if (query.offset)
         parameters.set('offset', String(query.offset));
 
-    if (query.limit)
+    // 0 as well: no entry, only the counts.
+    if (query.limit !== undefined)
         parameters.set('limit', String(query.limit));
 
     const search = parameters.toString();
@@ -76,15 +77,28 @@ export function poiURL(path: string, query: Query = {}): string {
 
 }
 
-/**
- * A part of a list of the POI API: GET with Accept: application/json, and its counts from X-Total-Count and
- * X-Filtered-Count. A refusal throws an ApiError with what the API says, { "description": "..." }.
- */
-export async function poiList<T>(path:     string,
-                                 query:    Query,
-                                 signal?:  AbortSignal): Promise<ListPart<T>> {
+/** An entity of the POI API as it answers: its identification, and whatever it has. */
+export interface Entity {
+    '@id':           string;
+    name?:           I18N;
+    description?:    I18N;
+    [field: string]: unknown;
+}
 
-    const response = await fetch(poiURL(path, query), {
+/** An entity, and the ETag of the representation it came as. */
+export interface Loaded {
+    entity:  Entity;
+    eTag:    string | null;
+}
+
+/**
+ * GET with Accept: application/json - a browser asking without would get the page again. A refusal throws an
+ * ApiError with what the API says, { "description": "..." }.
+ */
+async function poiGet(url:      string,
+                      signal?:  AbortSignal): Promise<{ body: unknown; response: Response }> {
+
+    const response = await fetch(url, {
                                headers:      { Accept: 'application/json' },
                                credentials:  'same-origin',
                                signal
@@ -97,11 +111,37 @@ export async function poiList<T>(path:     string,
                            (body as { description?: string } | undefined)?.description ?? `${response.status} ${response.statusText}`,
                            body);
 
+    return { body, response };
+
+}
+
+/** A part of a list of the POI API, and its counts from X-Total-Count and X-Filtered-Count. */
+export async function poiList<T>(path:     string,
+                                 query:    Query,
+                                 signal?:  AbortSignal): Promise<ListPart<T>> {
+
+    const { body, response } = await poiGet(poiURL(path, query), signal);
+
     const entries   = Array.isArray(body) ? body as T[] : [];
     const total     = Number(response.headers.get('X-Total-Count')    ?? entries.length);
     const filtered  = Number(response.headers.get('X-Filtered-Count') ?? total);
 
     return { entries, total, filtered };
+
+}
+
+/** An entity of the POI API at the given path, e.g. /RNs/rn1/CSOs/DE*GEF, with what else to ask for. */
+export async function poiEntity(path:        string,
+                                parameters:  Record<string, string> = {},
+                                signal?:     AbortSignal): Promise<Loaded> {
+
+    const search              = new URLSearchParams(parameters).toString();
+    const { body, response }  = await poiGet(toURL(`${poiBase}${path}`) + (search ? `?${search}` : ''), signal);
+
+    if (typeof body !== 'object' || body === null || Array.isArray(body))
+        throw new ApiError(response.status, 'The POI API answered with something that is no entity.', body);
+
+    return { entity: body as Entity, eTag: response.headers.get('ETag') };
 
 }
 
