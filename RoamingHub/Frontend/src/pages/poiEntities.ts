@@ -1,4 +1,4 @@
-import { poiBase, poiEntity, poiList, textOf, type Address, type ChargingPool, type Entity, type I18N, type Loaded, type Summary } from '../api/poi';
+import { poiBase, poiEntity, poiList, textOf, type Address, type ChargingPool, type Entity, type I18N, type Loaded, type Query, type Summary } from '../api/poi';
 import { fromURL, toURL } from '@node/basePath';
 import type { Page } from '@node/router';
 import { reloadButton, shell } from '@node/shell';
@@ -15,6 +15,9 @@ import { addressLine, entityURL, evseCountOf, networkPath, poiHome, roamingNetwo
  * What an entity has is drawn as the API sends it, field by field, so a field the API learns shows up here without
  * a change; only what reads better otherwise - a multi-language text, an address, a place on the map, a power in
  * kilowatts, a link to another entity - is drawn so. Its children are a table, each leading to its page.
+ *
+ * A charging station operator is asked for without its charging pools, which may be thousands, each with its
+ * stations and EVSEs: its table holds the first of them, from the charging pools of the roaming network.
  */
 
 
@@ -37,6 +40,14 @@ interface Children {
     cells:    (child: Entity) => (string | number | TemplateResult)[];
     /** Where all of them are, searched and paged, when there are more than a table shows. */
     all?:     (steps: Step[]) => string;
+    /** The list they are asked from instead, when the entity is asked for without them. */
+    listed?:  (steps: Step[]) => { path: string; query: Query };
+}
+
+/** The children a table shows, and how many there are. */
+interface ChildrenPart {
+    entries:  Entity[];
+    count:    number;
 }
 
 /** A kind of entity, by the segment of its path. */
@@ -54,7 +65,9 @@ const kinds: Record<string, Kind> = {
               children: { field: 'chargingPools',  label: 'Charging pools',  segment: 'CPs',
                           head:  [ 'Address', 'Stations', 'EVSEs' ],
                           cells: pool => [ addressLine(pool.address as Address | undefined), (pool.chargingStations as unknown[] | undefined)?.length ?? 0, evseCountOf(pool as Pick<ChargingPool, 'chargingStations'>) ],
-                          all:   steps => `${entityURL(`${steps[0]!.path}/CPs`)}?operatorId=${encodeURIComponent(steps[1]!.id)}` } },
+                          all:     steps => `${entityURL(`${steps[0]!.path}/CPs`)}?operatorId=${encodeURIComponent(steps[1]!.id)}`,
+                          listed:  steps => ({ path: `${steps[0]!.path}/CPs`, query: { operatorId: steps[1]!.id, limit: childrenShown } }) },
+              parameters: { without: 'chargingPools' } },
 
     CPs:    { label: 'Charging pool',  icon: 'fa-charging-station',
               parameters: { expand: 'gridConnectionPoint' },
@@ -283,19 +296,18 @@ function pathView(steps: Step[]): TemplateResult {
 }
 
 /** The children of an entity, each leading to its page: as many as a table shows, and where the others are. */
-function childrenView(children: Children, entity: Entity, steps: Step[]): TemplateResult {
+function childrenView(children: Children, part: ChildrenPart, steps: Step[]): TemplateResult {
 
-    const all    = Array.isArray(entity[children.field]) ? entity[children.field] as Entity[] : [];
-    const shown  = all.slice(0, childrenShown);
+    const shown  = part.entries.slice(0, childrenShown);
     const here   = steps.at(-1)!.path;
 
     return html`
         <section class="card poi-children">
 
             <h2><i class="fa-solid ${kinds[children.segment]?.icon ?? 'fa-list'}"></i> ${children.label}
-                <span class="chip">${all.length}</span></h2>
+                <span class="chip">${part.count}</span></h2>
 
-            ${all.length === 0
+            ${part.count === 0
                   ? html`<p class="muted">None.</p>`
                   : html`
                       <div class="table-scroll">
@@ -312,13 +324,22 @@ function childrenView(children: Children, entity: Entity, steps: Step[]): Templa
                           </table>
                       </div>`}
 
-            ${all.length > shown.length
-                  ? html`<p class="muted small">The first ${shown.length} of ${all.length}${children.all
+            ${part.count > shown.length
+                  ? html`<p class="muted small">The first ${shown.length} of ${part.count}${children.all
                         ? html` - <a href=${children.all(steps)}>search all of them</a>`
                         : html`; all of them are in the JSON below`}.</p>`
                   : nothing}
 
         </section>`;
+
+}
+
+/** The children an entity embeds. */
+function embedded(children: Children, entity: Entity): ChildrenPart {
+
+    const entries = Array.isArray(entity[children.field]) ? entity[children.field] as Entity[] : [];
+
+    return { entries, count: entries.length };
 
 }
 
@@ -351,6 +372,7 @@ function entityPage(segment: string): Page {
             const self   = steps.at(-1)!;
 
             let loaded:     Loaded | null            = null;
+            let listed:     ChildrenPart | null      = null;
             let problem:    unknown                  = null;
             let asking:     AbortController | null   = null;
             let cancelled                            = false;
@@ -386,7 +408,7 @@ function entityPage(segment: string): Page {
                                           </div>
                                       </section>
 
-                                      ${kind.children ? childrenView(kind.children, loaded.entity, steps) : nothing}
+                                      ${kind.children ? childrenView(kind.children, listed ?? embedded(kind.children, loaded.entity), steps) : nothing}
 
                                       ${jsonView(loaded)}
 
@@ -407,12 +429,17 @@ function entityPage(segment: string): Page {
                 try
                 {
 
-                    const entity = await poiEntity(self.path, kind.parameters, ask.signal);
+                    const list              = kind.children?.listed?.(steps);
+                    const [ entity, part ]  = await Promise.all([
+                                                  poiEntity(self.path, kind.parameters, ask.signal),
+                                                  list ? poiList<Entity>(list.path, list.query, ask.signal) : Promise.resolve(null)
+                                              ]);
 
                     if (cancelled || ask !== asking)
                         return;
 
-                    loaded = entity;
+                    loaded  = entity;
+                    listed  = part === null ? null : { entries: part.entries, count: part.filtered };
 
                 }
                 catch (failure)

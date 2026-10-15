@@ -70,9 +70,17 @@ function poiAPI({ path, query }: Asked): unknown {
     if (path === '/poi/RNs/rn1/CSOs/DE*GEF/CPs/DE*GEF*P1/CSs/DE*GEF*S1/EVSEs/DE*GEF*E1*1')
         return entityOf(evse);
 
-    if (path === '/poi/RNs/rn1/CSOs/DE*BIG')
-        return entityOf({ '@id': 'DE*BIG', name: { en: 'Big' },
-                          chargingPools: Array.from({ length: 120 }, (_, index) => ({ '@id': `DE*BIG*P${String(index).padStart(3, '0')}` })) });
+    // An operator without its pools, and its pools from the pools of the roaming network.
+    if (path === '/poi/RNs/rn1/CSOs/DE*BIG' && query.get('without') === 'chargingPools')
+        return entityOf({ '@id': 'DE*BIG', name: { en: 'Big' } });
+
+    if (path === '/poi/RNs/rn1/CPs' && query.get('operatorId') === 'DE*BIG')
+    {
+        const limit = Number(query.get('limit') ?? 1000);
+        return new Response(JSON.stringify(Array.from({ length: Math.min(limit, 120) }, (_, index) => ({ '@id': `DE*BIG*P${String(index).padStart(3, '0')}`,
+                                                                                                         chargingStations: [ { '@id': 'S', EVSEs: [ { '@id': 'E' } ] } ] }))),
+                            { status: 200, headers: { 'Content-Type': 'application/json', 'X-Total-Count': '500', 'X-Filtered-Count': '120' } });
+    }
 
     if (path.startsWith('/poi/RNs/rn2'))
         return new Response(JSON.stringify({ description: "The roaming network 'rn2' is unknown!" }),
@@ -163,11 +171,18 @@ describe('the single things of the points of interest', () => {
 
     });
 
-    it('show as many children as a table holds, and where to search all of them', async () => {
+    it('show an operator without its pools, the first of them from the pools of the roaming network, and where to search all of them', async () => {
 
         const root = await open(operatorPage, '/poi/RNs/rn1/CSOs/DE*BIG', null, poiAPI, root => root.querySelector('.poi-children') !== null);
 
+        // Asked for in short, and for a page of its pools.
+        assert.equal(asked.find(one => one.path === '/poi/RNs/rn1/CSOs/DE*BIG')!.query.get('without'), 'chargingPools');
+        assert.equal(asked.find(one => one.path === '/poi/RNs/rn1/CPs')!.query.get('limit'),           '100');
+
         assert.equal(root.querySelectorAll('.poi-children tbody tr').length, 100);
+        assert.deepEqual([ ...root.querySelectorAll('.poi-children tbody tr:first-child td') ].map(cell => cell.textContent!.trim()),
+                         [ 'DE*BIG*P000', '', '', '1', '1' ]);
+        assert.equal(root.querySelector<HTMLAnchorElement>('.poi-children tbody a')!.getAttribute('href'), '/poi/RNs/rn1/CSOs/DE*BIG/CPs/DE*BIG*P000');
         assert.equal(root.querySelector('.poi-children .chip')!.textContent!.trim(), '120');
         assert.equal(root.querySelector<HTMLAnchorElement>('.poi-children p a')!.getAttribute('href'), '/poi/RNs/rn1/CPs?operatorId=DE*BIG');
 
