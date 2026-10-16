@@ -4,7 +4,7 @@ import type { Page } from '@node/router';
 import { reloadButton, shell } from '@node/shell';
 import { errorMessage, formatValue, humanizeKey } from '@node/ui';
 import { html, nothing, render, type TemplateResult } from '@node/view';
-import { addressLine, entityURL, evseCountOf, gridConnectionPoints, networkPath, parkingCollections, poiHome, roamingNetworkOf, sections, sectionsView, type EmbeddedCollection } from './poi';
+import { addressLine, entityURL, evseCountOf, gridConnectionPoints, networkPath, operatorCollections, parkingCollections, poiHome, roamingNetworkOf, sections, sectionsView, type EmbeddedCollection } from './poi';
 
 /**
  * The single things of the points of interest: a roaming network with what it holds, and every entity below it -
@@ -21,7 +21,8 @@ import { addressLine, entityURL, evseCountOf, gridConnectionPoints, networkPath,
  * grid operator without its grid connection points, the first of them from its list of them, and a parking operator
  * without its garages, spaces, groups of spaces, sensors and products, the first of each from their lists. Each of
  * them has a page of its own, below its parking operator, and a parking space leads to its garage, sensors and
- * products, as a group to its spaces.
+ * products, as a group to its spaces. So has every charging tariff and every group of a charging station operator,
+ * below it, and what names a tariff or pools of it leads there.
  */
 
 
@@ -86,8 +87,9 @@ const kinds: Record<string, Kind> = {
                             head:  [ 'Address', 'Stations', 'EVSEs' ],
                             cells: pool => [ addressLine(pool.address as Address | undefined), (pool.chargingStations as unknown[] | undefined)?.length ?? 0, evseCountOf(pool as Pick<ChargingPool, 'chargingStations'>) ],
                             all:     steps => `${entityURL(`${steps[0]!.path}/CPs`)}?operatorId=${encodeURIComponent(steps[1]!.id)}`,
-                            listed:  steps => ({ path: `${steps[0]!.path}/CPs`, query: { operatorId: steps[1]!.id, limit: childrenShown } }) } ],
-              parameters: { without: 'chargingPools' } },
+                            listed:  steps => ({ path: `${steps[0]!.path}/CPs`, query: { operatorId: steps[1]!.id, limit: childrenShown } }) },
+                          ...operatorCollections.map(collection => listedChildren(collection)) ],
+              parameters: { without: [ 'chargingPools', ...operatorCollections.map(collection => collection.field) ].join(',') } },
 
     CPs:    { label: 'Charging pool',  icon: 'fa-charging-station',
               parameters: { expand: 'gridConnectionPoint' },
@@ -115,16 +117,25 @@ const kinds: Record<string, Kind> = {
               parameters: { without: parkingCollections.map(collection => collection.field).join(',') } },
 
     // What a parking operator embeds, each below it.
-    ...Object.fromEntries(parkingCollections.map(collection => [ collection.segment, { label: collection.one, icon: collection.icon } ]))
+    ...Object.fromEntries(parkingCollections.map(collection => [ collection.segment, { label: collection.one, icon: collection.icon } ])),
+
+    // The charging tariffs and the groups of a charging station operator, each below it.
+    ...Object.fromEntries(operatorCollections.map(collection => [ collection.segment, { label: collection.one, icon: collection.icon } ]))
 
 };
 
-/** The fields of what a parking operator embeds naming other things of it, by the segment of their list. */
-const parkingReferences: Record<string, string> = {
-    parkingGarageId:    'PGs',
-    parkingSpaceIds:    'PSs',
-    parkingSensorIds:   'PSNs',
-    parkingProductIds:  'PPs'
+/**
+ * The fields of what an operator holds naming other things of it, by the segment of their list below the operator:
+ * a tariff or pools of a charging station operator, a garage, spaces, sensors or products of a parking operator.
+ */
+const references: Record<string, Record<string, string>> = {
+    CSOs:  { chargingTariffId:   'CTs',
+             chargingTariffIds:  'CTs',
+             chargingPoolIds:    'CPs' },
+    POs:   { parkingGarageId:    'PGs',
+             parkingSpaceIds:    'PSs',
+             parkingSensorIds:   'PSNs',
+             parkingProductIds:  'PPs' }
 };
 
 /** Not drawn as fields: what says how to read the JSON, not what the entity is. */
@@ -231,11 +242,13 @@ function valueView(key: string, value: unknown, steps: Step[]): TemplateResult |
     if (key === 'manufacturerId' && typeof value === 'string')
         return html`<a href=${entityURL(`${network}/CSMs/${encodeURIComponent(value)}`)}><code>${value}</code></a>`;
 
-    // What a thing of a parking operator names of it: its garage, sensors, products, or the spaces of a group.
-    if (steps[1]?.segment === 'POs' && parkingReferences[key] !== undefined &&
+    // What a thing of an operator names of it: a tariff, pools, a garage, sensors, products, spaces.
+    const referenced = steps[1] ? references[steps[1].segment]?.[key] : undefined;
+
+    if (referenced !== undefined &&
         (typeof value === 'string' || (Array.isArray(value) && value.every(item => typeof item === 'string'))))
     {
-        const below = `${steps[1].path}/${parkingReferences[key]}`;
+        const below = `${steps[1]!.path}/${referenced}`;
         return html`${([] as string[]).concat(value as string | string[]).map((id, index) => html`${index > 0 ? ', ' : ''}<a href=${entityURL(`${below}/${encodeURIComponent(id)}`)}><code>${id}</code></a>`)}`;
     }
 
@@ -645,6 +658,7 @@ export const poiEntityPages: Record<string, Page> = {
     [`${gridOperator}/GCPs/:gcp`]:   entityPage('GCPs'),
     [`${network}/EMPs/:emp`]:        entityPage('EMPs'),
     [`${network}/CSMs/:csm`]:        entityPage('CSMs'),
+    ...Object.fromEntries(operatorCollections.map(collection => [ `${operator}/${collection.segment}/:id`, entityPage(collection.segment) ])),
     [parkingOperator]:               entityPage('POs'),
     ...Object.fromEntries(parkingCollections.map(collection => [ `${parkingOperator}/${collection.segment}/:id`, entityPage(collection.segment) ]))
 };

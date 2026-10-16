@@ -16,6 +16,8 @@ const poolPage      = poiEntityPages['/poi/RNs/:rn/CSOs/:cso/CPs/:cp']!;
 const gridPage      = poiEntityPages['/poi/RNs/:rn/GOs/:go']!;
 const parkingPage   = poiEntityPages['/poi/RNs/:rn/POs/:po']!;
 const spacePage     = poiEntityPages['/poi/RNs/:rn/POs/:po/PSs/:id']!;
+const poolGroupPage = poiEntityPages['/poi/RNs/:rn/CSOs/:cso/CPGs/:id']!;
+const evsePageOf    = (path: string) => open(evsePage, path, null, poiAPI, root => root.querySelector('.poi-entity') !== null);
 const evsePage      = poiEntityPages['/poi/RNs/:rn/CSOs/:cso/CPs/:cp/CSs/:cs/EVSEs/:evse']!;
 
 
@@ -50,6 +52,7 @@ const pool = {
 
 const evse = {
     '@id':               'DE*GEF*E1*1',
+    chargingTariffIds:   [ 'DE*GEF*T1' ],
     maxPower:            22000,
     maxCurrent:          32,
     chargingConnectors:  [ { '@id': '1', type: 'IEC62196Type2Outlet', lockable: true } ]
@@ -74,8 +77,19 @@ function poiAPI({ path, query }: Asked): unknown {
         return entityOf(evse);
 
     // An operator without its pools, and its pools from the pools of the roaming network.
-    if (path === '/poi/RNs/rn1/CSOs/DE*BIG' && query.get('without') === 'chargingPools')
+    if (path === '/poi/RNs/rn1/CSOs/DE*BIG' && query.get('without')?.startsWith('chargingPools,'))
         return entityOf({ '@id': 'DE*BIG', name: { en: 'Big' } });
+
+    // Its tariffs and groups: one tariff, nothing else.
+    if (path === '/poi/RNs/rn1/CSOs/DE*BIG/CTs')
+        return listOf([ { '@id': 'DE*BIG*T1', currency: 'EUR', elements: [ {}, {} ] } ], 1);
+
+    if (/^\/poi\/RNs\/rn1\/CSOs\/DE\*BIG\/(CTGs|CPGs|CSGs|EVSEGs)$/.test(path))
+        return listOf([], 0);
+
+    // A group of pools of an operator, naming its pools and its tariff.
+    if (path === '/poi/RNs/rn1/CSOs/DE*GEF/CPGs/DE*GEF*PG1')
+        return entityOf({ '@id': 'DE*GEF*PG1', chargingPoolIds: [ 'DE*GEF*P1', 'DE*GEF*P2' ], chargingTariffId: 'DE*GEF*T1' });
 
     if (path === '/poi/RNs/rn1/CPs' && query.get('operatorId') === 'DE*BIG')
     {
@@ -200,15 +214,47 @@ describe('the single things of the points of interest', () => {
         const root = await open(operatorPage, '/poi/RNs/rn1/CSOs/DE*BIG', null, poiAPI, root => root.querySelector('.poi-children') !== null);
 
         // Asked for in short, and for a page of its pools.
-        assert.equal(asked.find(one => one.path === '/poi/RNs/rn1/CSOs/DE*BIG')!.query.get('without'), 'chargingPools');
+        assert.equal(asked.find(one => one.path === '/poi/RNs/rn1/CSOs/DE*BIG')!.query.get('without'),
+                     'chargingPools,chargingTariffs,chargingTariffGroups,chargingPoolGroups,chargingStationGroups,EVSEGroups');
         assert.equal(asked.find(one => one.path === '/poi/RNs/rn1/CPs')!.query.get('limit'),           '100');
 
-        assert.equal(root.querySelectorAll('.poi-children tbody tr').length, 100);
-        assert.deepEqual([ ...root.querySelectorAll('.poi-children tbody tr:first-child td') ].map(cell => cell.textContent!.trim()),
+        const pools = root.querySelector('.poi-children')!;
+
+        assert.equal(pools.querySelectorAll('tbody tr').length, 100);
+        assert.deepEqual([ ...pools.querySelectorAll('tbody tr:first-child td') ].map(cell => cell.textContent!.trim()),
                          [ 'DE*BIG*P000', '', '', '1', '1' ]);
         assert.equal(root.querySelector<HTMLAnchorElement>('.poi-children tbody a')!.getAttribute('href'), '/poi/RNs/rn1/CSOs/DE*BIG/CPs/DE*BIG*P000');
         assert.equal(root.querySelector('.poi-children .chip')!.textContent!.trim(), '120');
         assert.equal(root.querySelector<HTMLAnchorElement>('.poi-children p a')!.getAttribute('href'), '/poi/RNs/rn1/CPs?operatorId=DE*BIG');
+
+    });
+
+    it('show the tariffs and groups of an operator from their lists, and lead from a group to its pools and tariff', async () => {
+
+        const root = await open(operatorPage, '/poi/RNs/rn1/CSOs/DE*BIG', null, poiAPI, root => root.querySelectorAll('.poi-children').length === 6);
+
+        assert.deepEqual([ ...root.querySelectorAll('.poi-children h2') ].map(heading => heading.textContent!.replace(/\s+/g, ' ').trim()),
+                         [ 'Charging pools 120', 'Charging tariffs 1', 'Charging tariff groups 0', 'Charging pool groups 0', 'Charging station groups 0', 'EVSE groups 0' ]);
+
+        const tariffs = root.querySelectorAll('.poi-children')[1]!;
+        assert.deepEqual([ ...tariffs.querySelectorAll('tbody td') ].map(cell => cell.textContent!.trim()), [ 'DE*BIG*T1', '', 'EUR', '', '2' ]);
+        assert.equal(tariffs.querySelector<HTMLAnchorElement>('tbody a')!.getAttribute('href'), '/poi/RNs/rn1/CSOs/DE*BIG/CTs/DE*BIG*T1');
+
+        const group = await open(poolGroupPage, '/poi/RNs/rn1/CSOs/DE*GEF/CPGs/DE*GEF*PG1', null, poiAPI, root => root.querySelector('.poi-entity') !== null);
+        const links = (key: string) => [ ...value(group, key)!.querySelectorAll<HTMLAnchorElement>('a') ].map(link => link.getAttribute('href'));
+
+        assert.match(group.querySelector('.page-head')!.textContent!, /Charging pool group DE\*GEF\*PG1/);
+        assert.deepEqual(links('Charging pool IDs'),  [ '/poi/RNs/rn1/CSOs/DE*GEF/CPs/DE*GEF*P1', '/poi/RNs/rn1/CSOs/DE*GEF/CPs/DE*GEF*P2' ]);
+        assert.deepEqual(links('Charging tariff ID'), [ '/poi/RNs/rn1/CSOs/DE*GEF/CTs/DE*GEF*T1' ]);
+
+    });
+
+    it('lead from an EVSE to its tariffs', async () => {
+
+        const root = await evsePageOf('/poi/RNs/rn1/CSOs/DE*GEF/CPs/DE*GEF*P1/CSs/DE*GEF*S1/EVSEs/DE*GEF*E1*1');
+
+        assert.deepEqual([ ...value(root, 'Charging tariff IDs')!.querySelectorAll<HTMLAnchorElement>('a') ].map(link => link.getAttribute('href')),
+                         [ '/poi/RNs/rn1/CSOs/DE*GEF/CTs/DE*GEF*T1' ]);
 
     });
 

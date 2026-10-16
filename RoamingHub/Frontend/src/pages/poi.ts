@@ -454,8 +454,27 @@ export const parkingCollections: EmbeddedCollection[] = [
       cells:   product => [ textOf(product.description as Summary['description']) ] }
 ];
 
-/** The operator a page below it is of, from its URL: /poi/RNs/{RN_Id}/{GOs|POs}/{Id}/... */
-function operatorOf(url: URL, segment: 'GOs' | 'POs'): string {
+/** The charging tariffs and the groups of a charging station operator, each in a list of its own. */
+export const operatorCollections: EmbeddedCollection[] = [
+    { segment: 'CTs',     field: 'chargingTariffs',        label: 'Charging tariffs',         one: 'Charging tariff',         icon: 'fa-tag',
+      head:    [ 'Currency', 'Type', 'Elements' ],
+      cells:   tariff => [ String(tariff.currency ?? ''), String(tariff.tariffType ?? ''), idCount(tariff.elements) ] },
+    { segment: 'CTGs',    field: 'chargingTariffGroups',   label: 'Charging tariff groups',   one: 'Charging tariff group',   icon: 'fa-tags',
+      head:    [ 'Tariffs' ],
+      cells:   group => [ idCount(group.chargingTariffIds) ] },
+    { segment: 'CPGs',    field: 'chargingPoolGroups',     label: 'Charging pool groups',     one: 'Charging pool group',     icon: 'fa-object-group',
+      head:    [ 'Pools', 'Tariff' ],
+      cells:   group => [ idCount(group.chargingPoolIds), String(group.chargingTariffId ?? '') ] },
+    { segment: 'CSGs',    field: 'chargingStationGroups',  label: 'Charging station groups',  one: 'Charging station group',  icon: 'fa-object-group',
+      head:    [ 'Stations', 'Tariff' ],
+      cells:   group => [ idCount(group.chargingStationIds), String(group.chargingTariffId ?? '') ] },
+    { segment: 'EVSEGs',  field: 'EVSEGroups',             label: 'EVSE groups',              one: 'EVSE group',              icon: 'fa-object-group',
+      head:    [ 'EVSEs', 'Tariff' ],
+      cells:   group => [ idCount(group.EVSEIds), String(group.chargingTariffId ?? '') ] }
+];
+
+/** The operator a page below it is of, from its URL: /poi/RNs/{RN_Id}/{CSOs|GOs|POs}/{Id}/... */
+function operatorOf(url: URL, segment: 'CSOs' | 'GOs' | 'POs'): string {
     const found = new RegExp(`^/poi/RNs/[^/]+/${segment}/([^/]+)`).exec(fromURL(url.pathname));
     return found ? decodeURIComponent(found[1]!) : '';
 }
@@ -466,7 +485,7 @@ export function gridOperatorOf(url: URL): string {
 }
 
 /** All of what an operator embeds, beyond the first its page shows, searched and paged: each leading to its page. */
-function embeddedListPage(parent:      'GOs' | 'POs',
+function embeddedListPage(parent:      'CSOs' | 'GOs' | 'POs',
                           collection:  EmbeddedCollection,
                           subtitle:    string): Page {
 
@@ -491,6 +510,12 @@ function embeddedListPage(parent:      'GOs' | 'POs',
 /** The grid connection points of a grid operator, as it embeds them: all of them, beyond the first its page shows. */
 export const poiGridConnectionPointsPage: Page = embeddedListPage('GOs', gridConnectionPoints, 'Where the charging pools are connected to the grid of a grid operator.');
 
+/** The charging tariffs and the groups of a charging station operator, a list each. */
+export const poiOperatorListPages: Record<string, Page> = Object.fromEntries(
+    operatorCollections.map(collection => [ `${poiHome}/:rn/CSOs/:cso/${collection.segment}`,
+                                            embeddedListPage('CSOs', collection, `The ${collection.label.toLowerCase()} of a charging station operator.`) ])
+);
+
 /** What a parking operator embeds, a list each. */
 export const poiParkingListPages: Record<string, Page> = Object.fromEntries(
     parkingCollections.map(collection => [ `${poiHome}/:rn/POs/:po/${collection.segment}`,
@@ -507,5 +532,6 @@ export const poiListPages: Record<string, Page> = {
     [`${poiHome}/:rn/CSMs`]:            poiManufacturersPage,
     [`${poiHome}/:rn/POs`]:             poiParkingPage,
     [`${poiHome}/:rn/GOs/:go/GCPs`]:    poiGridConnectionPointsPage,
+    ...poiOperatorListPages,
     ...poiParkingListPages
 };
