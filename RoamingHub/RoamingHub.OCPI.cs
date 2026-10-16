@@ -27,6 +27,7 @@ using org.GraphDefined.Vanaheimr.Hermod.HTTP;
 using cloud.charging.open.protocols.OCPI;
 
 using cloud.charging.open.RoamingHub.Configuration;
+using cloud.charging.open.RoamingHub.Logging;
 using cloud.charging.open.RoamingHub.OCPI;
 
 #endregion
@@ -80,6 +81,12 @@ namespace cloud.charging.open.RoamingHub
         /// directory of the configuration file.
         /// </summary>
         public const String  OCPIDirectoryName  = "ocpi";
+
+        /// <summary>
+        /// The traffic appended to disk, or null where the configuration did
+        /// not ask for it - see OCPITrafficFile for why that is the default.
+        /// </summary>
+        private OCPITrafficFile?         trafficFile;
 
         private CommonHTTPAPI            ocpiAPI       = default!;
         private OCPIConfiguration        ocpiSettings  = new ();
@@ -222,6 +229,35 @@ namespace cloud.charging.open.RoamingHub
             #region Where the library writes
 
             OCPIDirectory    = Path.Combine(Path.GetDirectoryName(ConfigFile.Path) ?? ".", OCPIDirectoryName);
+
+            #endregion
+
+            #region ... and where the traffic is kept, when it is
+
+            // Here rather than beside the traffic log itself, because this is
+            // the first point at which both halves are known: where the files
+            // go, and whether the operator asked for them at all.
+            if (ocpiSettings.Logging?.ToFile == true)
+            {
+
+                var trafficDirectory = Path.Combine(
+                                           Path.GetDirectoryName(ConfigFile.Path) ?? ".",
+                                           OCPITrafficFile.DefaultDirectoryName
+                                       );
+
+                trafficFile = new OCPITrafficFile(trafficDirectory);
+
+                // A write that failed must not be lost in silence: the traffic
+                // log invokes its listeners inside a catch-all, so the file
+                // reports its own failures and they end up here.
+                trafficFile.OnWriteFailed += (call, exception) =>
+                    Log.Exception(exception, $"Call {call.Id} could not be appended to the traffic file.", "ocpi", "traffic");
+
+                trafficLog.OnCall += trafficFile.Append;
+
+                Log.Info($"The traffic is also appended to '{trafficDirectory}', one file per day.", "ocpi", "traffic");
+
+            }
 
             #endregion
 

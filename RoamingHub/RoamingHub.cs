@@ -1,4 +1,4 @@
-/*
+﻿/*
  * Copyright (c) 2014-2026 GraphDefined GmbH <achim.friedland@graphdefined.com>
  * This file is part of RoamingHub <https://github.com/OpenChargingCloud/RoamingHub>
  *
@@ -446,6 +446,10 @@ namespace cloud.charging.open.RoamingHub
 
             presenceTimer?.Dispose();
             presenceTimer = null;
+
+            // The last line written is already flushed - see OCPITrafficFile -
+            // so this only releases the handle.
+            trafficFile?.Dispose();
 
             // Before the sockets close: a push in flight holds one, and a hub
             // that waited for it would take its shutdown from whoever it was

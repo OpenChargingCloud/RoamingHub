@@ -1,4 +1,4 @@
-/*
+﻿/*
  * Copyright (c) 2014-2026 GraphDefined GmbH <achim.friedland@graphdefined.com>
  * This file is part of RoamingHub <https://github.com/OpenChargingCloud/RoamingHub>
  *
@@ -322,11 +322,20 @@ namespace cloud.charging.open.RoamingHub.Configuration
     /// says who asked what, and that is what somebody watching a peering wants
     /// to see; the payload of a charge detail record says who charged where and
     /// for how much, which is not something to keep in a log nobody asked for.
+    ///
+    /// The file is off by default, and that is a decision rather than caution
+    /// about disks. What a hub sees is its peers' business passing through,
+    /// and how long it may keep that has a different answer in every
+    /// jurisdiction - so a hub that started writing it to disk because it was
+    /// upgraded would be answering that question on its operator's behalf.
+    /// Switching it on is one line, and the operator writes it.
     /// </remarks>
     /// <param name="Requests">Whether every OCPI request a partner makes is logged.</param>
     /// <param name="Payloads">Whether the objects partners push - locations, sessions, charge detail records - are logged whole.</param>
+    /// <param name="ToFile">Whether the traffic is also appended to a file, where a restart cannot take it away.</param>
     public sealed record OCPILogging(Boolean?  Requests   = null,
-                                     Boolean?  Payloads   = null)
+                                     Boolean?  Payloads   = null,
+                                     Boolean?  ToFile     = null)
     {
 
         #region (static) TryParse(JSON, out Logging, out Error)
@@ -339,12 +348,13 @@ namespace cloud.charging.open.RoamingHub.Configuration
             Logging = null;
 
             if (!ConfigurationReader.TryReadBoolean(JSON, "requests", "ocpi.logging", out var requests, out Error) ||
-                !ConfigurationReader.TryReadBoolean(JSON, "payloads", "ocpi.logging", out var payloads, out Error))
+                !ConfigurationReader.TryReadBoolean(JSON, "payloads", "ocpi.logging", out var payloads, out Error) ||
+                !ConfigurationReader.TryReadBoolean(JSON, "file",     "ocpi.logging", out var toFile,   out Error))
             {
                 return false;
             }
 
-            Logging = new OCPILogging(requests, payloads);
+            Logging = new OCPILogging(requests, payloads, toFile);
             return true;
 
         }
@@ -360,6 +370,7 @@ namespace cloud.charging.open.RoamingHub.Configuration
 
             if (Requests.HasValue)  json.Add("requests",  Requests.Value);
             if (Payloads.HasValue)  json.Add("payloads",  Payloads.Value);
+            if (ToFile.  HasValue)  json.Add("file",      ToFile.  Value);
 
             return json;
 
