@@ -1,4 +1,4 @@
-import { poiBase, poiList, poiURL, textOf, type Address, type ChargingPool, type ListPart, type Query, type Summary } from '../api/poi';
+import { poiBase, poiList, poiURL, textOf, type Address, type ChargingPool, type Entity, type ListPart, type Query, type Summary } from '../api/poi';
 import { fromURL, toURL } from '@node/basePath';
 import type { Page } from '@node/router';
 import { reloadButton, shell } from '@node/shell';
@@ -411,29 +411,95 @@ export const poiProvidersPage:      Page = summaryPage('EMPs', 'Who drivers char
 export const poiManufacturersPage:  Page = summaryPage('CSMs', 'Who makes the charging stations.');
 export const poiParkingPage:        Page = summaryPage('POs',  'Who runs the parking garages and spaces.');
 
-/** The grid operator a page of it is of, from its URL: /poi/RNs/{RN_Id}/GOs/{GO_Id}/... */
-export function gridOperatorOf(url: URL): string {
-    const found = /^\/poi\/RNs\/[^/]+\/GOs\/([^/]+)/.exec(fromURL(url.pathname));
+/** What an operator embeds and the API lists below it, e.g. /poi/RNs/rn1/GOs/DE*NET/GCPs: what of each a table shows. */
+export interface EmbeddedCollection {
+    /** The segment of its list below the operator. */
+    segment:  string;
+    /** The field the operator embeds them in. */
+    field:    string;
+    label:    string;
+    icon:     string;
+    head:     string[];
+    cells:    (entry: Entity) => (string | number)[];
+}
+
+/** How many identifications a list of them has. */
+const idCount = (ids: unknown): number => Array.isArray(ids) ? ids.length : 0;
+
+/** The grid connection points of a grid operator. */
+export const gridConnectionPoints: EmbeddedCollection = {
+    segment: 'GCPs',  field: 'gridConnectionPoints',  label: 'Grid connection points',  icon: 'fa-plug-circle-bolt',
+    head:    [ 'Voltage level', 'Address' ],
+    cells:   point => [ String(point.voltageLevel ?? ''), addressLine(point.address as Address | undefined) ]
+};
+
+/** What a parking operator embeds, each in a list of its own. */
+export const parkingCollections: EmbeddedCollection[] = [
+    { segment: 'PGs',   field: 'parkingGarages',      label: 'Parking garages',       icon: 'fa-warehouse',
+      head:    [ 'Address', 'Charging stations' ],
+      cells:   garage => [ addressLine(garage.address as Address | undefined), idCount(garage.chargingStationIds) ] },
+    { segment: 'PSs',   field: 'parkingSpaces',       label: 'Parking spaces',        icon: 'fa-square-parking',
+      head:    [ 'Garage', 'Sensors', 'Charging stations' ],
+      cells:   space => [ String(space.parkingGarageId ?? ''), idCount(space.parkingSensorIds), idCount(space.chargingStationIds) ] },
+    { segment: 'PSGs',  field: 'parkingSpaceGroups',  label: 'Parking space groups',  icon: 'fa-layer-group',
+      head:    [ 'Spaces' ],
+      cells:   group => [ idCount(group.parkingSpaceIds) ] },
+    { segment: 'PSNs',  field: 'parkingSensors',      label: 'Parking sensors',       icon: 'fa-satellite-dish',
+      head:    [ 'Charging stations' ],
+      cells:   sensor => [ idCount(sensor.chargingStationIds) ] },
+    { segment: 'PPs',   field: 'parkingProducts',     label: 'Parking products',      icon: 'fa-ticket',
+      head:    [ 'Description' ],
+      cells:   product => [ textOf(product.description as Summary['description']) ] }
+];
+
+/** The operator a page below it is of, from its URL: /poi/RNs/{RN_Id}/{GOs|POs}/{Id}/... */
+function operatorOf(url: URL, segment: 'GOs' | 'POs'): string {
+    const found = new RegExp(`^/poi/RNs/[^/]+/${segment}/([^/]+)`).exec(fromURL(url.pathname));
     return found ? decodeURIComponent(found[1]!) : '';
 }
 
+/** The grid operator a page of it is of, from its URL: /poi/RNs/{RN_Id}/GOs/{GO_Id}/... */
+export function gridOperatorOf(url: URL): string {
+    return operatorOf(url, 'GOs');
+}
+
+/**
+ * All of what an operator embeds, beyond the first its page shows, searched and paged: each leading to its page,
+ * where it has one.
+ */
+function embeddedListPage(parent:      'GOs' | 'POs',
+                          collection:  EmbeddedCollection,
+                          subtitle:    string,
+                          linked:      boolean): Page {
+
+    return listPage<Entity>({
+        title:        (_, url) => `${collection.label}${url ? ` of ${operatorOf(url, parent)}` : ''}`,
+        subtitle,
+        path:         (roamingNetworkId, url) => `${networkPath(roamingNetworkId)}/${parent}/${encodeURIComponent(operatorOf(url, parent))}/${collection.segment}`,
+        section:      parent,
+        placeholder:  `Search the ${collection.label.toLowerCase()} ...`,
+        head:         html`<tr><th>Identification</th><th>Name</th>${collection.head.map(label => html`<th>${label}</th>`)}</tr>`,
+        key:          entry => entry['@id'],
+        row:          (entry, _, path) => html`
+            <tr>
+                <td>${linked
+                          ? html`<a href=${entityURL(`${path}/${encodeURIComponent(entry['@id'])}`)}><code>${entry['@id']}</code></a>`
+                          : html`<code>${entry['@id']}</code>`}</td>
+                <td>${textOf(entry.name)}</td>
+                ${collection.cells(entry).map(cell => html`<td class=${typeof cell === 'number' ? 'poi-number' : ''}>${cell}</td>`)}
+            </tr>`
+    });
+
+}
+
 /** The grid connection points of a grid operator, as it embeds them: all of them, beyond the first its page shows. */
-export const poiGridConnectionPointsPage: Page = listPage<Summary & { voltageLevel?: string; address?: Address }>({
-    title:        (_, url) => `Grid connection points${url ? ` of ${gridOperatorOf(url)}` : ''}`,
-    subtitle:     'Where the charging pools are connected to the grid of a grid operator.',
-    path:         (roamingNetworkId, url) => `${networkPath(roamingNetworkId)}/GOs/${encodeURIComponent(gridOperatorOf(url))}/GCPs`,
-    section:      'GOs',
-    placeholder:  'Search names, addresses and identifications ...',
-    head:         html`<tr><th>Identification</th><th>Name</th><th>Voltage level</th><th>Address</th></tr>`,
-    key:          point => point['@id'],
-    row:          (point, _, path) => html`
-        <tr>
-            <td><a href=${entityURL(`${path}/${encodeURIComponent(point['@id'])}`)}><code>${point['@id']}</code></a></td>
-            <td>${textOf(point.name)}</td>
-            <td>${point.voltageLevel ?? ''}</td>
-            <td>${addressLine(point.address)}</td>
-        </tr>`
-});
+export const poiGridConnectionPointsPage: Page = embeddedListPage('GOs', gridConnectionPoints, 'Where the charging pools are connected to the grid of a grid operator.', true);
+
+/** What a parking operator embeds, a list each: none of them has a page of its own. */
+export const poiParkingListPages: Record<string, Page> = Object.fromEntries(
+    parkingCollections.map(collection => [ `${poiHome}/:rn/POs/:po/${collection.segment}`,
+                                           embeddedListPage('POs', collection, `The ${collection.label.toLowerCase()} of a parking operator.`, false) ])
+);
 
 /** The pages of the lists of the points of interest, by their paths: public, as the POI API is. */
 export const poiListPages: Record<string, Page> = {
@@ -444,5 +510,6 @@ export const poiListPages: Record<string, Page> = {
     [`${poiHome}/:rn/EMPs`]:            poiProvidersPage,
     [`${poiHome}/:rn/CSMs`]:            poiManufacturersPage,
     [`${poiHome}/:rn/POs`]:             poiParkingPage,
-    [`${poiHome}/:rn/GOs/:go/GCPs`]:    poiGridConnectionPointsPage
+    [`${poiHome}/:rn/GOs/:go/GCPs`]:    poiGridConnectionPointsPage,
+    ...poiParkingListPages
 };

@@ -14,6 +14,7 @@ const { inReadingOrder, poiEntityPages, poiNetworkPage, stepsOf, withUnit } = aw
 const operatorPage  = poiEntityPages['/poi/RNs/:rn/CSOs/:cso']!;
 const poolPage      = poiEntityPages['/poi/RNs/:rn/CSOs/:cso/CPs/:cp']!;
 const gridPage      = poiEntityPages['/poi/RNs/:rn/GOs/:go']!;
+const parkingPage   = poiEntityPages['/poi/RNs/:rn/POs/:po']!;
 const evsePage      = poiEntityPages['/poi/RNs/:rn/CSOs/:cso/CPs/:cp/CSs/:cs/EVSEs/:evse']!;
 
 
@@ -89,6 +90,16 @@ function poiAPI({ path, query }: Asked): unknown {
 
     if (path === '/poi/RNs/rn1/GOs/DE*NET/GCPs')
         return listOf([ { '@id': 'GCP1', name: { de: 'Netzanschluss 1' }, voltageLevel: 'LowVoltage' } ], 1);
+
+    // A parking operator without anything it embeds, and that from their lists: one space, nothing else.
+    if (path === '/poi/RNs/rn1/POs/DE*PAR' && query.get('without'))
+        return entityOf({ '@id': 'DE*PAR', name: { en: 'Example Parking' } });
+
+    if (path === '/poi/RNs/rn1/POs/DE*PAR/PSs')
+        return listOf([ { '@id': 'space-1', parkingGarageId: 'garage-1', parkingSensorIds: [ 'sensor-1' ] } ], 1);
+
+    if (/^\/poi\/RNs\/rn1\/POs\/DE\*PAR\/(PGs|PSGs|PSNs|PPs)$/.test(path))
+        return listOf([], 0);
 
     if (path.startsWith('/poi/RNs/rn2'))
         return new Response(JSON.stringify({ description: "The roaming network 'rn2' is unknown!" }),
@@ -207,6 +218,23 @@ describe('the single things of the points of interest', () => {
                          [ 'GCP1', 'Netzanschluss 1', 'LowVoltage', '' ]);
         assert.equal(root.querySelector<HTMLAnchorElement>('.poi-children tbody a')!.getAttribute('href'), '/poi/RNs/rn1/GOs/DE*NET/GCPs/GCP1');
         assert.equal(root.querySelector('.poi-children .chip')!.textContent!.trim(), '1');
+
+    });
+
+    it('show a parking operator without what it embeds, each from its list, none of it leading to a page', async () => {
+
+        const root = await open(parkingPage, '/poi/RNs/rn1/POs/DE*PAR', null, poiAPI, root => root.querySelectorAll('.poi-children').length === 5);
+
+        assert.equal(asked.find(one => one.path === '/poi/RNs/rn1/POs/DE*PAR')!.query.get('without'),
+                     'parkingGarages,parkingSpaces,parkingSpaceGroups,parkingSensors,parkingProducts');
+
+        assert.deepEqual([ ...root.querySelectorAll('.poi-children h2') ].map(heading => heading.textContent!.replace(/\s+/g, ' ').trim()),
+                         [ 'Parking garages 0', 'Parking spaces 1', 'Parking space groups 0', 'Parking sensors 0', 'Parking products 0' ]);
+
+        const spaces = root.querySelectorAll('.poi-children')[1]!;
+        assert.deepEqual([ ...spaces.querySelectorAll('tbody td') ].map(cell => cell.textContent!.trim()),
+                         [ 'space-1', '', 'garage-1', '1', '0' ]);
+        assert.equal(spaces.querySelector('tbody a'), null, 'a parking space has no page of its own');
 
     });
 

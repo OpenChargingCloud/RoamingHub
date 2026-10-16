@@ -4,7 +4,7 @@ import type { Page } from '@node/router';
 import { reloadButton, shell } from '@node/shell';
 import { errorMessage, formatValue, humanizeKey } from '@node/ui';
 import { html, nothing, render, type TemplateResult } from '@node/view';
-import { addressLine, entityURL, evseCountOf, networkPath, poiHome, roamingNetworkOf, sections, sectionsView } from './poi';
+import { addressLine, entityURL, evseCountOf, gridConnectionPoints, networkPath, parkingCollections, poiHome, roamingNetworkOf, sections, sectionsView, type EmbeddedCollection } from './poi';
 
 /**
  * The single things of the points of interest: a roaming network with what it holds, and every entity below it -
@@ -18,7 +18,8 @@ import { addressLine, entityURL, evseCountOf, networkPath, poiHome, roamingNetwo
  *
  * A charging station operator is asked for without its charging pools, which may be thousands, each with its
  * stations and EVSEs: its table holds the first of them, from the charging pools of the roaming network. So is a
- * grid operator without its grid connection points, the first of them from its list of them.
+ * grid operator without its grid connection points, the first of them from its list of them, and a parking operator
+ * without its garages, spaces, groups of spaces, sensors and products, the first of each from their lists.
  */
 
 
@@ -37,8 +38,12 @@ interface Children {
     field:    string;
     label:    string;
     segment:  string;
+    /** The icon of their table; the one of their kind by default. */
+    icon?:    string;
     head:     string[];
     cells:    (child: Entity) => (string | number | TemplateResult)[];
+    /** Whether each leads to a page of its own: unless it has none. */
+    linked?:  boolean;
     /** Where all of them are, searched and paged, when there are more than a table shows. */
     all?:     (steps: Step[]) => string;
     /** The list they are asked from instead, when the entity is asked for without them. */
@@ -51,11 +56,26 @@ interface ChildrenPart {
     count:    number;
 }
 
+/** What an operator embeds, asked from its list below the operator: the first of them, and where all of them are. */
+function listedChildren(collection: EmbeddedCollection, linked: boolean): Children {
+    return {
+        field:    collection.field,
+        label:    collection.label,
+        segment:  collection.segment,
+        icon:     collection.icon,
+        head:     collection.head,
+        cells:    collection.cells,
+        linked,
+        all:      steps => entityURL(`${steps[1]!.path}/${collection.segment}`),
+        listed:   steps => ({ path: `${steps[1]!.path}/${collection.segment}`, query: { limit: childrenShown } })
+    };
+}
+
 /** A kind of entity, by the segment of its path. */
 interface Kind {
     label:        string;
     icon:         string;
-    children?:    Children;
+    children?:    Children[];
     /** What the API is asked beyond the path, e.g. to embed what the entity only names. */
     parameters?:  Record<string, string>;
 }
@@ -63,39 +83,37 @@ interface Kind {
 const kinds: Record<string, Kind> = {
 
     CSOs:   { label: 'Charging station operator',  icon: 'fa-building',
-              children: { field: 'chargingPools',  label: 'Charging pools',  segment: 'CPs',
-                          head:  [ 'Address', 'Stations', 'EVSEs' ],
-                          cells: pool => [ addressLine(pool.address as Address | undefined), (pool.chargingStations as unknown[] | undefined)?.length ?? 0, evseCountOf(pool as Pick<ChargingPool, 'chargingStations'>) ],
-                          all:     steps => `${entityURL(`${steps[0]!.path}/CPs`)}?operatorId=${encodeURIComponent(steps[1]!.id)}`,
-                          listed:  steps => ({ path: `${steps[0]!.path}/CPs`, query: { operatorId: steps[1]!.id, limit: childrenShown } }) },
+              children: [ { field: 'chargingPools',  label: 'Charging pools',  segment: 'CPs',
+                            head:  [ 'Address', 'Stations', 'EVSEs' ],
+                            cells: pool => [ addressLine(pool.address as Address | undefined), (pool.chargingStations as unknown[] | undefined)?.length ?? 0, evseCountOf(pool as Pick<ChargingPool, 'chargingStations'>) ],
+                            all:     steps => `${entityURL(`${steps[0]!.path}/CPs`)}?operatorId=${encodeURIComponent(steps[1]!.id)}`,
+                            listed:  steps => ({ path: `${steps[0]!.path}/CPs`, query: { operatorId: steps[1]!.id, limit: childrenShown } }) } ],
               parameters: { without: 'chargingPools' } },
 
     CPs:    { label: 'Charging pool',  icon: 'fa-charging-station',
               parameters: { expand: 'gridConnectionPoint' },
-              children: { field: 'chargingStations',  label: 'Charging stations',  segment: 'CSs',
-                          head:  [ 'EVSEs', 'Max power' ],
-                          cells: station => [ (station.EVSEs as unknown[] | undefined)?.length ?? 0, withUnit('maxPower', station.maxPower) ] } },
+              children: [ { field: 'chargingStations',  label: 'Charging stations',  segment: 'CSs',
+                            head:  [ 'EVSEs', 'Max power' ],
+                            cells: station => [ (station.EVSEs as unknown[] | undefined)?.length ?? 0, withUnit('maxPower', station.maxPower) ] } ] },
 
     CSs:    { label: 'Charging station',  icon: 'fa-charging-station',
-              children: { field: 'EVSEs',  label: 'EVSEs',  segment: 'EVSEs',
-                          head:  [ 'Max power', 'Connectors' ],
-                          cells: evse => [ withUnit('maxPower', evse.maxPower),
-                                           ((evse.chargingConnectors as { type?: string }[] | undefined) ?? []).map(connector => connector.type ?? '?').join(', ') ] } },
+              children: [ { field: 'EVSEs',  label: 'EVSEs',  segment: 'EVSEs',
+                            head:  [ 'Max power', 'Connectors' ],
+                            cells: evse => [ withUnit('maxPower', evse.maxPower),
+                                             ((evse.chargingConnectors as { type?: string }[] | undefined) ?? []).map(connector => connector.type ?? '?').join(', ') ] } ] },
 
     EVSEs:  { label: 'EVSE',  icon: 'fa-plug' },
 
     GOs:    { label: 'Grid operator',  icon: 'fa-bolt',
-              children: { field: 'gridConnectionPoints',  label: 'Grid connection points',  segment: 'GCPs',
-                          head:    [ 'Voltage level', 'Address' ],
-                          cells:   point => [ formatValue(point.voltageLevel), addressLine(point.address as Address | undefined) ],
-                          all:     steps => entityURL(`${steps[1]!.path}/GCPs`),
-                          listed:  steps => ({ path: `${steps[1]!.path}/GCPs`, query: { limit: childrenShown } }) },
-              parameters: { without: 'gridConnectionPoints' } },
+              children:   [ listedChildren(gridConnectionPoints, true) ],
+              parameters: { without: gridConnectionPoints.field } },
 
     GCPs:   { label: 'Grid connection point',          icon: 'fa-plug-circle-bolt' },
     EMPs:   { label: 'E-mobility provider',            icon: 'fa-id-card'          },
     CSMs:   { label: 'Charging station manufacturer',  icon: 'fa-industry'         },
-    POs:    { label: 'Parking operator',               icon: 'fa-square-parking'   }
+    POs:    { label: 'Parking operator',               icon: 'fa-square-parking',
+              children:   parkingCollections.map(collection => listedChildren(collection, false)),
+              parameters: { without: parkingCollections.map(collection => collection.field).join(',') } }
 
 };
 
@@ -299,7 +317,7 @@ function pathView(steps: Step[]): TemplateResult {
 
 }
 
-/** The children of an entity, each leading to its page: as many as a table shows, and where the others are. */
+/** The children of an entity, each leading to its page where it has one: as many as a table shows, and where the others are. */
 function childrenView(children: Children, part: ChildrenPart, steps: Step[]): TemplateResult {
 
     const shown  = part.entries.slice(0, childrenShown);
@@ -308,7 +326,7 @@ function childrenView(children: Children, part: ChildrenPart, steps: Step[]): Te
     return html`
         <section class="card poi-children">
 
-            <h2><i class="fa-solid ${kinds[children.segment]?.icon ?? 'fa-list'}"></i> ${children.label}
+            <h2><i class="fa-solid ${children.icon ?? kinds[children.segment]?.icon ?? 'fa-list'}"></i> ${children.label}
                 <span class="chip">${part.count}</span></h2>
 
             ${part.count === 0
@@ -320,7 +338,9 @@ function childrenView(children: Children, part: ChildrenPart, steps: Step[]): Te
                               <tbody>
                                   ${shown.map(child => html`
                                       <tr>
-                                          <td><a href=${entityURL(`${here}/${children.segment}/${encodeURIComponent(child['@id'])}`)}><code>${child['@id']}</code></a></td>
+                                          <td>${children.linked === false
+                                                    ? html`<code>${child['@id']}</code>`
+                                                    : html`<a href=${entityURL(`${here}/${children.segment}/${encodeURIComponent(child['@id'])}`)}><code>${child['@id']}</code></a>`}</td>
                                           <td>${textOf(child.name)}</td>
                                           ${children.cells(child).map(cell => html`<td class=${typeof cell === 'number' ? 'poi-number' : ''}>${cell}</td>`)}
                                       </tr>`)}
@@ -376,7 +396,7 @@ function entityPage(segment: string): Page {
             const self   = steps.at(-1)!;
 
             let loaded:     Loaded | null            = null;
-            let listed:     ChildrenPart | null      = null;
+            let listed:     (ChildrenPart | null)[]  = [];
             let problem:    unknown                  = null;
             let asking:     AbortController | null   = null;
             let cancelled                            = false;
@@ -392,7 +412,7 @@ function entityPage(segment: string): Page {
 
                 const fields   = loaded === null
                                      ? []
-                                     : Object.entries(loaded.entity).filter(([ key ]) => !notAField.has(key) && key !== kind.children?.field);
+                                     : Object.entries(loaded.entity).filter(([ key ]) => !notAField.has(key) && !kind.children?.some(children => children.field === key));
 
                 render(content, html`
 
@@ -412,7 +432,7 @@ function entityPage(segment: string): Page {
                                           </div>
                                       </section>
 
-                                      ${kind.children ? childrenView(kind.children, listed ?? embedded(kind.children, loaded.entity), steps) : nothing}
+                                      ${(kind.children ?? []).map((children, index) => childrenView(children, listed[index] ?? embedded(children, loaded!.entity), steps))}
 
                                       ${jsonView(loaded)}
 
@@ -433,17 +453,17 @@ function entityPage(segment: string): Page {
                 try
                 {
 
-                    const list              = kind.children?.listed?.(steps);
-                    const [ entity, part ]  = await Promise.all([
-                                                  poiEntity(self.path, kind.parameters, ask.signal),
-                                                  list ? poiList<Entity>(list.path, list.query, ask.signal) : Promise.resolve(null)
-                                              ]);
+                    const lists                = (kind.children ?? []).map(children => children.listed?.(steps));
+                    const [ entity, ...parts ] = await Promise.all([
+                                                     poiEntity(self.path, kind.parameters, ask.signal),
+                                                     ...lists.map(list => list ? poiList<Entity>(list.path, list.query, ask.signal) : Promise.resolve(null))
+                                                 ]);
 
                     if (cancelled || ask !== asking)
                         return;
 
                     loaded  = entity;
-                    listed  = part === null ? null : { entries: part.entries, count: part.filtered };
+                    listed  = parts.map(part => part === null ? null : { entries: part.entries, count: part.filtered });
 
                 }
                 catch (failure)
