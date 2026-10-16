@@ -9,7 +9,7 @@ import { asked, open, until, type Asked } from '../../test/hub.ts';
 import { strict as assert }  from 'node:assert';
 import { describe, it }      from 'node:test';
 
-const { addressLine, poiChargingPoolsPage, poiNetworksPage, poiOperatorsPage, queryOf, roamingNetworkOf } = await import('./poi.ts');
+const { addressLine, gridOperatorOf, poiChargingPoolsPage, poiGridConnectionPointsPage, poiNetworksPage, poiOperatorsPage, queryOf, roamingNetworkOf } = await import('./poi.ts');
 
 
 /** A part of a list, as the POI API answers: the entries, with the counts in the headers. */
@@ -55,6 +55,10 @@ function poiAPI({ path, query }: Asked): unknown {
         return listOf(matching.slice(offset, offset + limit), pools.length, matching.length);
 
     }
+
+    if (path === '/poi/RNs/rn1/GOs/DE*NET/GCPs')
+        return listOf([ { '@id': 'GCP1', name: { de: 'Netzanschluss 1' }, voltageLevel: 'LowVoltage',
+                          address: { street: 'Netzweg', houseNumber: '1', postalCode: '07743', city: { de: 'Jena' }, country: 'DEU' } } ], 1);
 
     if (path === '/poi/RNs/rn2/CSOs')
         return new Response(JSON.stringify({ description: "The roaming network 'rn2' is unknown!" }),
@@ -178,6 +182,20 @@ describe('the points of interest', () => {
         const root = await open(poiOperatorsPage, '/poi/RNs/rn2/CSOs', null, poiAPI, root => root.querySelector('.error-box') !== null);
 
         assert.match(root.querySelector('.error-box')!.textContent!, /The roaming network 'rn2' is unknown!/);
+
+    });
+
+    it('list the grid connection points of a grid operator, each leading to its page', async () => {
+
+        assert.equal(gridOperatorOf(new URL('http://127.0.0.1/poi/RNs/rn1/GOs/DE*NET/GCPs')), 'DE*NET');
+
+        const root = await open(poiGridConnectionPointsPage, '/poi/RNs/rn1/GOs/DE*NET/GCPs', null, poiAPI, root => root.querySelector('tbody') !== null);
+
+        assert.equal(root.querySelector('h1')!.textContent!.trim(), 'Grid connection points of DE*NET');
+        assert.deepEqual([ ...root.querySelectorAll('tbody tr td') ].map(cell => cell.textContent!.trim()),
+                         [ 'GCP1', 'Netzanschluss 1', 'LowVoltage', 'Netzweg 1, 07743 Jena, DEU' ]);
+        assert.equal(root.querySelector<HTMLAnchorElement>('tbody a')!.getAttribute('href'), '/poi/RNs/rn1/GOs/DE*NET/GCPs/GCP1');
+        assert.equal(root.querySelector('.poi-sections a.active')!.textContent!.trim(), 'Grid operators');
 
     });
 

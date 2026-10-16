@@ -76,20 +76,20 @@ export function queryOf(url: URL): Required<Pick<Query, 'match' | 'offset' | 'li
 
 /** How a list of the POI API is shown. */
 interface ListOptions<T> {
-    /** The heading. */
-    title:        (roamingNetworkId: string) => string;
+    /** The heading; the URL of the page once it is drawn. */
+    title:        (roamingNetworkId: string, url?: URL) => string;
     /** One line under it. */
     subtitle:     string;
     /** The path of the list below /poi, e.g. /RNs/rn1/CPs. */
-    path:         (roamingNetworkId: string) => string;
+    path:         (roamingNetworkId: string, url: URL) => string;
     /** The section of the roaming network the list is, unless it is the list of the roaming networks. */
     section?:     Segment;
     /** What the search field says while it is empty. */
     placeholder:  string;
     /** The head of the table. */
     head:         TemplateResult;
-    /** A row of the table. */
-    row:          (entry: T, roamingNetworkId: string) => TemplateResult;
+    /** A row of the table; the path of the list, to lead to the page of an entry below it. */
+    row:          (entry: T, roamingNetworkId: string, path: string) => TemplateResult;
     /** What makes an entry the one it is. */
     key:          (entry: T) => string;
     /** Whether the list can be narrowed to one charging station operator. */
@@ -108,11 +108,11 @@ function listPage<T>(Options: ListOptions<T>): Page {
 
             const roamingNetworkId  = roamingNetworkOf(url);
             const query             = queryOf(url);
-            const path              = Options.path(roamingNetworkId);
+            const path              = Options.path(roamingNetworkId, url);
 
             const content = shell(root, {
                 active:    poiHome,
-                title:     Options.title(roamingNetworkId),
+                title:     Options.title(roamingNetworkId, url),
                 subtitle:  Options.subtitle,
                 actions:   reloadButton(() => load())
             });
@@ -182,7 +182,7 @@ function listPage<T>(Options: ListOptions<T>): Page {
                                         <div class="table-scroll">
                                             <table class="table poi-table">
                                                 <thead>${Options.head}</thead>
-                                                <tbody>${repeat(part.entries, Options.key, entry => Options.row(entry, roamingNetworkId))}</tbody>
+                                                <tbody>${repeat(part.entries, Options.key, entry => Options.row(entry, roamingNetworkId, path))}</tbody>
                                             </table>
                                         </div>`}
 
@@ -411,13 +411,38 @@ export const poiProvidersPage:      Page = summaryPage('EMPs', 'Who drivers char
 export const poiManufacturersPage:  Page = summaryPage('CSMs', 'Who makes the charging stations.');
 export const poiParkingPage:        Page = summaryPage('POs',  'Who runs the parking garages and spaces.');
 
+/** The grid operator a page of it is of, from its URL: /poi/RNs/{RN_Id}/GOs/{GO_Id}/... */
+export function gridOperatorOf(url: URL): string {
+    const found = /^\/poi\/RNs\/[^/]+\/GOs\/([^/]+)/.exec(fromURL(url.pathname));
+    return found ? decodeURIComponent(found[1]!) : '';
+}
+
+/** The grid connection points of a grid operator, as it embeds them: all of them, beyond the first its page shows. */
+export const poiGridConnectionPointsPage: Page = listPage<Summary & { voltageLevel?: string; address?: Address }>({
+    title:        (_, url) => `Grid connection points${url ? ` of ${gridOperatorOf(url)}` : ''}`,
+    subtitle:     'Where the charging pools are connected to the grid of a grid operator.',
+    path:         (roamingNetworkId, url) => `${networkPath(roamingNetworkId)}/GOs/${encodeURIComponent(gridOperatorOf(url))}/GCPs`,
+    section:      'GOs',
+    placeholder:  'Search names, addresses and identifications ...',
+    head:         html`<tr><th>Identification</th><th>Name</th><th>Voltage level</th><th>Address</th></tr>`,
+    key:          point => point['@id'],
+    row:          (point, _, path) => html`
+        <tr>
+            <td><a href=${entityURL(`${path}/${encodeURIComponent(point['@id'])}`)}><code>${point['@id']}</code></a></td>
+            <td>${textOf(point.name)}</td>
+            <td>${point.voltageLevel ?? ''}</td>
+            <td>${addressLine(point.address)}</td>
+        </tr>`
+});
+
 /** The pages of the lists of the points of interest, by their paths: public, as the POI API is. */
 export const poiListPages: Record<string, Page> = {
-    [poiHome]:                  poiNetworksPage,
-    [`${poiHome}/:rn/CPs`]:     poiChargingPoolsPage,
-    [`${poiHome}/:rn/CSOs`]:    poiOperatorsPage,
-    [`${poiHome}/:rn/GOs`]:     poiGridOperatorsPage,
-    [`${poiHome}/:rn/EMPs`]:    poiProvidersPage,
-    [`${poiHome}/:rn/CSMs`]:    poiManufacturersPage,
-    [`${poiHome}/:rn/POs`]:     poiParkingPage
+    [poiHome]:                          poiNetworksPage,
+    [`${poiHome}/:rn/CPs`]:             poiChargingPoolsPage,
+    [`${poiHome}/:rn/CSOs`]:            poiOperatorsPage,
+    [`${poiHome}/:rn/GOs`]:             poiGridOperatorsPage,
+    [`${poiHome}/:rn/EMPs`]:            poiProvidersPage,
+    [`${poiHome}/:rn/CSMs`]:            poiManufacturersPage,
+    [`${poiHome}/:rn/POs`]:             poiParkingPage,
+    [`${poiHome}/:rn/GOs/:go/GCPs`]:    poiGridConnectionPointsPage
 };

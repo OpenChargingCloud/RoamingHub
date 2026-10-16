@@ -13,6 +13,7 @@ const { inReadingOrder, poiEntityPages, poiNetworkPage, stepsOf, withUnit } = aw
 
 const operatorPage  = poiEntityPages['/poi/RNs/:rn/CSOs/:cso']!;
 const poolPage      = poiEntityPages['/poi/RNs/:rn/CSOs/:cso/CPs/:cp']!;
+const gridPage      = poiEntityPages['/poi/RNs/:rn/GOs/:go']!;
 const evsePage      = poiEntityPages['/poi/RNs/:rn/CSOs/:cso/CPs/:cp/CSs/:cs/EVSEs/:evse']!;
 
 
@@ -81,6 +82,13 @@ function poiAPI({ path, query }: Asked): unknown {
                                                                                                          chargingStations: [ { '@id': 'S', EVSEs: [ { '@id': 'E' } ] } ] }))),
                             { status: 200, headers: { 'Content-Type': 'application/json', 'X-Total-Count': '500', 'X-Filtered-Count': '120' } });
     }
+
+    // A grid operator without its grid connection points, and them from their list.
+    if (path === '/poi/RNs/rn1/GOs/DE*NET' && query.get('without') === 'gridConnectionPoints')
+        return entityOf({ '@id': 'DE*NET', name: { en: 'Example Netz' } });
+
+    if (path === '/poi/RNs/rn1/GOs/DE*NET/GCPs')
+        return listOf([ { '@id': 'GCP1', name: { de: 'Netzanschluss 1' }, voltageLevel: 'LowVoltage' } ], 1);
 
     if (path.startsWith('/poi/RNs/rn2'))
         return new Response(JSON.stringify({ description: "The roaming network 'rn2' is unknown!" }),
@@ -185,6 +193,20 @@ describe('the single things of the points of interest', () => {
         assert.equal(root.querySelector<HTMLAnchorElement>('.poi-children tbody a')!.getAttribute('href'), '/poi/RNs/rn1/CSOs/DE*BIG/CPs/DE*BIG*P000');
         assert.equal(root.querySelector('.poi-children .chip')!.textContent!.trim(), '120');
         assert.equal(root.querySelector<HTMLAnchorElement>('.poi-children p a')!.getAttribute('href'), '/poi/RNs/rn1/CPs?operatorId=DE*BIG');
+
+    });
+
+    it('show a grid operator without its grid connection points, them from their list', async () => {
+
+        const root = await open(gridPage, '/poi/RNs/rn1/GOs/DE*NET', null, poiAPI, root => root.querySelector('.poi-children') !== null);
+
+        assert.equal(asked.find(one => one.path === '/poi/RNs/rn1/GOs/DE*NET')!.query.get('without'),  'gridConnectionPoints');
+        assert.equal(asked.find(one => one.path === '/poi/RNs/rn1/GOs/DE*NET/GCPs')!.query.get('limit'), '100');
+
+        assert.deepEqual([ ...root.querySelectorAll('.poi-children tbody tr:first-child td') ].map(cell => cell.textContent!.trim()),
+                         [ 'GCP1', 'Netzanschluss 1', 'LowVoltage', '' ]);
+        assert.equal(root.querySelector<HTMLAnchorElement>('.poi-children tbody a')!.getAttribute('href'), '/poi/RNs/rn1/GOs/DE*NET/GCPs/GCP1');
+        assert.equal(root.querySelector('.poi-children .chip')!.textContent!.trim(), '1');
 
     });
 

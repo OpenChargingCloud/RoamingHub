@@ -17,7 +17,8 @@ import { addressLine, entityURL, evseCountOf, networkPath, poiHome, roamingNetwo
  * kilowatts, a link to another entity - is drawn so. Its children are a table, each leading to its page.
  *
  * A charging station operator is asked for without its charging pools, which may be thousands, each with its
- * stations and EVSEs: its table holds the first of them, from the charging pools of the roaming network.
+ * stations and EVSEs: its table holds the first of them, from the charging pools of the roaming network. So is a
+ * grid operator without its grid connection points, the first of them from its list of them.
  */
 
 
@@ -85,8 +86,11 @@ const kinds: Record<string, Kind> = {
 
     GOs:    { label: 'Grid operator',  icon: 'fa-bolt',
               children: { field: 'gridConnectionPoints',  label: 'Grid connection points',  segment: 'GCPs',
-                          head:  [ 'Voltage level', 'Address' ],
-                          cells: point => [ formatValue(point.voltageLevel), addressLine(point.address as Address | undefined) ] } },
+                          head:    [ 'Voltage level', 'Address' ],
+                          cells:   point => [ formatValue(point.voltageLevel), addressLine(point.address as Address | undefined) ],
+                          all:     steps => entityURL(`${steps[1]!.path}/GCPs`),
+                          listed:  steps => ({ path: `${steps[1]!.path}/GCPs`, query: { limit: childrenShown } }) },
+              parameters: { without: 'gridConnectionPoints' } },
 
     GCPs:   { label: 'Grid connection point',          icon: 'fa-plug-circle-bolt' },
     EMPs:   { label: 'E-mobility provider',            icon: 'fa-id-card'          },
