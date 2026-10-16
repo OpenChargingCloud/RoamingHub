@@ -202,14 +202,14 @@ describe('the points of interest', () => {
 
     });
 
-    it('list the parking spaces of a parking operator, without pages of their own', async () => {
+    it('list the parking spaces of a parking operator, each leading to its page', async () => {
 
         const root = await open(poiParkingListPages['/poi/RNs/:rn/POs/:po/PSs']!, '/poi/RNs/rn1/POs/DE*PAR/PSs', null, poiAPI, root => root.querySelector('tbody') !== null);
 
         assert.equal(root.querySelector('h1')!.textContent!.trim(), 'Parking spaces of DE*PAR');
         assert.deepEqual([ ...root.querySelectorAll('tbody tr td') ].map(cell => cell.textContent!.trim()),
                          [ 'space-1', 'By the door', 'garage-1', '0', '2' ]);
-        assert.equal(root.querySelector('tbody a'), null);
+        assert.equal(root.querySelector<HTMLAnchorElement>('tbody a')!.getAttribute('href'), '/poi/RNs/rn1/POs/DE*PAR/PSs/space-1');
         assert.equal(root.querySelector('.poi-sections a.active')!.textContent!.trim(), 'Parking operators');
 
     });

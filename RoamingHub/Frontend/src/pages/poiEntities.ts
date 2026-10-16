@@ -19,7 +19,9 @@ import { addressLine, entityURL, evseCountOf, gridConnectionPoints, networkPath,
  * A charging station operator is asked for without its charging pools, which may be thousands, each with its
  * stations and EVSEs: its table holds the first of them, from the charging pools of the roaming network. So is a
  * grid operator without its grid connection points, the first of them from its list of them, and a parking operator
- * without its garages, spaces, groups of spaces, sensors and products, the first of each from their lists.
+ * without its garages, spaces, groups of spaces, sensors and products, the first of each from their lists. Each of
+ * them has a page of its own, below its parking operator, and a parking space leads to its garage, sensors and
+ * products, as a group to its spaces.
  */
 
 
@@ -42,8 +44,6 @@ interface Children {
     icon?:    string;
     head:     string[];
     cells:    (child: Entity) => (string | number | TemplateResult)[];
-    /** Whether each leads to a page of its own: unless it has none. */
-    linked?:  boolean;
     /** Where all of them are, searched and paged, when there are more than a table shows. */
     all?:     (steps: Step[]) => string;
     /** The list they are asked from instead, when the entity is asked for without them. */
@@ -57,7 +57,7 @@ interface ChildrenPart {
 }
 
 /** What an operator embeds, asked from its list below the operator: the first of them, and where all of them are. */
-function listedChildren(collection: EmbeddedCollection, linked: boolean): Children {
+function listedChildren(collection: EmbeddedCollection): Children {
     return {
         field:    collection.field,
         label:    collection.label,
@@ -65,7 +65,6 @@ function listedChildren(collection: EmbeddedCollection, linked: boolean): Childr
         icon:     collection.icon,
         head:     collection.head,
         cells:    collection.cells,
-        linked,
         all:      steps => entityURL(`${steps[1]!.path}/${collection.segment}`),
         listed:   steps => ({ path: `${steps[1]!.path}/${collection.segment}`, query: { limit: childrenShown } })
     };
@@ -105,16 +104,27 @@ const kinds: Record<string, Kind> = {
     EVSEs:  { label: 'EVSE',  icon: 'fa-plug' },
 
     GOs:    { label: 'Grid operator',  icon: 'fa-bolt',
-              children:   [ listedChildren(gridConnectionPoints, true) ],
+              children:   [ listedChildren(gridConnectionPoints) ],
               parameters: { without: gridConnectionPoints.field } },
 
     GCPs:   { label: 'Grid connection point',          icon: 'fa-plug-circle-bolt' },
     EMPs:   { label: 'E-mobility provider',            icon: 'fa-id-card'          },
     CSMs:   { label: 'Charging station manufacturer',  icon: 'fa-industry'         },
     POs:    { label: 'Parking operator',               icon: 'fa-square-parking',
-              children:   parkingCollections.map(collection => listedChildren(collection, false)),
-              parameters: { without: parkingCollections.map(collection => collection.field).join(',') } }
+              children:   parkingCollections.map(collection => listedChildren(collection)),
+              parameters: { without: parkingCollections.map(collection => collection.field).join(',') } },
 
+    // What a parking operator embeds, each below it.
+    ...Object.fromEntries(parkingCollections.map(collection => [ collection.segment, { label: collection.one, icon: collection.icon } ]))
+
+};
+
+/** The fields of what a parking operator embeds naming other things of it, by the segment of their list. */
+const parkingReferences: Record<string, string> = {
+    parkingGarageId:    'PGs',
+    parkingSpaceIds:    'PSs',
+    parkingSensorIds:   'PSNs',
+    parkingProductIds:  'PPs'
 };
 
 /** Not drawn as fields: what says how to read the JSON, not what the entity is. */
@@ -221,6 +231,14 @@ function valueView(key: string, value: unknown, steps: Step[]): TemplateResult |
     if (key === 'manufacturerId' && typeof value === 'string')
         return html`<a href=${entityURL(`${network}/CSMs/${encodeURIComponent(value)}`)}><code>${value}</code></a>`;
 
+    // What a thing of a parking operator names of it: its garage, sensors, products, or the spaces of a group.
+    if (steps[1]?.segment === 'POs' && parkingReferences[key] !== undefined &&
+        (typeof value === 'string' || (Array.isArray(value) && value.every(item => typeof item === 'string'))))
+    {
+        const below = `${steps[1].path}/${parkingReferences[key]}`;
+        return html`${([] as string[]).concat(value as string | string[]).map((id, index) => html`${index > 0 ? ', ' : ''}<a href=${entityURL(`${below}/${encodeURIComponent(id)}`)}><code>${id}</code></a>`)}`;
+    }
+
     if (isI18N(value))
         return html`${Object.entries(value).map(([ language, text ]) => html`<div>${text} <span class="muted small">${language}</span></div>`)}`;
 
@@ -317,7 +335,7 @@ function pathView(steps: Step[]): TemplateResult {
 
 }
 
-/** The children of an entity, each leading to its page where it has one: as many as a table shows, and where the others are. */
+/** The children of an entity, each leading to its page: as many as a table shows, and where the others are. */
 function childrenView(children: Children, part: ChildrenPart, steps: Step[]): TemplateResult {
 
     const shown  = part.entries.slice(0, childrenShown);
@@ -338,9 +356,7 @@ function childrenView(children: Children, part: ChildrenPart, steps: Step[]): Te
                               <tbody>
                                   ${shown.map(child => html`
                                       <tr>
-                                          <td>${children.linked === false
-                                                    ? html`<code>${child['@id']}</code>`
-                                                    : html`<a href=${entityURL(`${here}/${children.segment}/${encodeURIComponent(child['@id'])}`)}><code>${child['@id']}</code></a>`}</td>
+                                          <td><a href=${entityURL(`${here}/${children.segment}/${encodeURIComponent(child['@id'])}`)}><code>${child['@id']}</code></a></td>
                                           <td>${textOf(child.name)}</td>
                                           ${children.cells(child).map(cell => html`<td class=${typeof cell === 'number' ? 'poi-number' : ''}>${cell}</td>`)}
                                       </tr>`)}
@@ -616,6 +632,7 @@ const operator         = `${network}/CSOs/:cso`;
 const pool             = `${operator}/CPs/:cp`;
 const station          = `${pool}/CSs/:cs`;
 const gridOperator     = `${network}/GOs/:go`;
+const parkingOperator  = `${network}/POs/:po`;
 
 /** The pages of the single things of the points of interest, by their paths: public, as the POI API is. */
 export const poiEntityPages: Record<string, Page> = {
@@ -628,5 +645,6 @@ export const poiEntityPages: Record<string, Page> = {
     [`${gridOperator}/GCPs/:gcp`]:   entityPage('GCPs'),
     [`${network}/EMPs/:emp`]:        entityPage('EMPs'),
     [`${network}/CSMs/:csm`]:        entityPage('CSMs'),
-    [`${network}/POs/:po`]:          entityPage('POs')
+    [parkingOperator]:               entityPage('POs'),
+    ...Object.fromEntries(parkingCollections.map(collection => [ `${parkingOperator}/${collection.segment}/:id`, entityPage(collection.segment) ]))
 };

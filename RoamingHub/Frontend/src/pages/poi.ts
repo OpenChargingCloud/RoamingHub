@@ -418,6 +418,8 @@ export interface EmbeddedCollection {
     /** The field the operator embeds them in. */
     field:    string;
     label:    string;
+    /** What one of them is called. */
+    one:      string;
     icon:     string;
     head:     string[];
     cells:    (entry: Entity) => (string | number)[];
@@ -428,26 +430,26 @@ const idCount = (ids: unknown): number => Array.isArray(ids) ? ids.length : 0;
 
 /** The grid connection points of a grid operator. */
 export const gridConnectionPoints: EmbeddedCollection = {
-    segment: 'GCPs',  field: 'gridConnectionPoints',  label: 'Grid connection points',  icon: 'fa-plug-circle-bolt',
+    segment: 'GCPs',  field: 'gridConnectionPoints',  label: 'Grid connection points',  one: 'Grid connection point',  icon: 'fa-plug-circle-bolt',
     head:    [ 'Voltage level', 'Address' ],
     cells:   point => [ String(point.voltageLevel ?? ''), addressLine(point.address as Address | undefined) ]
 };
 
 /** What a parking operator embeds, each in a list of its own. */
 export const parkingCollections: EmbeddedCollection[] = [
-    { segment: 'PGs',   field: 'parkingGarages',      label: 'Parking garages',       icon: 'fa-warehouse',
+    { segment: 'PGs',   field: 'parkingGarages',      label: 'Parking garages',       one: 'Parking garage',       icon: 'fa-warehouse',
       head:    [ 'Address', 'Charging stations' ],
       cells:   garage => [ addressLine(garage.address as Address | undefined), idCount(garage.chargingStationIds) ] },
-    { segment: 'PSs',   field: 'parkingSpaces',       label: 'Parking spaces',        icon: 'fa-square-parking',
+    { segment: 'PSs',   field: 'parkingSpaces',       label: 'Parking spaces',        one: 'Parking space',        icon: 'fa-square-parking',
       head:    [ 'Garage', 'Sensors', 'Charging stations' ],
       cells:   space => [ String(space.parkingGarageId ?? ''), idCount(space.parkingSensorIds), idCount(space.chargingStationIds) ] },
-    { segment: 'PSGs',  field: 'parkingSpaceGroups',  label: 'Parking space groups',  icon: 'fa-layer-group',
+    { segment: 'PSGs',  field: 'parkingSpaceGroups',  label: 'Parking space groups',  one: 'Parking space group',  icon: 'fa-layer-group',
       head:    [ 'Spaces' ],
       cells:   group => [ idCount(group.parkingSpaceIds) ] },
-    { segment: 'PSNs',  field: 'parkingSensors',      label: 'Parking sensors',       icon: 'fa-satellite-dish',
+    { segment: 'PSNs',  field: 'parkingSensors',      label: 'Parking sensors',       one: 'Parking sensor',       icon: 'fa-satellite-dish',
       head:    [ 'Charging stations' ],
       cells:   sensor => [ idCount(sensor.chargingStationIds) ] },
-    { segment: 'PPs',   field: 'parkingProducts',     label: 'Parking products',      icon: 'fa-ticket',
+    { segment: 'PPs',   field: 'parkingProducts',     label: 'Parking products',      one: 'Parking product',      icon: 'fa-ticket',
       head:    [ 'Description' ],
       cells:   product => [ textOf(product.description as Summary['description']) ] }
 ];
@@ -463,14 +465,10 @@ export function gridOperatorOf(url: URL): string {
     return operatorOf(url, 'GOs');
 }
 
-/**
- * All of what an operator embeds, beyond the first its page shows, searched and paged: each leading to its page,
- * where it has one.
- */
+/** All of what an operator embeds, beyond the first its page shows, searched and paged: each leading to its page. */
 function embeddedListPage(parent:      'GOs' | 'POs',
                           collection:  EmbeddedCollection,
-                          subtitle:    string,
-                          linked:      boolean): Page {
+                          subtitle:    string): Page {
 
     return listPage<Entity>({
         title:        (_, url) => `${collection.label}${url ? ` of ${operatorOf(url, parent)}` : ''}`,
@@ -482,9 +480,7 @@ function embeddedListPage(parent:      'GOs' | 'POs',
         key:          entry => entry['@id'],
         row:          (entry, _, path) => html`
             <tr>
-                <td>${linked
-                          ? html`<a href=${entityURL(`${path}/${encodeURIComponent(entry['@id'])}`)}><code>${entry['@id']}</code></a>`
-                          : html`<code>${entry['@id']}</code>`}</td>
+                <td><a href=${entityURL(`${path}/${encodeURIComponent(entry['@id'])}`)}><code>${entry['@id']}</code></a></td>
                 <td>${textOf(entry.name)}</td>
                 ${collection.cells(entry).map(cell => html`<td class=${typeof cell === 'number' ? 'poi-number' : ''}>${cell}</td>`)}
             </tr>`
@@ -493,12 +489,12 @@ function embeddedListPage(parent:      'GOs' | 'POs',
 }
 
 /** The grid connection points of a grid operator, as it embeds them: all of them, beyond the first its page shows. */
-export const poiGridConnectionPointsPage: Page = embeddedListPage('GOs', gridConnectionPoints, 'Where the charging pools are connected to the grid of a grid operator.', true);
+export const poiGridConnectionPointsPage: Page = embeddedListPage('GOs', gridConnectionPoints, 'Where the charging pools are connected to the grid of a grid operator.');
 
-/** What a parking operator embeds, a list each: none of them has a page of its own. */
+/** What a parking operator embeds, a list each. */
 export const poiParkingListPages: Record<string, Page> = Object.fromEntries(
     parkingCollections.map(collection => [ `${poiHome}/:rn/POs/:po/${collection.segment}`,
-                                           embeddedListPage('POs', collection, `The ${collection.label.toLowerCase()} of a parking operator.`, false) ])
+                                           embeddedListPage('POs', collection, `The ${collection.label.toLowerCase()} of a parking operator.`) ])
 );
 
 /** The pages of the lists of the points of interest, by their paths: public, as the POI API is. */

@@ -15,6 +15,7 @@ const operatorPage  = poiEntityPages['/poi/RNs/:rn/CSOs/:cso']!;
 const poolPage      = poiEntityPages['/poi/RNs/:rn/CSOs/:cso/CPs/:cp']!;
 const gridPage      = poiEntityPages['/poi/RNs/:rn/GOs/:go']!;
 const parkingPage   = poiEntityPages['/poi/RNs/:rn/POs/:po']!;
+const spacePage     = poiEntityPages['/poi/RNs/:rn/POs/:po/PSs/:id']!;
 const evsePage      = poiEntityPages['/poi/RNs/:rn/CSOs/:cso/CPs/:cp/CSs/:cs/EVSEs/:evse']!;
 
 
@@ -94,6 +95,10 @@ function poiAPI({ path, query }: Asked): unknown {
     // A parking operator without anything it embeds, and that from their lists: one space, nothing else.
     if (path === '/poi/RNs/rn1/POs/DE*PAR' && query.get('without'))
         return entityOf({ '@id': 'DE*PAR', name: { en: 'Example Parking' } });
+
+    if (path === '/poi/RNs/rn1/POs/DE*PAR/PSs/space-1')
+        return entityOf({ '@id': 'space-1', name: { en: 'By the door' }, parkingGarageId: 'garage-1',
+                          parkingSensorIds: [ 'sensor-1', 'sensor-2' ], parkingProductIds: [ 'day' ], chargingStationIds: [ 'DE*GEF*S1' ] });
 
     if (path === '/poi/RNs/rn1/POs/DE*PAR/PSs')
         return listOf([ { '@id': 'space-1', parkingGarageId: 'garage-1', parkingSensorIds: [ 'sensor-1' ] } ], 1);
@@ -221,7 +226,7 @@ describe('the single things of the points of interest', () => {
 
     });
 
-    it('show a parking operator without what it embeds, each from its list, none of it leading to a page', async () => {
+    it('show a parking operator without what it embeds, each from its list, each leading to its page', async () => {
 
         const root = await open(parkingPage, '/poi/RNs/rn1/POs/DE*PAR', null, poiAPI, root => root.querySelectorAll('.poi-children').length === 5);
 
@@ -234,7 +239,27 @@ describe('the single things of the points of interest', () => {
         const spaces = root.querySelectorAll('.poi-children')[1]!;
         assert.deepEqual([ ...spaces.querySelectorAll('tbody td') ].map(cell => cell.textContent!.trim()),
                          [ 'space-1', '', 'garage-1', '1', '0' ]);
-        assert.equal(spaces.querySelector('tbody a'), null, 'a parking space has no page of its own');
+        assert.equal(spaces.querySelector<HTMLAnchorElement>('tbody a')!.getAttribute('href'), '/poi/RNs/rn1/POs/DE*PAR/PSs/space-1');
+
+    });
+
+    it('show a parking space below its parking operator, leading to its garage, sensors and products', async () => {
+
+        const root = await open(spacePage, '/poi/RNs/rn1/POs/DE*PAR/PSs/space-1', null, poiAPI, root => root.querySelector('.poi-entity') !== null);
+
+        assert.equal(root.querySelector('h1')!.textContent!.trim(), 'By the door');
+        assert.match(root.querySelector('.page-head')!.textContent!, /Parking space space-1/);
+
+        const links = (key: string) => [ ...value(root, key)!.querySelectorAll<HTMLAnchorElement>('a') ].map(link => link.getAttribute('href'));
+
+        assert.deepEqual(links('Parking garage ID'),   [ '/poi/RNs/rn1/POs/DE*PAR/PGs/garage-1' ]);
+        assert.deepEqual(links('Parking sensor IDs'),  [ '/poi/RNs/rn1/POs/DE*PAR/PSNs/sensor-1', '/poi/RNs/rn1/POs/DE*PAR/PSNs/sensor-2' ]);
+        assert.deepEqual(links('Parking product IDs'), [ '/poi/RNs/rn1/POs/DE*PAR/PPs/day' ]);
+        assert.deepEqual(links('Charging station IDs'), [], 'a charging station is not below the parking operator');
+
+        // Where it is: below its parking operator.
+        assert.deepEqual([ ...root.querySelectorAll<HTMLAnchorElement>('.poi-path a') ].map(link => link.getAttribute('href')),
+                         [ '/poi/RNs', '/poi/RNs/rn1', '/poi/RNs/rn1/POs', '/poi/RNs/rn1/POs/DE*PAR' ]);
 
     });
 
