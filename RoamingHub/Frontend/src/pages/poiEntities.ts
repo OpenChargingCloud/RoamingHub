@@ -27,6 +27,10 @@ import { addressLine, entityURL, evseCountOf, gridConnectionPoints, networkPath,
  * Brands are embedded in what they are a brand of, every level its own, each meaning something of its own: an operator
  * is a white-label solution for its brands, a pool, station or EVSE also appears under its brands. A table of them
  * on every page, each leading to its page below what it is a brand of; the levels are not mixed.
+ *
+ * What names a charging pool, a charging station or an EVSE by its identification only - a group of stations, a
+ * parking space - leads to it through the roaming network, ~/RNs/rn1/CSs/{id}: the API redirects there to where it
+ * is, below its operator and pool, and a browser follows.
  */
 
 
@@ -163,6 +167,22 @@ const references: Record<string, Record<string, string>> = {
              parkingProductIds:  'PPs' }
 };
 
+/**
+ * The fields naming charging pools, charging stations or EVSEs by their identifications only, by the segment that
+ * finds them in the roaming network: it redirects to where each is.
+ */
+const located: Record<string, string> = {
+    chargingPoolId:      'CPs',
+    chargingPoolIds:     'CPs',
+    chargingStationId:   'CSs',
+    chargingStationIds:  'CSs',
+    EVSEId:              'EVSEs',
+    EVSEIds:             'EVSEs'
+};
+
+/** What a roaming network holds, each with a list of its own: left out of its page, which counts them. */
+export const networkHolds = [ 'chargingStationManufacturers', 'chargingStationOperators', 'eMobilityProviders', 'gridOperators', 'parkingOperators' ];
+
 /** Not drawn as fields: what says how to read the JSON, not what the entity is. */
 const notAField = new Set([ '@context' ]);
 
@@ -277,6 +297,15 @@ function valueView(key: string, value: unknown, steps: Step[]): TemplateResult |
         return html`${([] as string[]).concat(value as string | string[]).map((id, index) => html`${index > 0 ? ', ' : ''}<a href=${entityURL(`${below}/${encodeURIComponent(id)}`)}><code>${id}</code></a>`)}`;
     }
 
+    // A pool, station or EVSE named by its identification only: found in the roaming network, which leads to it.
+    const finder = located[key];
+
+    if (finder !== undefined && network !== '' &&
+        (typeof value === 'string' || (Array.isArray(value) && value.every(item => typeof item === 'string'))))
+    {
+        return html`${([] as string[]).concat(value as string | string[]).map((id, index) => html`${index > 0 ? ', ' : ''}<a href=${entityURL(`${network}/${finder}/${encodeURIComponent(id)}`)}><code>${id}</code></a>`)}`;
+    }
+
     if (isI18N(value))
         return html`${Object.entries(value).map(([ language, text ]) => html`<div>${text} <span class="muted small">${language}</span></div>`)}`;
 
@@ -317,9 +346,9 @@ export function inReadingOrder(fields: [ string, unknown ][]): [ string, unknown
 
 }
 
-/** The name of a field: "@id" is the identification, of a thing inside an entity as well. */
+/** The name of a field: "@id" is the identification, of a thing inside an entity as well; "eTags" its ETags. */
 function labelOf(key: string): string {
-    return key === '@id' ? 'Identification' : humanizeKey(key);
+    return key === '@id' ? 'Identification' : key === 'eTags' ? 'ETags' : humanizeKey(key);
 }
 
 /** The fields of an entity, or of a thing in it, a line each, and a thing of its own as a block below its name. */
@@ -553,9 +582,9 @@ function entityPage(segment: string): Page {
 
 
 /**
- * A roaming network: its name, and how many it holds of each kind, each leading to its list. Not the roaming
- * network as its URL answers with JSON - that is everything it holds, all at once - but its entry in the list of
- * the roaming networks, and the counts of its lists.
+ * A roaming network: what it says of itself, and how many it holds of each kind, each leading to its list. Not the
+ * roaming network as its URL answers with JSON at first - that is everything it holds, all at once - but without what
+ * it holds, and the counts of its lists.
  */
 export const poiNetworkPage: Page = {
 
@@ -566,7 +595,7 @@ export const poiNetworkPage: Page = {
         const roamingNetworkId  = roamingNetworkOf(url);
         const path              = networkPath(roamingNetworkId);
 
-        let network:    Summary | null           = null;
+        let network:    Loaded | null            = null;
         let counts:     number[] | null          = null;
         let problem:    unknown                  = null;
         let asking:     AbortController | null   = null;
@@ -576,7 +605,7 @@ export const poiNetworkPage: Page = {
 
             const content = shell(root, {
                                 active:    poiHome,
-                                title:     textOf(network?.name) || roamingNetworkId,
+                                title:     textOf(network?.entity.name) || roamingNetworkId,
                                 subtitle:  `Roaming network ${roamingNetworkId}`,
                                 actions:   reloadButton(() => load())
                             });
@@ -595,7 +624,8 @@ export const poiNetworkPage: Page = {
                                   <section class="card poi-entity">
                                       <h2><i class="fa-solid fa-network-wired"></i> Roaming network</h2>
                                       <div class="kv-list">
-                                          ${fieldsView(Object.entries(network ?? { '@id': roamingNetworkId }), [])}
+                                          ${fieldsView(Object.entries(network?.entity ?? { '@id': roamingNetworkId }).filter(([ key ]) => !notAField.has(key)),
+                                                       [ { segment: 'RNs', id: roamingNetworkId, path } ])}
                                       </div>
                                   </section>
 
@@ -610,6 +640,8 @@ export const poiNetworkPage: Page = {
                                               </div>`)}
                                       </div>
                                   </section>
+
+                                  ${network ? jsonView(network) : nothing}
 
                               </div>`}
 
@@ -629,15 +661,15 @@ export const poiNetworkPage: Page = {
             {
 
                 // A part of no entry of each list says how many it has.
-                const [ networks, ...lists ] = await Promise.all([
-                                                   poiList<Summary>('/RNs', {}, ask.signal),
-                                                   ...sections.map(section => poiList<Summary>(`${path}/${section.segment}`, { limit: 0 }, ask.signal))
-                                               ]);
+                const [ entity, ...lists ] = await Promise.all([
+                                                 poiEntity(path, { without: networkHolds.join(',') }, ask.signal),
+                                                 ...sections.map(section => poiList<Summary>(`${path}/${section.segment}`, { limit: 0 }, ask.signal))
+                                             ]);
 
                 if (cancelled || ask !== asking)
                     return;
 
-                network  = networks.entries.find(entry => entry['@id'] === roamingNetworkId) ?? null;
+                network  = entity;
                 counts   = lists.map(list => list.total);
 
             }

@@ -65,6 +65,12 @@ function poiAPI({ path, query }: Asked): unknown {
     if (path === '/poi/RNs')
         return listOf([ { '@id': 'rn1', name: { en: 'Roaming Network 1' }, description: { en: 'The first one.' } } ], 1);
 
+    // The roaming network without what it holds: what it says of itself, with the ETags of all of it.
+    if (path === '/poi/RNs/rn1' && query.get('without') === 'chargingStationManufacturers,chargingStationOperators,eMobilityProviders,gridOperators,parkingOperators')
+        return entityOf({ '@context': 'https://open.charging.cloud/contexts/POI3/roamingNetwork', '@id': 'rn1',
+                          name: { en: 'Roaming Network 1' }, description: { en: 'The first one.' }, dataSource: 'https://data.example',
+                          eTags: [ { format: 'json', algorithm: 'sha256', digest: 'abc' } ] }, '"json:sha256:hex:slim"');
+
     const counts: Record<string, number> = { CPs: 42, CSOs: 3, GOs: 1, EMPs: 2, CSMs: 0, POs: 0 };
     const list = /^\/poi\/RNs\/rn1\/([A-Za-z]+)$/.exec(path);
 
@@ -168,6 +174,12 @@ describe('the single things of the points of interest', () => {
         assert.equal(root.querySelector<HTMLAnchorElement>('.poi-holds a')!.getAttribute('href'), '/poi/RNs/rn1/CPs');
         assert.ok(asked.filter(one => one.path.startsWith('/poi/RNs/rn1/')).every(one => one.query.get('limit') === '0'),
                   'no list is asked for an entry');
+
+        // What it says of itself, without what it holds, field by field, and as JSON with its ETag.
+        assert.equal(value(root, 'Data source')!.querySelector('a')!.getAttribute('href'), 'https://data.example');
+        assert.ok([ ...root.querySelectorAll('.poi-entity .k') ].some(key => key.textContent!.trim() === 'ETags'), 'its ETags, of all of it');
+        assert.equal([ ...root.querySelectorAll('.poi-entity .k') ].find(key => key.textContent!.trim() === 'Context'), undefined);
+        assert.match(root.querySelector('.poi-json summary')!.textContent!, /json:sha256:hex:slim/);
 
     });
 
@@ -324,7 +336,8 @@ describe('the single things of the points of interest', () => {
         assert.deepEqual(links('Parking garage ID'),   [ '/poi/RNs/rn1/POs/DE*PAR/PGs/garage-1' ]);
         assert.deepEqual(links('Parking sensor IDs'),  [ '/poi/RNs/rn1/POs/DE*PAR/PSNs/sensor-1', '/poi/RNs/rn1/POs/DE*PAR/PSNs/sensor-2' ]);
         assert.deepEqual(links('Parking product IDs'), [ '/poi/RNs/rn1/POs/DE*PAR/PPs/day' ]);
-        assert.deepEqual(links('Charging station IDs'), [], 'a charging station is not below the parking operator');
+        // A charging station is not below the parking operator: found in the roaming network, which leads to it.
+        assert.deepEqual(links('Charging station IDs'), [ '/poi/RNs/rn1/CSs/DE*GEF*S1' ]);
 
         // Where it is: below its parking operator.
         assert.deepEqual([ ...root.querySelectorAll<HTMLAnchorElement>('.poi-path a') ].map(link => link.getAttribute('href')),
