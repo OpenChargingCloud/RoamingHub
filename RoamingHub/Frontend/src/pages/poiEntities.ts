@@ -23,6 +23,10 @@ import { addressLine, entityURL, evseCountOf, gridConnectionPoints, networkPath,
  * them has a page of its own, below its parking operator, and a parking space leads to its garage, sensors and
  * products, as a group to its spaces. So has every charging tariff and every group of a charging station operator,
  * below it, and what names a tariff or pools of it leads there.
+ *
+ * Brands are embedded in what they are a brand of, every level its own, each meaning something of its own: an operator
+ * is a white-label solution for its brands, a pool, station or EVSE also appears under its brands. A table of them
+ * on every page, each leading to its page below what it is a brand of; the levels are not mixed.
  */
 
 
@@ -49,6 +53,8 @@ interface Children {
     all?:     (steps: Step[]) => string;
     /** The list they are asked from instead, when the entity is asked for without them. */
     listed?:  (steps: Step[]) => { path: string; query: Query };
+    /** Whether their table is left out when there are none: for what most entities have none of. */
+    hideEmpty?: boolean;
 }
 
 /** The children a table shows, and how many there are. */
@@ -80,6 +86,18 @@ interface Kind {
     parameters?:  Record<string, string>;
 }
 
+/** The brands of an operator, pool, station or EVSE: its own, embedded, each leading to its page below it. */
+function brandsOf(label: string): Children {
+    return {
+        field:    'brands',
+        label,
+        segment:  'Brands',
+        head:     [ 'Homepage' ],
+        cells:    brand => [ typeof brand.homepage === 'string' ? brand.homepage : '' ],
+        hideEmpty: true
+    };
+}
+
 const kinds: Record<string, Kind> = {
 
     CSOs:   { label: 'Charging station operator',  icon: 'fa-building',
@@ -88,22 +106,29 @@ const kinds: Record<string, Kind> = {
                             cells: pool => [ addressLine(pool.address as Address | undefined), (pool.chargingStations as unknown[] | undefined)?.length ?? 0, evseCountOf(pool as Pick<ChargingPool, 'chargingStations'>) ],
                             all:     steps => `${entityURL(`${steps[0]!.path}/CPs`)}?operatorId=${encodeURIComponent(steps[1]!.id)}`,
                             listed:  steps => ({ path: `${steps[0]!.path}/CPs`, query: { operatorId: steps[1]!.id, limit: childrenShown } }) },
-                          ...operatorCollections.map(collection => listedChildren(collection)) ],
+                          ...operatorCollections.map(collection => listedChildren(collection)),
+                          brandsOf('Brands it is a white label for') ],
               parameters: { without: [ 'chargingPools', ...operatorCollections.map(collection => collection.field) ].join(',') } },
 
     CPs:    { label: 'Charging pool',  icon: 'fa-charging-station',
               parameters: { expand: 'gridConnectionPoint' },
               children: [ { field: 'chargingStations',  label: 'Charging stations',  segment: 'CSs',
                             head:  [ 'EVSEs', 'Max power' ],
-                            cells: station => [ (station.EVSEs as unknown[] | undefined)?.length ?? 0, withUnit('maxPower', station.maxPower) ] } ] },
+                            cells: station => [ (station.EVSEs as unknown[] | undefined)?.length ?? 0, withUnit('maxPower', station.maxPower) ] },
+                          brandsOf('Brands it also appears under') ] },
 
     CSs:    { label: 'Charging station',  icon: 'fa-charging-station',
               children: [ { field: 'EVSEs',  label: 'EVSEs',  segment: 'EVSEs',
                             head:  [ 'Max power', 'Connectors' ],
                             cells: evse => [ withUnit('maxPower', evse.maxPower),
-                                             ((evse.chargingConnectors as { type?: string }[] | undefined) ?? []).map(connector => connector.type ?? '?').join(', ') ] } ] },
+                                             ((evse.chargingConnectors as { type?: string }[] | undefined) ?? []).map(connector => connector.type ?? '?').join(', ') ] },
+                          brandsOf('Brands it also appears under') ] },
 
-    EVSEs:  { label: 'EVSE',  icon: 'fa-plug' },
+    EVSEs:  { label: 'EVSE',  icon: 'fa-plug',
+              children: [ brandsOf('Brands it also appears under') ] },
+
+    // A brand of an operator, pool, station or EVSE, below it.
+    Brands: { label: 'Brand',  icon: 'fa-copyright' },
 
     GOs:    { label: 'Grid operator',  icon: 'fa-bolt',
               children:   [ listedChildren(gridConnectionPoints) ],
@@ -461,7 +486,10 @@ function entityPage(segment: string): Page {
                                           </div>
                                       </section>
 
-                                      ${(kind.children ?? []).map((children, index) => childrenView(children, listed[index] ?? embedded(children, loaded!.entity), steps))}
+                                      ${(kind.children ?? []).map((children, index) => {
+                                            const part = listed[index] ?? embedded(children, loaded!.entity);
+                                            return children.hideEmpty && part.count === 0 ? nothing : childrenView(children, part, steps);
+                                        })}
 
                                       ${jsonView(loaded)}
 
@@ -654,6 +682,10 @@ export const poiEntityPages: Record<string, Page> = {
     [pool]:                          entityPage('CPs'),
     [station]:                       entityPage('CSs'),
     [`${station}/EVSEs/:evse`]:      entityPage('EVSEs'),
+    [`${operator}/Brands/:id`]:                   entityPage('Brands'),
+    [`${pool}/Brands/:id`]:                       entityPage('Brands'),
+    [`${station}/Brands/:id`]:                    entityPage('Brands'),
+    [`${station}/EVSEs/:evse/Brands/:id`]:        entityPage('Brands'),
     [gridOperator]:                  entityPage('GOs'),
     [`${gridOperator}/GCPs/:gcp`]:   entityPage('GCPs'),
     [`${network}/EMPs/:emp`]:        entityPage('EMPs'),

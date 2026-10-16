@@ -17,6 +17,7 @@ const gridPage      = poiEntityPages['/poi/RNs/:rn/GOs/:go']!;
 const parkingPage   = poiEntityPages['/poi/RNs/:rn/POs/:po']!;
 const spacePage     = poiEntityPages['/poi/RNs/:rn/POs/:po/PSs/:id']!;
 const poolGroupPage = poiEntityPages['/poi/RNs/:rn/CSOs/:cso/CPGs/:id']!;
+const poolBrandPage = poiEntityPages['/poi/RNs/:rn/CSOs/:cso/CPs/:cp/Brands/:id']!;
 const evsePageOf    = (path: string) => open(evsePage, path, null, poiAPI, root => root.querySelector('.poi-entity') !== null);
 const evsePage      = poiEntityPages['/poi/RNs/:rn/CSOs/:cso/CPs/:cp/CSs/:cs/EVSEs/:evse']!;
 
@@ -42,7 +43,7 @@ const pool = {
     geoLocation:     { lat: 50.9192, lng: 11.5853 },
     gridConnectionPoint: { '@id': 'GCP1', gridOperatorId: 'DE*NET', name: { en: 'Paradies' }, voltageLevel: 'LowVoltage' },
     hotline:         '+49 3641 0000',
-    brandIds:        [ 'B1', 'B2' ],
+    brands:          [ { '@id': 'city-charge', name: { en: 'City Charge' }, homepage: 'https://city.example' } ],
     created:         '2026-01-01T00:00:00.000Z',
     chargingStations: [
         { '@id': 'DE*GEF*S1', name: { en: 'Left' },  maxPower: 150000, EVSEs: [ { '@id': 'DE*GEF*E1*1' }, { '@id': 'DE*GEF*E1*2' } ] },
@@ -86,6 +87,10 @@ function poiAPI({ path, query }: Asked): unknown {
 
     if (/^\/poi\/RNs\/rn1\/CSOs\/DE\*BIG\/(CTGs|CPGs|CSGs|EVSEGs)$/.test(path))
         return listOf([], 0);
+
+    // A brand the pool also appears under: its own.
+    if (path === '/poi/RNs/rn1/CSOs/DE*GEF/CPs/DE*GEF*P1/Brands/city-charge')
+        return entityOf({ '@id': 'city-charge', name: { en: 'City Charge' }, homepage: 'https://city.example' });
 
     // A group of pools of an operator, naming its pools and its tariff.
     if (path === '/poi/RNs/rn1/CSOs/DE*GEF/CPGs/DE*GEF*PG1')
@@ -178,13 +183,17 @@ describe('the single things of the points of interest', () => {
         assert.equal(value(root, 'Address')!.textContent!.trim(), 'Am Paradiesbahnhof 1, 07743 Jena, DEU');
         assert.match(value(root, 'Geo location')!.querySelector('a')!.getAttribute('href')!, /openstreetmap\.org\/\?mlat=50\.9192&mlon=11\.5853/);
         assert.equal(value(root, 'Grid connection point')!.querySelector('a')!.getAttribute('href'), '/poi/RNs/rn1/GOs/DE*NET/GCPs/GCP1');
-        assert.equal(value(root, 'Brand IDs')!.textContent!.trim(), 'B1, B2');
+        // Its own brands as a table, each leading to its page below the pool.
+        assert.equal(value(root, 'Brands'), undefined);
+        const brands = [ ...root.querySelectorAll('.poi-children') ].find(card => card.querySelector('h2')!.textContent!.includes('Brands it also appears under'))!;
+        assert.deepEqual([ ...brands.querySelectorAll('tbody td') ].map(cell => cell.textContent!.trim()), [ 'city-charge', 'City Charge', 'https://city.example' ]);
+        assert.equal(brands.querySelector<HTMLAnchorElement>('tbody a')!.getAttribute('href'), '/poi/RNs/rn1/CSOs/DE*GEF/CPs/DE*GEF*P1/Brands/city-charge');
 
         // Its stations as a table, not as fields.
         assert.equal(value(root, 'Charging stations'), undefined);
-        assert.deepEqual([ ...root.querySelectorAll<HTMLAnchorElement>('.poi-children tbody a') ].map(link => link.getAttribute('href')),
+        assert.deepEqual([ ...root.querySelector('.poi-children')!.querySelectorAll<HTMLAnchorElement>('tbody a') ].map(link => link.getAttribute('href')),
                          [ '/poi/RNs/rn1/CSOs/DE*GEF/CPs/DE*GEF*P1/CSs/DE*GEF*S1', '/poi/RNs/rn1/CSOs/DE*GEF/CPs/DE*GEF*P1/CSs/DE*GEF*S2' ]);
-        assert.deepEqual([ ...root.querySelectorAll('.poi-children tbody tr:first-child td') ].map(cell => cell.textContent!.trim()),
+        assert.deepEqual([ ...root.querySelector('.poi-children')!.querySelectorAll('tbody tr:first-child td') ].map(cell => cell.textContent!.trim()),
                          [ 'DE*GEF*S1', 'Left', '2', '150 kW' ]);
 
         // Where it is, every step leading to its page.
@@ -246,6 +255,20 @@ describe('the single things of the points of interest', () => {
         assert.match(group.querySelector('.page-head')!.textContent!, /Charging pool group DE\*GEF\*PG1/);
         assert.deepEqual(links('Charging pool IDs'),  [ '/poi/RNs/rn1/CSOs/DE*GEF/CPs/DE*GEF*P1', '/poi/RNs/rn1/CSOs/DE*GEF/CPs/DE*GEF*P2' ]);
         assert.deepEqual(links('Charging tariff ID'), [ '/poi/RNs/rn1/CSOs/DE*GEF/CTs/DE*GEF*T1' ]);
+
+    });
+
+    it('show a brand of a charging pool below the pool', async () => {
+
+        const root = await open(poolBrandPage, '/poi/RNs/rn1/CSOs/DE*GEF/CPs/DE*GEF*P1/Brands/city-charge', null, poiAPI, root => root.querySelector('.poi-entity') !== null);
+
+        assert.equal(root.querySelector('h1')!.textContent!.trim(), 'City Charge');
+        assert.match(root.querySelector('.page-head')!.textContent!, /Brand city-charge/);
+        assert.equal(value(root, 'Homepage')!.querySelector('a')!.getAttribute('href'), 'https://city.example');
+
+        // Where it is: below the pool it is a brand of.
+        assert.deepEqual([ ...root.querySelectorAll<HTMLAnchorElement>('.poi-path a') ].map(link => link.getAttribute('href')),
+                         [ '/poi/RNs', '/poi/RNs/rn1', '/poi/RNs/rn1/CSOs', '/poi/RNs/rn1/CSOs/DE*GEF', '/poi/RNs/rn1/CSOs/DE*GEF/CPs/DE*GEF*P1' ]);
 
     });
 
