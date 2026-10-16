@@ -12,7 +12,7 @@ import { html, live, nothing, render, repeat, type TemplateResult } from '@node/
  * the data, and a search or a page of the list is a URL to keep or to pass on.
  *
  * Public: the POI API is readable by everybody, and so are these pages; nobody signs in for them.
- * The search is the API's: words separated by spaces, each one found in a text of an entry, whatever its case;
+ * The search is the API's: words separated by spaces or commas, each one found in a text of an entry, whatever its case;
  * a word starting with "!" must not be found.
  */
 
