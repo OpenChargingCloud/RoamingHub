@@ -5,6 +5,7 @@ import { reloadButton, shell } from '@node/shell';
 import { errorMessage, formatValue, humanizeKey } from '@node/ui';
 import { html, nothing, render, type TemplateResult } from '@node/view';
 import { addressLine, entityURL, evseCountOf, gridConnectionPoints, networkPath, operatorCollections, parkingCollections, poiHome, roamingNetworkOf, sections, sectionsView, type EmbeddedCollection } from './poi';
+import { loadOrigins, type Origin } from './poiOrigins';
 
 /**
  * The single things of the points of interest: a roaming network with what it holds, and every entity below it -
@@ -31,6 +32,10 @@ import { addressLine, entityURL, evseCountOf, gridConnectionPoints, networkPath,
  * What names a charging pool, a charging station or an EVSE by its identification only - a group of stations, a
  * parking space - leads to it through the roaming network, ~/RNs/rn1/CSs/{id}: the API redirects there to where it
  * is, below its operator and pool, and a browser follows.
+ *
+ * A charging pool, a charging station, an EVSE and a parking space of a parking operator are drawn as they are at
+ * runtime, with the properties their groups give them: what of it a group gives says so, and leads to the group -
+ * found by asking the member as it is given, and its groups (see poiOrigins).
  */
 
 
@@ -356,22 +361,44 @@ function labelOf(key: string): string {
     return key === '@id' ? 'Identification' : key === 'eTags' ? 'ETags' : humanizeKey(key);
 }
 
-/** The fields of an entity, or of a thing in it, a line each, and a thing of its own as a block below its name. */
-function fieldsView(fields: [ string, unknown ][], steps: Step[]): TemplateResult[] {
+/** Where a value comes from: the groups giving it, all of it or the elements named, each leading to its page. */
+function originView(origin: Origin): TemplateResult {
+
+    const link = (from: Origin['from'][number]) => html`<a href=${entityURL(from.path)}><code>${from.id}</code></a>`;
+
+    return html`
+        <div class="poi-origin muted small">
+            <i class="fa-solid fa-layer-group"></i>
+            ${origin.whole && origin.from.length === 1
+                  ? html`from group ${link(origin.from[0]!)}`
+                  : origin.from.map((from, index) => html`${index > 0 ? '; ' : ''}${from.elements?.join(', ') ?? ''} from group ${link(from)}`)}
+        </div>`;
+
+}
+
+/**
+ * The fields of an entity, or of a thing in it, a line each, and a thing of its own as a block below its name; of an
+ * entity, where its groups give a value, which ones.
+ */
+function fieldsView(fields:    [ string, unknown ][],
+                    steps:     Step[],
+                    origins?:  Map<string, Origin> | null): TemplateResult[] {
 
     return inReadingOrder(fields).map(([ key, value ]) => {
 
-        const shown = valueView(key, value, steps);
+        const shown   = valueView(key, value, steps);
+        const origin  = origins?.get(key);
 
         return shown !== null
             ? html`
                 <div class="kv">
                     <span class="k">${labelOf(key)}</span>
-                    <span class="poi-value">${shown}</span>
+                    <span class="poi-value">${shown}${origin ? originView(origin) : nothing}</span>
                 </div>`
             : html`
                 <div class="kv-nested">
                     <span class="k">${labelOf(key)}</span>
+                    ${origin ? originView(origin) : nothing}
                     <div class="nested">
                         ${thingsIn(value)!.map(thing => html`
                             <div class="nested-item">
@@ -483,9 +510,10 @@ function entityPage(segment: string): Page {
             const steps  = stepsOf(url);
             const self   = steps.at(-1)!;
 
-            let loaded:     Loaded | null            = null;
-            let listed:     (ChildrenPart | null)[]  = [];
-            let problem:    unknown                  = null;
+            let loaded:     Loaded | null              = null;
+            let listed:     (ChildrenPart | null)[]    = [];
+            let origins:    Map<string, Origin> | null = null;
+            let problem:    unknown                    = null;
             let asking:     AbortController | null   = null;
             let cancelled                            = false;
 
@@ -515,8 +543,12 @@ function entityPage(segment: string): Page {
 
                                       <section class="card poi-entity">
                                           <h2><i class="fa-solid ${kind.icon}"></i> ${kind.label}</h2>
+                                          ${origins !== null && origins.size > 0
+                                                ? html`<p class="muted small poi-origins"><i class="fa-solid fa-layer-group"></i>
+                                                           As it is at runtime: ${origins.size === 1 ? 'one value comes' : `${origins.size} values come`} from its groups.</p>`
+                                                : nothing}
                                           <div class="kv-list">
-                                              ${fieldsView(fields, steps)}
+                                              ${fieldsView(fields, steps, origins)}
                                           </div>
                                       </section>
 
@@ -539,6 +571,7 @@ function entityPage(segment: string): Page {
                 const ask = asking = new AbortController();
 
                 problem = null;
+                origins = null;
                 draw();
 
                 try
@@ -555,6 +588,15 @@ function entityPage(segment: string): Page {
 
                     loaded  = entity;
                     listed  = parts.map(part => part === null ? null : { entries: part.entries, count: part.filtered });
+
+                    draw();
+
+                    // Which of its values its groups give it, once it is drawn: without, where they cannot be asked.
+                    origins = await loadOrigins(steps, entity.entity, kind.parameters, (kind.children ?? []).map(children => children.field), ask.signal).
+                                        catch(() => null);
+
+                    if (cancelled || ask !== asking)
+                        return;
 
                 }
                 catch (failure)

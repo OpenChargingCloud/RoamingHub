@@ -466,6 +466,15 @@ a directory below `poi/` beside the configuration file, its history's store,
 read back at every start; one that cannot be read is said in the log and left
 alone.
 
+A charging pool, a charging station, an EVSE and a parking space of a parking
+operator are shown as they are at runtime, with the properties their groups
+give them, and every value a group gives says so, leading to the group: "from
+group DE*GEF*SG1", or of an array the elements each group gives. The page asks
+the member as it is given (`?view=stored`) and its groups, listed below it
+(`…/CSGs` and the like), and decides as the POI API does: a single value of the
+group with the highest priority, the charging tariffs of an EVSE of its most
+specific groups (`poiOrigins.ts`).
+
 The hub is a **roaming network operator** (`RoamingHub.RoamingNetworkOperator.cs`).
 At its first start it makes a signing key (P-256) and an identity key (P-521)
 and keeps them below `roamingNetworkOperator/` beside the configuration file:

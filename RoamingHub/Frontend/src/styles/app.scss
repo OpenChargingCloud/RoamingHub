@@ -325,6 +325,22 @@ table.poi-table td.poi-number {
     overflow-wrap:  anywhere;
 }
 
+// What groups give a member: below the value, leading to the group.
+.poi-origin {
+
+    margin-top:  0.15rem;
+
+    .fa-solid {
+        color:         $color-accent;
+        margin-right:  0.25rem;
+    }
+
+}
+
+.poi-origins .fa-solid {
+    color:  $color-accent;
+}
+
 .poi-holds .k .fa-solid {
     width:  1.2rem;
     color:  $color-accent;

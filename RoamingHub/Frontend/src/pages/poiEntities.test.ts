@@ -13,6 +13,7 @@ const { inReadingOrder, poiEntityPages, poiNetworkPage, stepsOf, withUnit } = aw
 
 const operatorPage  = poiEntityPages['/poi/RNs/:rn/CSOs/:cso']!;
 const poolPage      = poiEntityPages['/poi/RNs/:rn/CSOs/:cso/CPs/:cp']!;
+const stationPage   = poiEntityPages['/poi/RNs/:rn/CSOs/:cso/CPs/:cp/CSs/:cs']!;
 const gridPage      = poiEntityPages['/poi/RNs/:rn/GOs/:go']!;
 const parkingPage   = poiEntityPages['/poi/RNs/:rn/POs/:po']!;
 const spacePage     = poiEntityPages['/poi/RNs/:rn/POs/:po/PSs/:id']!;
@@ -130,6 +131,15 @@ function poiAPI({ path, query }: Asked): unknown {
 
     if (/^\/poi\/RNs\/rn1\/POs\/DE\*PAR\/(PGs|PSGs|PSNs|PPs)$/.test(path))
         return listOf([], 0);
+
+    // A charging station whose hotline and a feature its group gives it: as it is at runtime, as it is given, its groups.
+    if (path === '/poi/RNs/rn1/CSOs/DE*GEF/CPs/DE*GEF*P1/CSs/DE*GEF*S9')
+        return query.get('view') === 'stored'
+                   ? entityOf({ '@id': 'DE*GEF*S9', features: [ 'Reservable' ], EVSEs: [] })
+                   : entityOf({ '@id': 'DE*GEF*S9', hotline: '+49 800 424242', features: [ 'Reservable', 'RFIDReader' ], EVSEs: [] });
+
+    if (path === '/poi/RNs/rn1/CSOs/DE*GEF/CPs/DE*GEF*P1/CSs/DE*GEF*S9/CSGs')
+        return listOf([ { '@id': 'DE*GEF*SG1', chargingStationIds: [ 'DE*GEF*S9' ], hotline: '+49 800 424242', features: [ 'RFIDReader' ] } ], 1);
 
     if (path.startsWith('/poi/RNs/rn2'))
         return new Response(JSON.stringify({ description: "The roaming network 'rn2' is unknown!" }),
@@ -282,6 +292,25 @@ describe('the single things of the points of interest', () => {
         // Where it is: below the pool it is a brand of.
         assert.deepEqual([ ...root.querySelectorAll<HTMLAnchorElement>('.poi-path a') ].map(link => link.getAttribute('href')),
                          [ '/poi/RNs', '/poi/RNs/rn1', '/poi/RNs/rn1/CSOs', '/poi/RNs/rn1/CSOs/DE*GEF', '/poi/RNs/rn1/CSOs/DE*GEF/CPs/DE*GEF*P1' ]);
+
+    });
+
+    it('show what the groups of a charging station give it, each value leading to its group', async () => {
+
+        const root = await open(stationPage, '/poi/RNs/rn1/CSOs/DE*GEF/CPs/DE*GEF*P1/CSs/DE*GEF*S9', null, poiAPI, root => root.querySelector('.poi-origin') !== null);
+
+        assert.match(root.querySelector('.poi-origins')!.textContent!, /2 values come from its groups/);
+
+        assert.match(value(root, 'Hotline')!.querySelector('.poi-origin')!.textContent!,          /from group DE\*GEF\*SG1/);
+        assert.equal(value(root, 'Hotline')!.querySelector('.poi-origin a')!.getAttribute('href'), '/poi/RNs/rn1/CSOs/DE*GEF/CSGs/DE*GEF*SG1');
+
+        // Of an array, the elements its group gives it; its own ones from nowhere.
+        assert.match(value(root, 'Features')!.querySelector('.poi-origin')!.textContent!,         /RFIDReader from group DE\*GEF\*SG1/);
+        assert.doesNotMatch(value(root, 'Features')!.querySelector('.poi-origin')!.textContent!,  /Reservable/);
+        assert.equal(value(root, 'Identification')!.querySelector('.poi-origin'),                  null);
+
+        // Asked as it is given, and for its groups.
+        assert.ok(asked.some(one => one.path === '/poi/RNs/rn1/CSOs/DE*GEF/CPs/DE*GEF*P1/CSs/DE*GEF*S9' && one.query.get('view') === 'stored'));
 
     });
 
