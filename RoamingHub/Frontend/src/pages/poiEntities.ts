@@ -665,10 +665,11 @@ export const poiNetworkPage: Page = {
             try
             {
 
-                // A part of no entry of each list says how many it has.
+                // A part of one entry of each list says how many it has, in X-Total-Count: the least the POI
+                // API answers, as a page of its lists has at least one entry.
                 const [ entity, ...lists ] = await Promise.all([
                                                  poiEntity(path, { without: networkHolds.join(',') }, ask.signal),
-                                                 ...sections.map(section => poiList<Summary>(`${path}/${section.segment}`, { limit: 0 }, ask.signal))
+                                                 ...sections.map(section => poiList<Summary>(`${path}/${section.segment}`, { limit: 1 }, ask.signal))
                                              ]);
 
                 if (cancelled || ask !== asking)

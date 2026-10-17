@@ -23,13 +23,15 @@ export * from '@node/api/client';
 
 /**
  * What a role may be allowed to touch on this hub: what every node has, and
- * what a hub adds to it - its peers, and what went between them.
+ * what a hub adds to it - its peers, what went between them, and the roaming
+ * networks of its points of interest.
  *
  * The traffic is a resource of its own and deliberately not part of the
  * configuration: the configuration is what this hub is, and the traffic is
- * what its peers did through it.
+ * what its peers did through it. The roaming networks are read by everybody,
+ * as the POI API is; editing them is making a new one.
  */
-export type Resource = NodeResource | 'peers' | 'traffic';
+export type Resource = NodeResource | 'peers' | 'traffic' | 'poi';
 
 /** What somebody signed in to this hub may do: an operation on a resource, written "dns:edit". */
 export type Permission = `${Resource}:${Operation}`;
@@ -268,6 +270,30 @@ export interface CallPage {
 }
 
 
+/**
+ * A public key of a roaming network operator: the Base64 of its COSE key, or
+ * the key as POI 3 writes it, {"@id"?, "key", "notBefore"?, "notAfter"?}.
+ */
+export type PublicKey = string | { '@id'?: string; key: string; notBefore?: string; notAfter?: string };
+
+/** A roaming network to be made: what names it, and the public keys of its roaming network operator. */
+export interface RoamingNetworkSpec {
+    '@id':         string;
+    name?:         Record<string, string>;
+    description?:  Record<string, string>;
+    signingKeys:   PublicKey[];
+    identityKeys:  PublicKey[];
+}
+
+/** What the hub says of a roaming network it made: at revision 0, with its genesis commit. */
+export interface RoamingNetworkMade {
+    message:         string;
+    roamingNetwork:  { '@id': string; name?: Record<string, string>; description?: Record<string, string> };
+    revision:        number;
+    commitId:        string;
+}
+
+
 /** The routes every node has, typed with what a hub says its own of them are. */
 const node = nodeAPI<{ me: Me; status: Status; configuration: Configuration; kind: CertificateKind; store: CertificateStore }>();
 
@@ -360,6 +386,13 @@ export const api = {
     },
 
     /** Every party that has been at either end of a call. */
-    trafficPeers: () => request<{ peers: string[] }>('GET', '/traffic/peers')
+    trafficPeers: () => request<{ peers: string[] }>('GET', '/traffic/peers'),
+
+    /** The points of interest: a new roaming network, with the public keys of its roaming network operator. */
+    poi: {
+
+        create: (spec: RoamingNetworkSpec) => request<RoamingNetworkMade>('POST', '/poi/roamingNetworks', spec)
+
+    }
 
 };

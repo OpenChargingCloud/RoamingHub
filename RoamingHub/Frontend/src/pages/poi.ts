@@ -1,8 +1,12 @@
+import { api, type PublicKey } from '../api/client';
 import { poiBase, poiList, poiURL, textOf, type Address, type ChargingPool, type Entity, type ListPart, type Query, type Summary } from '../api/poi';
+import { auth } from '../auth';
 import { fromURL, toURL } from '@node/basePath';
+import { must } from '@node/html';
 import type { Page } from '@node/router';
 import { reloadButton, shell } from '@node/shell';
-import { errorMessage } from '@node/ui';
+import { errorMessage, field } from '@node/ui';
+import { anyFormTypedSinceDrawn, unsaved } from '@node/unsaved';
 import { html, live, nothing, render, repeat, type TemplateResult } from '@node/view';
 
 /**
@@ -11,7 +15,8 @@ import { html, live, nothing, render, repeat, type TemplateResult } from '@node/
  * it gets this page, and the page asks the same URL for the data, as JSON. So the URL of the page is the one of
  * the data, and a search or a page of the list is a URL to keep or to pass on.
  *
- * Public: the POI API is readable by everybody, and so are these pages; nobody signs in for them.
+ * Public: the POI API is readable by everybody, and so are these pages; nobody signs in for them. Only a new
+ * roaming network is made by somebody signed in who may edit the roaming networks, poi:edit: below their list.
  * The search is the API's: words separated by spaces or commas, each one found in a text of an entry, whatever its case;
  * a word starting with "!" must not be found.
  */
@@ -94,6 +99,8 @@ interface ListOptions<T> {
     key:          (entry: T) => string;
     /** Whether the list can be narrowed to one charging station operator. */
     byOperator?:  boolean;
+    /** What stands below the list, e.g. a form; given how the page goes to another one. */
+    below?:       (navigate: (path: string) => void) => TemplateResult | typeof nothing;
 }
 
 
@@ -104,7 +111,7 @@ function listPage<T>(Options: ListOptions<T>): Page {
 
         title: params => Options.title(params['rn'] ?? ''),
 
-        render({ root, url }) {
+        render({ root, url, navigate }) {
 
             const roamingNetworkId  = roamingNetworkOf(url);
             const query             = queryOf(url);
@@ -185,6 +192,8 @@ function listPage<T>(Options: ListOptions<T>): Page {
                                                 <tbody>${repeat(part.entries, Options.key, entry => Options.row(entry, roamingNetworkId, path))}</tbody>
                                             </table>
                                         </div>`}
+
+                    ${Options.below ? Options.below(navigate) : nothing}
 
                 `);
 
@@ -268,12 +277,19 @@ function listPage<T>(Options: ListOptions<T>): Page {
                 void load();
             }
 
+            // What is typed into a form below the list is a draft like any other page's: leaving the page asks
+            // first. The search is in no form, and nothing to lose.
+            const release = Options.below
+                                ? unsaved.heldBy(() => anyFormTypedSinceDrawn(content))
+                                : () => undefined;
+
             void load();
 
             return () => {
                 cancelled = true;
                 clearTimeout(typing);
                 asking?.abort();
+                release();
             };
 
         }
@@ -338,7 +354,122 @@ function summaryRow(section: Segment, entry: Summary, roamingNetworkId: string):
 const summaryHead = html`<tr><th>Identification</th><th>Name</th><th>Description</th></tr>`;
 
 
-/** The roaming networks this hub serves, each leading to its page. */
+/**
+ * The public keys typed into a field, one per line: the Base64 of a COSE key, or a key as POI writes it,
+ * {"key": ...}. Empty lines are passed over.
+ */
+export function keysOf(text: string, kind: string): PublicKey[] {
+
+    return text.split('\n').
+                map(line => line.trim()).
+                filter(line => line.length > 0).
+                map((line, index) => {
+
+                    if (!line.startsWith('{'))
+                        return line;
+
+                    try
+                    {
+                        return JSON.parse(line) as PublicKey;
+                    }
+                    catch
+                    {
+                        throw new Error(`The ${kind} ${index + 1} begins like JSON and is none.`);
+                    }
+
+                });
+
+}
+
+/**
+ * A new roaming network, for whoever may make one: its identification, its name, and the public keys of its
+ * roaming network operator, who keeps the private ones. Made, the page goes to it.
+ */
+function newNetworkCard(navigate: (path: string) => void): TemplateResult | typeof nothing {
+
+    if (!auth.can('poi', 'edit'))
+        return nothing;
+
+    async function make(form: HTMLFormElement): Promise<void> {
+
+        const error = must<HTMLElement>(form, '#network-error');
+        error.textContent = '';
+
+        try
+        {
+
+            const name  = field(form, 'name');
+
+            const made  = await api.poi.create({
+                              '@id':         field(form, 'id'),
+                              name:          name ? { en: name } : undefined,
+                              signingKeys:   keysOf(field(form, 'signingKeys'),  'signing key'),
+                              identityKeys:  keysOf(field(form, 'identityKeys'), 'identity key')
+                          });
+
+            // Made: what was typed is no draft any more, and the page of the network is where to go on.
+            form.reset();
+            navigate(`${poiHome}/${encodeURIComponent(made.roamingNetwork['@id'])}`);
+
+        }
+        catch (problem)
+        {
+            error.textContent = errorMessage(problem);
+        }
+
+    }
+
+    return html`
+        <section class="card wide poi-new-network">
+
+            <h2><i class="fa-solid fa-plus"></i> New roaming network</h2>
+
+            <p class="hint">
+                Its roaming network operator keeps its private keys: this hub gets their public halves, one per line,
+                each the Base64 of its COSE key or a key as POI writes it, <code>{"key": ...}</code>. Everything else
+                in the network comes as change sets its owners sign, submitted to its history.
+            </p>
+
+            <form id="network-form" class="form-stack"
+                  @submit=${(event: SubmitEvent) => { event.preventDefault(); void make(event.currentTarget as HTMLFormElement); }}>
+
+                <div class="form-grid">
+
+                    <label>Identification
+                        <input type="text" name="id" placeholder="QA" maxlength="64" required autocomplete="off"
+                               pattern="[A-Za-z0-9][A-Za-z0-9_\\-]{0,63}" />
+                    </label>
+
+                    <label>Name
+                        <input type="text" name="name" placeholder="Quality assurance" maxlength="100" />
+                    </label>
+
+                </div>
+
+                <label>Signing keys of its roaming network operator
+                    <textarea name="signingKeys" rows="2" required spellcheck="false" placeholder="pAECIAEhWCD..."></textarea>
+                </label>
+
+                <label>Identity keys of its roaming network operator
+                    <textarea name="identityKeys" rows="3" required spellcheck="false" placeholder="pAECIAMhWEIB..."></textarea>
+                    <span class="hint">
+                        Two at least, with different validities, one of them kept offline: nobody can replace them
+                        once they are lost.
+                    </span>
+                </label>
+
+                <div class="form-actions">
+                    <button type="submit" class="btn primary">Make the roaming network</button>
+                    <span id="network-error" class="form-error" role="alert"></span>
+                </div>
+
+            </form>
+
+        </section>`;
+
+}
+
+/** The roaming networks this hub serves, each leading to its page; and a new one, for whoever may make it. */
 export const poiNetworksPage: Page = listPage<Summary>({
     title:        () => 'Roaming networks',
     subtitle:     'The points of interest of this hub, by roaming network.',
@@ -351,7 +482,8 @@ export const poiNetworksPage: Page = listPage<Summary>({
             <td><a href=${entityURL(networkPath(entry['@id']))}><code>${entry['@id']}</code></a></td>
             <td>${textOf(entry.name)}</td>
             <td class="muted">${textOf(entry.description)}</td>
-        </tr>`
+        </tr>`,
+    below:        newNetworkCard
 });
 
 /** The charging pools of every operator of a roaming network: what the points of interest are about. */

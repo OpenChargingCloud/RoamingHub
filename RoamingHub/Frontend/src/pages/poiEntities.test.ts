@@ -74,7 +74,7 @@ function poiAPI({ path, query }: Asked): unknown {
     const counts: Record<string, number> = { CPs: 42, CSOs: 3, GOs: 1, EMPs: 2, CSMs: 0, POs: 0 };
     const list = /^\/poi\/RNs\/rn1\/([A-Za-z]+)$/.exec(path);
 
-    if (list && query.get('limit') === '0')
+    if (list && query.get('limit') === '1')
         return listOf([], counts[list[1]!] ?? 0);
 
     if (path === '/poi/RNs/rn1/CSOs/DE*GEF/CPs/DE*GEF*P1')
@@ -172,8 +172,8 @@ describe('the single things of the points of interest', () => {
         assert.match(root.querySelector('.poi-entity')!.textContent!, /The first one\./);
 
         assert.equal(root.querySelector<HTMLAnchorElement>('.poi-holds a')!.getAttribute('href'), '/poi/RNs/rn1/CPs');
-        assert.ok(asked.filter(one => one.path.startsWith('/poi/RNs/rn1/')).every(one => one.query.get('limit') === '0'),
-                  'no list is asked for an entry');
+        assert.ok(asked.filter(one => one.path.startsWith('/poi/RNs/rn1/')).every(one => one.query.get('limit') === '1'),
+                  'a list is asked for more than the one entry the POI API answers at least');
 
         // What it says of itself, without what it holds, field by field, and as JSON with its ETag.
         assert.equal(value(root, 'Data source')!.querySelector('a')!.getAttribute('href'), 'https://data.example');

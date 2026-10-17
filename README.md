@@ -40,6 +40,7 @@ what goes between them.
 | Who may do what | three roles - `viewer`, `hub` and `systemadmin` - over the node's resources and the hub's two, `peers` and `traffic`, and whatever the configuration file adds |
 | The web interface | all of the above in a browser: the traffic as it happens, the peers, the name servers, the time servers, the certificates and the log |
 | HubClientInfo | who is on this hub and whether they can be reached, over OCPI and on the Peers page |
+| The points of interest | roaming networks of POI 3 below `/poi`, public: made here with the public keys of their roaming network operator, and filled by change sets their owners sign |
 
 **What is not here yet.** Forwarding what one peer sends to another, which is
 what would make this hub more than a directory. That is the next thing.
@@ -454,18 +455,51 @@ Reading it is `certificates:read`, which all three roles have; changing it is
 `certificates:edit`, which only a `systemadmin` has.
 
 
+## The points of interest
+
+`RoamingHub.POI.cs` serves the roaming networks of
+[POI 3](https://github.com/OpenChargingCloud/WWCP_POI) below `/poi`, public:
+`/poi/RNs` and everything below it, to query and to synchronise, the web
+interface's **Points of interest** pages at the very same URLs. Each network is
+a directory below `poi/` beside the configuration file, its history's store,
+read back at every start; one that cannot be read is said in the log and left
+alone.
+
+A new roaming network is made with the public keys of its roaming network
+operator and nothing else but a name and a description:
+`CreateRoamingNetwork(id, signingKeys, identityKeys, name)` in C#,
+`POST /api/v1/poi/roamingNetworks` with `{"@id", "name"?, "description"?,
+"signingKeys", "identityKeys"}`, the form below the list of the roaming
+networks, or `roamingNetworks add` at the command line. A key is the Base64 of
+its COSE key or a key as POI writes it, its identification calculated where it
+is not given; a private key is refused, as it is private no more once it was
+sent. The identification is the name of its directory as well: letters, digits,
+`-` and `_`, at most 64 of them. 201 with its genesis commit, 400 where it is no
+roaming network this hub makes - one with a party or a registry in it among
+them, as nothing in a genesis is signed - 409 where there is one of the same
+identification already, also in another case, and 500 where its store could
+not be written. Making one is `poi:edit`.
+
+Everything else in a roaming network comes as change sets, which the hub takes
+from everybody, over HTTP and over the WebSocket of its history: what a change
+set may change is decided by the signatures of its owners, which every commit
+checks against the keys in the network, not by who sent it. Every commit the
+history takes, a merge as well, is in the log, tagged `poi` and `commit`.
+
+
 ## Who may do what
 
 A role is a user group of the accounts, and what it may do is a list of
 permissions, each an operation on a resource: `dns:edit`. The operations are
 the node's three - `read`, `edit`, and `run` for asking a server something -
 and the resources are the node's four, `configuration`, `dns`, `nts` and
-`certificates`, and the hub's two:
+`certificates`, and the hub's three:
 
 | Resource | |
 |---|---|
 | `peers` | who is on this hub - read; edited, a peer added, suspended, resumed or removed, and the token it signs in with shown; run, the credentials handshake with one |
 | `traffic` | what went between the peers - read, and nothing else |
+| `poi` | the roaming networks of the points of interest - edited, a new one made with the public keys of its roaming network operator; reading them needs nothing, as the POI API is public, and what is in them changes by change sets their owners sign, not by a role |
 
 A hub brings three roles:
 
@@ -476,6 +510,7 @@ A hub brings three roles:
 | `certificates` | read | read | everything |
 | `peers` | read | read | everything |
 | `traffic` | - | read | everything |
+| `poi` | - | - | everything |
 
 `systemadmin` is the node's: it may do everything, the first account goes
 there, and nobody but the node says what it may do, because a role that could
@@ -483,10 +518,12 @@ be narrowed could leave nobody able to put that right. `hub` is whoever runs
 the hub from day to day - where it resolves names and reads the time, asking
 those servers whether they work, and the traffic, because the question the
 person running a hub is asked is why a CPO and an EMSP are not seeing each
-other, and the answer is in the traffic. Which peers are let in, and which
-certificates are believed, stays with the administrators: somebody who can
-add a peer lets a foreign system into a room with all the others, and
-somebody who can add a root makes this hub believe a server nobody else would.
+other, and the answer is in the traffic. Which peers are let in, which
+certificates are believed, and which roaming networks there are, stays with
+the administrators: somebody who can add a peer lets a foreign system into a
+room with all the others, somebody who can add a root makes this hub believe a
+server nobody else would, and somebody who can make a roaming network says
+whose keys rule it.
 
 The `viewer` is the hub's own rather than the node's. The node's may read
 everything, and on a hub that would include the traffic - what the peers say
@@ -569,7 +606,14 @@ API, a refusal naming the roles that would have been let in, a role the
 configuration file adds heard by the API, and the clock read with the time
 servers' permission; and what the certificate store keeps - TLS's four kinds
 and none of a vehicle's, and what each of them may be told, as the store says
-it. None of them asks a name server or a time server anything. And the hub's
+it. And the points of interest: a roaming network made by an administrator
+with the public keys of its RNO, served and stored, and nobody signed in
+making one; one with no signing or no identity key, a private key, a wrong
+thumbprint, a party in it or a path for a name refused, and a second one of
+the same identification in another case; a charging station operator and its
+pool submitted by somebody not signed in, each signed by its owner, and the
+pool signed by the RNO refused; and the network there after a restart. None of
+them asks a name server or a time server anything. And the hub's
 own code is held to what the kit holds every kind's to, SourceRules: nothing
 it says puts "a" or "an" in front of a name it is handed.
 

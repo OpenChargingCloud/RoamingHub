@@ -103,9 +103,11 @@ namespace cloud.charging.open.RoamingHub
 
             // The OCPI side: who the peers are and the peering itself; see
             // RoamingHubHTTPAPI.OCPI.cs. And what went between them; see
-            // RoamingHubHTTPAPI.Traffic.cs.
+            // RoamingHubHTTPAPI.Traffic.cs. And a new roaming network of the
+            // points of interest; see RoamingHubHTTPAPI.POI.cs.
             RegisterOCPIRoutes();
             RegisterTrafficRoutes();
+            RegisterPOIRoutes();
 
         }
 

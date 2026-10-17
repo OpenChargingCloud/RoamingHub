@@ -9,5 +9,5 @@ import { everyPageIn } from '@node/../test/pages.ts';
 
 
 everyPageIn(new URL('./', import.meta.url), {
-    withForms: [ 'peers.ts' ]
+    withForms: [ 'peers.ts', 'poi.ts' ]
 });

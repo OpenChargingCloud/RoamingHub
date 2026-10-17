@@ -30,11 +30,12 @@ namespace cloud.charging.open.RoamingHub
     /// </summary>
     /// <remarks>
     /// <para>
-    /// The node brings the administrators, who may do everything - the peers
-    /// and the certificates included, which nobody else may change: somebody
-    /// who can add a peer lets a foreign system into a room with all the
-    /// others, and somebody who can add a root makes this hub believe a
-    /// server nobody else would.
+    /// The node brings the administrators, who may do everything - the peers,
+    /// the certificates and the roaming networks included, which nobody else
+    /// may change: somebody who can add a peer lets a foreign system into a
+    /// room with all the others, somebody who can add a root makes this hub
+    /// believe a server nobody else would, and somebody who can make a
+    /// roaming network says whose keys rule it.
     /// </para>
     /// <para>
     /// The viewer is the hub's own rather than the node's. The node's may read
@@ -67,9 +68,17 @@ namespace cloud.charging.open.RoamingHub
         public const String  Traffic  = "traffic";
 
         /// <summary>
-        /// Both.
+        /// The roaming networks of the points of interest: edited, a new one
+        /// made, named and given the keys of its roaming network operator.
+        /// Reading them needs nothing, as the POI API is public, and what is
+        /// in them is changed by change sets their owners sign, not by a role.
         /// </summary>
-        public static readonly IReadOnlyList<String>  Resources = [ Peers, Traffic ];
+        public const String  POI      = "poi";
+
+        /// <summary>
+        /// All three.
+        /// </summary>
+        public static readonly IReadOnlyList<String>  Resources = [ Peers, Traffic, POI ];
 
         #endregion
 

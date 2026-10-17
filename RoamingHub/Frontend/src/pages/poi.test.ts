@@ -1,15 +1,15 @@
 /**
  * The points of interest drawn, in a document of happy-dom, against a stand-in POI API: a list at the URL of the
  * page, searched and paged by asking that URL again, and counted by what the API says in X-Total-Count and
- * X-Filtered-Count.
+ * X-Filtered-Count. And a new roaming network, made below their list by whoever may.
  */
 
-import { asked, open, until, type Asked } from '../../test/hub.ts';
+import { asked, field, open, refused, submit, type, until, type Asked } from '../../test/hub.ts';
 
 import { strict as assert }  from 'node:assert';
 import { describe, it }      from 'node:test';
 
-const { addressLine, gridOperatorOf, poiChargingPoolsPage, poiGridConnectionPointsPage, poiNetworksPage, poiOperatorListPages, poiOperatorsPage, poiParkingListPages, queryOf, roamingNetworkOf } = await import('./poi.ts');
+const { addressLine, gridOperatorOf, keysOf, poiChargingPoolsPage, poiGridConnectionPointsPage, poiNetworksPage, poiOperatorListPages, poiOperatorsPage, poiParkingListPages, queryOf, roamingNetworkOf } = await import('./poi.ts');
 
 
 /** A part of a list, as the POI API answers: the entries, with the counts in the headers. */
@@ -235,6 +235,86 @@ describe('the points of interest', () => {
 
         assert.deepEqual([ ...root.querySelectorAll<HTMLAnchorElement>('tbody a') ].map(link => link.getAttribute('href')),
                          [ '/poi/RNs/rn1/CSOs/DE*EXA', '/poi/RNs/rn1/CSOs/DE*GEF' ]);
+
+    });
+
+});
+
+
+describe('a new roaming network', () => {
+
+    /** The stand-in POI API, and the hub making a roaming network as it is asked to - or saying why not. */
+    function making(answer: (body: unknown) => unknown) {
+        return (one: Asked): unknown => one.method === 'POST' && one.path === '/poi/roamingNetworks'
+                                            ? answer(one.body)
+                                            : poiAPI(one);
+    }
+
+    const listed = (root: HTMLElement) => root.querySelector('tbody') !== null;
+
+    it('is offered below the list to whoever may make one, and to nobody else', async () => {
+
+        const nobody   = await open(poiNetworksPage, '/poi/RNs', null,                  poiAPI, listed);
+        assert.equal(nobody.querySelector('#network-form'), null, 'offered to nobody signed in');
+
+        const viewer   = await open(poiNetworksPage, '/poi/RNs', [ 'peers:read' ],      poiAPI, listed);
+        assert.equal(viewer.querySelector('#network-form'), null, 'offered to somebody who may not make one');
+
+        const admin    = await open(poiNetworksPage, '/poi/RNs', [ 'poi:edit' ],        poiAPI, listed);
+        assert.ok(admin.querySelector('#network-form'), 'not offered to whoever may make one');
+
+    });
+
+    it('reads the keys typed in, one per line, as Base64 or as POI writes a key', () => {
+
+        assert.deepEqual(keysOf('pAECIAEh\n\n  {"key": "pAECIAMh", "notAfter": "2036-01-01T00:00:00.000Z"}  \n', 'identity key'),
+                         [ 'pAECIAEh', { key: 'pAECIAMh', notAfter: '2036-01-01T00:00:00.000Z' } ]);
+
+        assert.throws(() => keysOf('{"key": ', 'signing key'), /The signing key 1 begins like JSON and is none/);
+
+    });
+
+    it('is asked for with what was typed in, and the form emptied once it is made', async () => {
+
+        const root = await open(poiNetworksPage, '/poi/RNs', [ 'poi:edit' ],
+                                making(() => ({ message: 'made', roamingNetwork: { '@id': 'QA' }, revision: 0, commitId: 'c0' })),
+                                listed);
+
+        type(field(root, '#network-form', 'id'),                                 'QA');
+        type(field(root, '#network-form', 'name'),                               'Quality assurance');
+        type(field<HTMLTextAreaElement>(root, '#network-form', 'signingKeys'),   'pAECIAEh');
+        type(field<HTMLTextAreaElement>(root, '#network-form', 'identityKeys'),  'pAECIAMh1\npAECIAMh2');
+
+        submit(root, '#network-form');
+
+        await until(() => asked.some(one => one.method === 'POST'), 'the hub was not asked');
+        await until(() => field(root, '#network-form', 'id').value === '', 'the form was not emptied');
+
+        assert.deepEqual(asked.find(one => one.method === 'POST')!.body, {
+                             '@id':         'QA',
+                             name:          { en: 'Quality assurance' },
+                             signingKeys:   [ 'pAECIAEh' ],
+                             identityKeys:  [ 'pAECIAMh1', 'pAECIAMh2' ]
+                         });
+
+    });
+
+    it('says why the hub did not make it, and keeps what was typed in', async () => {
+
+        const root = await open(poiNetworksPage, '/poi/RNs', [ 'poi:edit' ],
+                                making(() => refused(409, "This hub serves a roaming network 'QA' already.")),
+                                listed);
+
+        type(field(root, '#network-form', 'id'),                                 'QA');
+        type(field<HTMLTextAreaElement>(root, '#network-form', 'signingKeys'),   'pAECIAEh');
+        type(field<HTMLTextAreaElement>(root, '#network-form', 'identityKeys'),  'pAECIAMh');
+
+        submit(root, '#network-form');
+
+        await until(() => root.querySelector('#network-error')!.textContent !== '', 'nothing was said');
+
+        assert.match(root.querySelector('#network-error')!.textContent!, /serves a roaming network 'QA' already/);
+        assert.equal(field(root, '#network-form', 'id').value, 'QA');
 
     });
 
