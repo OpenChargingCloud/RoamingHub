@@ -37,6 +37,7 @@ using cloud.charging.open.protocols.WWCP.Node.TestKit;
 
 // Those of POI 3, not those of WWCP_Core the OCPI side knows.
 using RoamingNetwork           = cloud.charging.open.protocols.WWCP.POI.RoamingNetwork;
+using RoamingNetworkOperator   = cloud.charging.open.protocols.WWCP.POI.RoamingNetworkOperator;
 using ChargingStationOperator  = cloud.charging.open.protocols.WWCP.POI.ChargingStationOperator;
 using ChargingPool             = cloud.charging.open.protocols.WWCP.POI.ChargingPool;
 using ChargingStation          = cloud.charging.open.protocols.WWCP.POI.ChargingStation;
@@ -48,9 +49,10 @@ namespace cloud.charging.open.RoamingHub.Tests
 {
 
     /// <summary>
-    /// A new roaming network of the points of interest: made by an administrator with the public keys of its
-    /// roaming network operator, stored below "poi", served below "/poi" and there after a restart; and filled by
-    /// change sets anybody may submit, which only the signatures of their owners let in.
+    /// The hub is a roaming network operator from its first start, with keys of its own, and serves no roaming
+    /// network yet. A new one is made by an administrator, operated by the hub, stored below "poi", served below
+    /// "/poi" and there after a restart; the hub adds its parties with change sets it signs, and the parties fill
+    /// it with change sets anybody may submit, which only the signatures of their owners let in.
     /// </summary>
     public class POITests : ARoamingHubTests
     {
@@ -61,8 +63,6 @@ namespace cloud.charging.open.RoamingHub.Tests
 
         private const           String      NewPath    = "api/v1/poi/roamingNetworks";
 
-        private readonly ECPrivateKeyParameters  rnoSigningKey   = NewKey(COSECurve.P256);
-        private readonly ECPrivateKeyParameters  rnoIdentityKey  = NewKey(COSECurve.P521);
         private readonly ECPrivateKeyParameters  csoSigningKey   = NewKey(COSECurve.P256);
         private readonly ECPrivateKeyParameters  csoIdentityKey  = NewKey(COSECurve.P521);
 
@@ -71,7 +71,7 @@ namespace cloud.charging.open.RoamingHub.Tests
 
         #region (helper) NewKey(Curve)
 
-        private static ECPrivateKeyParameters NewKey(COSECurve Curve)
+        internal static ECPrivateKeyParameters NewKey(COSECurve Curve)
         {
             var generator = new ECKeyPairGenerator();
             generator.Init(new ECKeyGenerationParameters(Curve.DomainParameters!, new SecureRandom()));
@@ -83,26 +83,41 @@ namespace cloud.charging.open.RoamingHub.Tests
         #region (helper) QA(Id = "QA")
 
         /// <summary>
-        /// A roaming network to be made, with the keys of its RNO: the signing key as POI writes a key, the
-        /// identity key as the Base64 of its COSE key alone.
+        /// A roaming network to be made: nothing but its identification and its name.
         /// </summary>
-        private JObject QA(String Id = "QA")
+        private static JObject QA(String Id = "QA")
 
             => new (
-                   new JProperty("@id",           Id),
-                   new JProperty("name",          new JObject(new JProperty("en", "Quality assurance"))),
-                   new JProperty("signingKeys",   new JArray(POIPublicKey.From(rnoSigningKey).ToJSON())),
-                   new JProperty("identityKeys",  new JArray(POIPublicKey.From(rnoIdentityKey).ToJSON()["key"]!))
+                   new JProperty("@id",   Id),
+                   new JProperty("name",  new JObject(new JProperty("en", "Quality assurance")))
                );
 
         #endregion
 
-        #region (helper) Post(HTTP, JSON)
+        #region (helper) QAC()
+
+        /// <summary>
+        /// The charging station operator DE*QAC with its public keys: the signing key as POI writes a key,
+        /// the identity key as the Base64 of its COSE key alone.
+        /// </summary>
+        private JObject QAC()
+
+            => new (
+                   new JProperty("@id",           "DE*QAC"),
+                   new JProperty("name",          new JObject(new JProperty("en", "QA Charging"))),
+                   new JProperty("signingKeys",   new JArray(POIPublicKey.From(csoSigningKey).ToJSON())),
+                   new JProperty("identityKeys",  new JArray(POIPublicKey.From(csoIdentityKey).ToJSON()["key"]!))
+               );
+
+        #endregion
+
+        #region (helper) Post(HTTP, JSON, Path = NewPath)
 
         private static Task<HttpResponseMessage> Post(HttpClient  HTTP,
-                                                      JObject     JSON)
+                                                      JObject     JSON,
+                                                      String      Path   = NewPath)
 
-            => HTTP.PostAsync(NewPath, new StringContent(JSON.ToString(), Encoding.UTF8, "application/json"));
+            => HTTP.PostAsync(Path, new StringContent(JSON.ToString(), Encoding.UTF8, "application/json"));
 
         #endregion
 
@@ -140,12 +155,117 @@ namespace cloud.charging.open.RoamingHub.Tests
 
         #endregion
 
+        #region (helper) MadeWithQAC()
+
+        /// <summary>
+        /// QA made, and DE*QAC added to it by the hub.
+        /// </summary>
+        private async Task MadeWithQAC()
+        {
+
+            using var admin = await SignedIn();
+
+            Assert.That((await Post(admin, QA())).StatusCode,                                           Is.EqualTo(HttpStatusCode.Created));
+            Assert.That((await Post(admin, QAC(), $"{NewPath}/QA/chargingStationOperators")).StatusCode,  Is.EqualTo(HttpStatusCode.Created));
+
+        }
+
+        #endregion
+
+
+        #region TheHubIsARoamingNetworkOperatorFromItsFirstStart()
+
+        /// <summary>
+        /// With a signing and an identity key made at the first start, kept beside the configuration, and public
+        /// as every roaming network it operates names them - of which there is none yet.
+        /// </summary>
+        [Test]
+        public async Task TheHubIsARoamingNetworkOperatorFromItsFirstStart()
+        {
+
+            var networkOperator  = RoamingHub.NetworkOperator;
+            var directory        = Path.Combine(Directory, HubRoamingNetworkOperator.DirectoryName);
+
+            using var anybody    = Anonymous();
+
+            var served           = JObject.Parse(await anybody.GetStringAsync("api/v1/poi/roamingNetworkOperator"));
+            var stored           = JObject.Parse(await File.ReadAllTextAsync(Path.Combine(directory, HubRoamingNetworkOperator.OperatorFileName)));
+
+            Assert.Multiple(() => {
+
+                Assert.That(networkOperator.IsNew,                                                    Is.True);
+                Assert.That(networkOperator.Id.ToString(),                                            Does.StartWith("RNO-"));
+                Assert.That(networkOperator.Id.ToString(),                                            Is.EqualTo("RNO-" + networkOperator.IdentityKey.Id[..8].ToUpperInvariant()));
+                Assert.That(networkOperator.SigningKey. Key.Curve,                                    Is.EqualTo(COSECurve.P256));
+                Assert.That(networkOperator.IdentityKey.Key.Curve,                                    Is.EqualTo(COSECurve.P521));
+
+                Assert.That(File.Exists(Path.Combine(directory, HubRoamingNetworkOperator.SigningKeyFileName)),   Is.True);
+                Assert.That(File.Exists(Path.Combine(directory, HubRoamingNetworkOperator.IdentityKeyFileName)),  Is.True);
+                Assert.That(File.ReadAllText(Path.Combine(directory, HubRoamingNetworkOperator.SigningKeyFileName)), Does.StartWith("-----BEGIN PRIVATE KEY-----"));
+
+                // Only the public halves leave the directory.
+                Assert.That(served["@id"]?.Value<String>(),                                           Is.EqualTo(networkOperator.Id.ToString()));
+                Assert.That(served["signingKeys"]?[0]?["@id"]?.Value<String>(),                       Is.EqualTo(networkOperator.SigningKey.Id));
+                Assert.That(COSEKey.TryParse(Convert.FromBase64String(served["signingKeys"]![0]!["key"]!.Value<String>()!), out var key, out _) && !key.IsPrivate, Is.True);
+                Assert.That(stored.ToString(),                                                        Is.EqualTo(served.ToString()));
+
+                Assert.That(RoamingHub.POI.RoamingNetworks,                                           Is.Empty);
+                Assert.That(RoamingHub.Log.Recent(200, Tag: "poi").Select(entry => entry.Message),
+                            Has.Some.Contains($"This hub is the roaming network operator '{networkOperator.Id}' now"));
+
+            });
+
+        }
+
+        #endregion
+
+        #region TheSameOperatorAfterARestart()
+
+        /// <summary>
+        /// Read back at the next start, keys and all; and a missing private key stops the start rather than
+        /// making another operator.
+        /// </summary>
+        [Test]
+        public async Task TheSameOperatorAfterARestart()
+        {
+
+            var first       = RoamingHub.NetworkOperator;
+            var signingKey  = Path.Combine(Directory, HubRoamingNetworkOperator.DirectoryName, HubRoamingNetworkOperator.SigningKeyFileName);
+            var pem         = await File.ReadAllTextAsync(signingKey);
+
+            await RoamingHub.DisposeAsync();
+
+            var again = await TestPorts.StartedOnFreshPorts(() => TestRoamingHubs.New(Directory, Configuration, Clock));
+
+            try
+            {
+                Assert.Multiple(() => {
+                    Assert.That(again.NetworkOperator.IsNew,           Is.False);
+                    Assert.That(again.NetworkOperator.Id,              Is.EqualTo(first.Id));
+                    Assert.That(again.NetworkOperator.SigningKey.Id,   Is.EqualTo(first.SigningKey.Id));
+                    Assert.That(again.NetworkOperator.IdentityKey.Id,  Is.EqualTo(first.IdentityKey.Id));
+                    Assert.That(File.ReadAllText(signingKey),          Is.EqualTo(pem));
+                });
+            }
+            finally
+            {
+                await again.DisposeAsync();
+            }
+
+            File.Delete(signingKey);
+
+            Assert.That(() => HubRoamingNetworkOperator.OpenOrCreate(Path.GetDirectoryName(signingKey)!),
+                        Throws.InvalidOperationException.With.Message.Contains("is missing"));
+
+        }
+
+        #endregion
 
         #region AnAdministratorMakesARoamingNetworkThatIsServedAndStored()
 
         /// <summary>
-        /// Made with the public keys of its RNO, which the hub calculates the identification of where it is not
-        /// given; at revision 0, in its own directory, and in the list of the POI API.
+        /// Made with its name only, operated by the hub, whose signing key signs its genesis commit; at revision 0,
+        /// in its own directory, and in the list of the POI API.
         /// </summary>
         [Test]
         public async Task AnAdministratorMakesARoamingNetworkThatIsServedAndStored()
@@ -160,18 +280,29 @@ namespace cloud.charging.open.RoamingHub.Tests
 
             var list             = JArray. Parse(await anybody.GetStringAsync("poi/RNs"));
             var network          = JObject.Parse(await anybody.GetStringAsync("poi/RNs/QA"));
+            var networkOperator  = network[RoamingNetworkOperator.JSONProperty];
+
+            Assert.That(RoamingHub.POI.TryGetRoamingNetworkHistory(RoamingNetwork_Id.Parse("QA"), out var history), Is.True);
 
             Assert.Multiple(() => {
 
-                Assert.That(made.StatusCode,                                         Is.EqualTo(HttpStatusCode.Created), madeJSON.ToString());
-                Assert.That(madeJSON["revision"]?.Value<Int32>(),                    Is.EqualTo(0));
-                Assert.That(madeJSON["roamingNetwork"]?["@id"]?.Value<String>(),     Is.EqualTo("QA"));
+                Assert.That(made.StatusCode,                                                          Is.EqualTo(HttpStatusCode.Created), madeJSON.ToString());
+                Assert.That(madeJSON["revision"]?.Value<Int32>(),                                     Is.EqualTo(0));
+                Assert.That(madeJSON["roamingNetwork"]?["@id"]?.Value<String>(),                      Is.EqualTo("QA"));
+                Assert.That(madeJSON["roamingNetwork"]?[RoamingNetworkOperator.JSONProperty]?["@id"]?.Value<String>(),  Is.EqualTo(RoamingHub.NetworkOperator.Id.ToString()));
 
-                Assert.That(list.Select(entry => entry["@id"]?.Value<String>()),     Does.Contain("QA"));
-                Assert.That(network["name"]?["en"]?.Value<String>(),                 Is.EqualTo("Quality assurance"));
-                Assert.That(network["signingKeys"]?[0]?["@id"]?.Value<String>(),     Is.EqualTo(POIPublicKey.From(rnoSigningKey). Id));
-                Assert.That(network["identityKeys"]?[0]?["@id"]?.Value<String>(),    Is.EqualTo(POIPublicKey.From(rnoIdentityKey).Id));
-                Assert.That(network["chargingStationOperators"],                     Is.Null);
+                Assert.That(list.Select(entry => entry["@id"]?.Value<String>()),                      Does.Contain("QA"));
+                Assert.That(network["name"]?["en"]?.Value<String>(),                                  Is.EqualTo("Quality assurance"));
+                Assert.That(network["signingKeys"],                                                   Is.Null);
+                Assert.That(networkOperator?["@id"]?.Value<String>(),                                 Is.EqualTo(RoamingHub.NetworkOperator.Id.ToString()));
+                Assert.That(networkOperator?["signingKeys"]?[0]?["@id"]?.Value<String>(),             Is.EqualTo(RoamingHub.NetworkOperator.SigningKey. Id));
+                Assert.That(networkOperator?["identityKeys"]?[0]?["@id"]?.Value<String>(),            Is.EqualTo(RoamingHub.NetworkOperator.IdentityKey.Id));
+                Assert.That(network["chargingStationOperators"],                                      Is.Null);
+
+                var signature = history!.Head.Commit.Signatures.Single();
+                Assert.That(signature.Role,                                                           Is.EqualTo(RoamingNetworkCommitSignatureRoles.RoamingNetworkOperator));
+                Assert.That(signature.KeyId,                                                          Is.EqualTo(RoamingHub.NetworkOperator.SigningKey.Id));
+                Assert.That(signature.Signer,                                                         Is.EqualTo(RoamingHub.NetworkOperator.Id.ToString()));
 
                 Assert.That(System.IO.Directory.Exists(Path.Combine(RoamingHub.POIDirectory, "QA")),  Is.True);
 
@@ -181,10 +312,10 @@ namespace cloud.charging.open.RoamingHub.Tests
 
         #endregion
 
-        #region NobodySignedInMakesOne()
+        #region NobodySignedInMakesOneOrAddsAParty()
 
         [Test]
-        public async Task NobodySignedInMakesOne()
+        public async Task NobodySignedInMakesOneOrAddsAParty()
         {
 
             using var anybody  = Anonymous();
@@ -192,8 +323,18 @@ namespace cloud.charging.open.RoamingHub.Tests
             var refused        = await Post(anybody, QA());
 
             Assert.Multiple(() => {
-                Assert.That(refused.StatusCode,                                      Is.AnyOf(HttpStatusCode.Unauthorized, HttpStatusCode.Forbidden));
+                Assert.That(refused.StatusCode,                                                       Is.AnyOf(HttpStatusCode.Unauthorized, HttpStatusCode.Forbidden));
                 Assert.That(RoamingHub.POI.TryGetRoamingNetworkHistory(RoamingNetwork_Id.Parse("QA"), out _),  Is.False);
+            });
+
+            using (var admin = await SignedIn())
+                Assert.That((await Post(admin, QA())).StatusCode,                                     Is.EqualTo(HttpStatusCode.Created));
+
+            var party          = await Post(anybody, QAC(), $"{NewPath}/QA/chargingStationOperators");
+
+            Assert.Multiple(() => {
+                Assert.That(party.StatusCode,                                                         Is.AnyOf(HttpStatusCode.Unauthorized, HttpStatusCode.Forbidden));
+                Assert.That(Head().ChargingStationOperators,                                          Is.Empty);
             });
 
         }
@@ -205,12 +346,10 @@ namespace cloud.charging.open.RoamingHub.Tests
         /// <summary>
         /// 400, with why: and nothing made, no directory either.
         /// </summary>
-        [TestCase("no signing key",    "at least one signing key")]
-        [TestCase("no identity key",   "at least one identity key")]
-        [TestCase("a private key",     "this is a private key")]
-        [TestCase("a wrong thumbprint", "")]
-        [TestCase("an operator",       "not with 'chargingStationOperators'")]
-        [TestCase("a path",            "letters, digits")]
+        [TestCase("keys",          "operated by this hub")]
+        [TestCase("an operator",   "operated by this hub")]
+        [TestCase("a CSO",         "not with 'chargingStationOperators'")]
+        [TestCase("a path",        "letters, digits")]
         public async Task WhatIsNoRoamingNetworkThisHubMakesIsRefused(String Case, String Said)
         {
 
@@ -219,23 +358,15 @@ namespace cloud.charging.open.RoamingHub.Tests
             switch (Case)
             {
 
-                case "no signing key":
-                    json["signingKeys"] = new JArray();
-                    break;
-
-                case "no identity key":
-                    json.Remove("identityKeys");
-                    break;
-
-                case "a private key":
-                    json["signingKeys"] = new JArray(Convert.ToBase64String(COSEKey.From(rnoSigningKey).ToByteArray(CBORWriterOptions.Canonical)));
-                    break;
-
-                case "a wrong thumbprint":
-                    json["signingKeys"]![0]!["@id"] = POIPublicKey.From(csoSigningKey).Id;
+                case "keys":
+                    json["signingKeys"] = new JArray(POIPublicKey.From(NewKey(COSECurve.P256)).ToJSON());
                     break;
 
                 case "an operator":
+                    json[RoamingNetworkOperator.JSONProperty] = new JObject(new JProperty("@id", "Somebody"));
+                    break;
+
+                case "a CSO":
                     json["chargingStationOperators"] = new JArray(new JObject(new JProperty("@id", "DE*QAC")));
                     break;
 
@@ -247,10 +378,10 @@ namespace cloud.charging.open.RoamingHub.Tests
             var text         = await refused.Content.ReadAsStringAsync();
 
             Assert.Multiple(() => {
-                Assert.That(refused.StatusCode,  Is.EqualTo(HttpStatusCode.BadRequest), text);
-                Assert.That(text,                Does.Contain(Said));
+                Assert.That(refused.StatusCode,                                                       Is.EqualTo(HttpStatusCode.BadRequest), text);
+                Assert.That(text,                                                                     Does.Contain(Said));
                 Assert.That(RoamingHub.POI.TryGetRoamingNetworkHistory(RoamingNetwork_Id.Parse("QA"), out _),  Is.False);
-                Assert.That(System.IO.Directory.Exists(Path.Combine(RoamingHub.POIDirectory, "QA")),          Is.False);
+                Assert.That(System.IO.Directory.Exists(Path.Combine(RoamingHub.POIDirectory, "QA")),  Is.False);
             });
 
         }
@@ -280,31 +411,28 @@ namespace cloud.charging.open.RoamingHub.Tests
 
         #endregion
 
-        #region TheOperatorsAndTheirPoolsComeAsChangeSetsTheirOwnersSign()
+        #region TheHubAddsAnOperatorThatAddsItsPools()
 
         /// <summary>
-        /// Submitted by somebody not signed in at all: the RNO adds a charging station operator with its keys, the
-        /// operator adds a charging pool with a station and two EVSEs - and the same pool signed by the RNO is
-        /// refused, as it is not the RNO's.
+        /// The hub adds DE*QAC with its public keys, signed by the hub; DE*QAC adds a charging pool with a station
+        /// and two EVSEs, submitted by somebody not signed in at all - and the same pool signed by the hub is
+        /// refused, as it is not the hub's.
         /// </summary>
         [Test]
-        public async Task TheOperatorsAndTheirPoolsComeAsChangeSetsTheirOwnersSign()
+        public async Task TheHubAddsAnOperatorThatAddsItsPools()
         {
 
             using (var admin = await SignedIn())
                 Assert.That((await Post(admin, QA())).StatusCode, Is.EqualTo(HttpStatusCode.Created));
 
+            HttpResponseMessage added;
+
+            using (var admin = await SignedIn())
+                added            = await Post(admin, QAC(), $"{NewPath}/QA/chargingStationOperators");
+
+            var addedJSON        = JObject.Parse(await added.Content.ReadAsStringAsync());
+
             using var anybody    = Anonymous();
-
-            var qac              = new ChargingStationOperator(
-                                       ChargingStationOperator_Id.Parse("DE*QAC"),
-                                       Name:          I18NString.Create(Languages.en, "QA Charging"),
-                                       SigningKeys:   [ POIPublicKey.From(csoSigningKey)  ],
-                                       IdentityKeys:  [ POIPublicKey.From(csoIdentityKey) ]
-                                   );
-
-            var addOperator      = await Commit(anybody, Head().CreateChangeSet([ RoamingNetworkChange.Add(qac) ]).
-                                                                 Sign(rnoSigningKey, POIPublicKey.From(rnoSigningKey).Id, COSEAlgorithm.ES256));
 
             var pool             = new ChargingPool(
                                        ChargingPool_Id.Parse("DE*QAC*P1"),
@@ -321,22 +449,29 @@ namespace cloud.charging.open.RoamingHub.Tests
                                        ]
                                    );
 
-            var poolByTheRNO     = await Commit(anybody, Head().CreateChangeSet([ RoamingNetworkChange.Add(pool) ]).
-                                                                 Sign(rnoSigningKey, POIPublicKey.From(rnoSigningKey).Id, COSEAlgorithm.ES256));
+            var someoneElse      = NewKey(COSECurve.P256);
+
+            var poolByAnother    = await Commit(anybody, Head().CreateChangeSet([ RoamingNetworkChange.Add(pool) ]).
+                                                                 Sign(someoneElse, POIPublicKey.From(someoneElse).Id, COSEAlgorithm.ES256));
 
             var addPool          = await Commit(anybody, Head().CreateChangeSet([ RoamingNetworkChange.Add(pool) ]).
                                                                  Sign(csoSigningKey, POIPublicKey.From(csoSigningKey).Id, COSEAlgorithm.ES256));
 
             var served           = JObject.Parse(await anybody.GetStringAsync("poi/RNs/QA/CSOs/DE*QAC/CPs/DE*QAC*P1"));
+            var qac              = Head().GetChargingStationOperatorById(ChargingStationOperator_Id.Parse("DE*QAC"))!;
 
             Assert.Multiple(() => {
 
-                Assert.That(addOperator. StatusCode,  Is.EqualTo(HttpStatusCode.Created),              addOperator.Text);
-                Assert.That(poolByTheRNO.StatusCode,  Is.EqualTo(HttpStatusCode.UnprocessableEntity),  poolByTheRNO.Text);
-                Assert.That(poolByTheRNO.Text,        Does.Contain("needs a signature by a signing key of the ChargingStationOperator 'DE*QAC'"));
-                Assert.That(addPool.     StatusCode,  Is.EqualTo(HttpStatusCode.Created),              addPool.Text);
+                Assert.That(added.StatusCode,                                                         Is.EqualTo(HttpStatusCode.Created), addedJSON.ToString());
+                Assert.That(addedJSON["revision"]?.Value<Int32>(),                                    Is.EqualTo(1));
+                Assert.That(qac.SigningKeys. Single().Id,                                             Is.EqualTo(POIPublicKey.From(csoSigningKey). Id));
+                Assert.That(qac.IdentityKeys.Single().Id,                                             Is.EqualTo(POIPublicKey.From(csoIdentityKey).Id));
 
-                Assert.That(served["chargingStations"]?[0]?["EVSEs"]?.Count(),  Is.EqualTo(2));
+                Assert.That(poolByAnother.StatusCode,                                                 Is.EqualTo(HttpStatusCode.UnprocessableEntity),  poolByAnother.Text);
+                Assert.That(poolByAnother.Text,                                                       Does.Contain("is no key of a party"));
+                Assert.That(addPool.StatusCode,                                                       Is.EqualTo(HttpStatusCode.Created),              addPool.Text);
+
+                Assert.That(served["chargingStations"]?[0]?["EVSEs"]?.Count(),                        Is.EqualTo(2));
                 Assert.That(RoamingHub.Log.Recent(100, Tag: "commit").Select(entry => entry.Message),
                             Has.Some.Contains("The roaming network 'QA' is at revision 2"));
 
@@ -346,28 +481,124 @@ namespace cloud.charging.open.RoamingHub.Tests
 
         #endregion
 
+        #region WhatIsNoPartyThisHubAddsIsRefused(Case, Status, Said)
+
+        /// <summary>
+        /// With why, and nothing committed.
+        /// </summary>
+        [TestCase("no network",       HttpStatusCode.NotFound,             "serves no roaming network 'XX'")]
+        [TestCase("no party type",    HttpStatusCode.NotFound,             "chargingStationOperators")]
+        [TestCase("no signing key",   HttpStatusCode.BadRequest,           "at least one signing key")]
+        [TestCase("a private key",    HttpStatusCode.BadRequest,           "this is a private key")]
+        [TestCase("its pools",        HttpStatusCode.UnprocessableEntity,  "must be added without its chargingPools")]
+        [TestCase("twice",            HttpStatusCode.Conflict,             "has a ChargingStationOperator 'DE*QAC' already")]
+        public async Task WhatIsNoPartyThisHubAddsIsRefused(String Case, HttpStatusCode Status, String Said)
+        {
+
+            using var admin  = await SignedIn();
+
+            Assert.That((await Post(admin, QA())).StatusCode, Is.EqualTo(HttpStatusCode.Created));
+
+            var json         = QAC();
+            var path         = $"{NewPath}/QA/chargingStationOperators";
+
+            switch (Case)
+            {
+
+                case "no network":
+                    path = $"{NewPath}/XX/chargingStationOperators";
+                    break;
+
+                case "no party type":
+                    path = $"{NewPath}/QA/chargingPools";
+                    break;
+
+                case "no signing key":
+                    json.Remove("signingKeys");
+                    break;
+
+                case "a private key":
+                    json["signingKeys"] = new JArray(Convert.ToBase64String(COSEKey.From(csoSigningKey).ToByteArray(CBORWriterOptions.Canonical)));
+                    break;
+
+                case "its pools":
+                    json["chargingPools"] = new JArray(new JObject(new JProperty("@id", "DE*QAC*P1"), new JProperty("created", "2026-10-17T00:00:00Z")));
+                    break;
+
+                case "twice":
+                    Assert.That((await Post(admin, QAC(), path)).StatusCode, Is.EqualTo(HttpStatusCode.Created));
+                    break;
+
+            }
+
+            var refused      = await Post(admin, json, path);
+            var text         = await refused.Content.ReadAsStringAsync();
+
+            Assert.Multiple(() => {
+                Assert.That(refused.StatusCode,                                                       Is.EqualTo(Status), text);
+                Assert.That(text,                                                                     Does.Contain(Said));
+                Assert.That(Head().ChargingStationOperators.Count(),                                  Is.EqualTo(Case == "twice" ? 1 : 0));
+            });
+
+        }
+
+        #endregion
+
+        #region ARoamingNetworkOfAnotherOperatorIsServedButNotAddedTo()
+
+        /// <summary>
+        /// A roaming network found below "poi" whose operator is another one - e.g. one this hub follows - is
+        /// served, but the hub neither signs its commits nor adds its parties: its operator does.
+        /// </summary>
+        [Test]
+        public async Task ARoamingNetworkOfAnotherOperatorIsServedButNotAddedTo()
+        {
+
+            await RoamingHub.DisposeAsync();
+
+            var otherOperator = new RoamingNetworkOperator(RoamingNetworkOperator_Id.Parse("Somebody"),
+                                                           SigningKeys:   [ POIPublicKey.From(NewKey(COSECurve.P256)) ],
+                                                           IdentityKeys:  [ POIPublicKey.From(NewKey(COSECurve.P521)) ]);
+
+            using (var store = new RoamingNetworkHistoryFileStore(Path.Combine(Directory, RoamingHub.POIDirectoryName, "OTHER")))
+                RoamingNetworkHistory.Start(new RoamingNetwork(RoamingNetwork_Id.Parse("OTHER"), Operator: otherOperator), Store: store);
+
+            var again = await TestPorts.StartedOnFreshPorts(() => TestRoamingHubs.New(Directory, Configuration, Clock));
+
+            try
+            {
+
+                Assert.That(again.POI.TryGetRoamingNetworkHistory(RoamingNetwork_Id.Parse("OTHER"), out var history), Is.True);
+
+                var refused = again.AddParty(RoamingNetwork_Id.Parse("OTHER"), nameof(ChargingStationOperator), QAC());
+
+                Assert.Multiple(() => {
+                    Assert.That(history!.Signers,                                                     Is.Empty);
+                    Assert.That(refused.Status,                                                       Is.EqualTo(RoamingNetworkPartyStatus.NotOperatedHere));
+                    Assert.That(refused.Message,                                                      Does.Contain("is operated by 'Somebody', not by this hub"));
+                });
+
+            }
+            finally
+            {
+                await again.DisposeAsync();
+            }
+
+        }
+
+        #endregion
+
         #region AMadeRoamingNetworkIsThereAfterARestart()
 
         /// <summary>
-        /// Read back from its directory at the next start, with what was committed to it.
+        /// Read back from its directory at the next start, with what was committed to it, and its commits signed
+        /// by the hub again.
         /// </summary>
         [Test]
         public async Task AMadeRoamingNetworkIsThereAfterARestart()
         {
 
-            using (var admin = await SignedIn())
-                Assert.That((await Post(admin, QA())).StatusCode, Is.EqualTo(HttpStatusCode.Created));
-
-            var qac = new ChargingStationOperator(
-                          ChargingStationOperator_Id.Parse("DE*QAC"),
-                          SigningKeys:   [ POIPublicKey.From(csoSigningKey)  ],
-                          IdentityKeys:  [ POIPublicKey.From(csoIdentityKey) ]
-                      );
-
-            using (var anybody = Anonymous())
-                Assert.That((await Commit(anybody, Head().CreateChangeSet([ RoamingNetworkChange.Add(qac) ]).
-                                                          Sign(rnoSigningKey, POIPublicKey.From(rnoSigningKey).Id, COSEAlgorithm.ES256))).StatusCode,
-                            Is.EqualTo(HttpStatusCode.Created));
+            await MadeWithQAC();
 
             await RoamingHub.DisposeAsync();
 
@@ -378,9 +609,17 @@ namespace cloud.charging.open.RoamingHub.Tests
 
                 Assert.That(again.POI.TryGetRoamingNetworkHistory(RoamingNetwork_Id.Parse("QA"), out var history), Is.True);
 
+                var added = again.AddParty(RoamingNetwork_Id.Parse("QA"),
+                                           nameof(ChargingStationOperator),
+                                           new JObject(new JProperty("@id",           "DE*QAD"),
+                                                       new JProperty("signingKeys",   new JArray(POIPublicKey.From(NewKey(COSECurve.P256)).ToJSON())),
+                                                       new JProperty("identityKeys",  new JArray(POIPublicKey.From(NewKey(COSECurve.P521)).ToJSON()))));
+
                 Assert.Multiple(() => {
-                    Assert.That(history!.Head.Commit.Revision,                                                                         Is.EqualTo(1));
+                    Assert.That(added.Status,                                                         Is.EqualTo(RoamingNetworkPartyStatus.Added), added.Message);
+                    Assert.That(history!.Head.Commit.Revision,                                        Is.EqualTo(2));
                     Assert.That(history.Head.RoamingNetwork.TryGetChargingStationOperatorById(ChargingStationOperator_Id.Parse("DE*QAC"), out _),  Is.True);
+                    Assert.That(history.Head.Commit.Signatures.Single().KeyId,                       Is.EqualTo(again.NetworkOperator.SigningKey.Id));
                 });
 
             }
@@ -388,6 +627,47 @@ namespace cloud.charging.open.RoamingHub.Tests
             {
                 await again.DisposeAsync();
             }
+
+        }
+
+        #endregion
+
+    }
+
+
+    /// <summary>
+    /// The configuration file says who the roaming network operator of a hub is, at its first start.
+    /// </summary>
+    public class ConfiguredRoamingNetworkOperatorTests : ARoamingHubTests
+    {
+
+        #region Configuration
+
+        protected override JObject Configuration
+        {
+            get
+            {
+                var configuration = TestRoamingHubs.Offline;
+                configuration[HubRoamingNetworkOperator.ConfigurationSection] = new JObject(
+                                                                                    new JProperty("@id",   "GraphDefined"),
+                                                                                    new JProperty("name",  "GraphDefined GmbH")
+                                                                                );
+                return configuration;
+            }
+        }
+
+        #endregion
+
+        #region TheConfigurationNamesTheOperator()
+
+        [Test]
+        public void TheConfigurationNamesTheOperator()
+        {
+
+            Assert.Multiple(() => {
+                Assert.That(RoamingHub.NetworkOperator.Id.ToString(),                Is.EqualTo("GraphDefined"));
+                Assert.That(RoamingHub.NetworkOperator.Operator.Name.FirstText(),    Is.EqualTo("GraphDefined GmbH"));
+            });
 
         }
 

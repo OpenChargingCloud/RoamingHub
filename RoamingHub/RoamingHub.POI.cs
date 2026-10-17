@@ -94,16 +94,18 @@ namespace cloud.charging.open.RoamingHub
     /// network, read at the start.
     /// </para>
     /// <para>
-    /// A new roaming network is made here with the public keys of its roaming network operator, and nothing else
-    /// but a name and a description: the RNO keeps its private keys, and this hub holds none of them. Everything
-    /// else comes as change sets, which this hub takes from everybody - over HTTP and over the WebSocket of the
-    /// network's history - because what a change set may change is decided by the signatures of its owners, not
-    /// by who sent it. A first commit is so the RNO's adding a charging station operator with its keys, and a
-    /// second one that operator's adding its charging pools.
+    /// This hub is a roaming network operator, see <see cref="HubRoamingNetworkOperator"/>: made at its first
+    /// start with keys of its own, and serving no roaming network yet. A new roaming network is made here with
+    /// nothing but a name and a description, and this hub as its operator; its commits are signed by the
+    /// operator's signing key. This hub adds its parties - charging station operators and the others, with their
+    /// public keys - with change sets it signs. Everything else comes as change sets, which this hub takes from
+    /// everybody - over HTTP and over the WebSocket of the network's history - because what a change set may
+    /// change is decided by the signatures of its owners, not by who sent it: the second commit of a roaming
+    /// network is so its first charging station operator, and the third one that operator's charging pools.
     /// </para>
     /// <para>
-    /// Who may make a roaming network is the permission poi:edit, which only the administrators have out of the
-    /// box: somebody who makes one says whose keys rule it.
+    /// Who may make a roaming network and add its parties is the permission poi:edit, which only the
+    /// administrators have out of the box: it signs with the keys of this hub.
     /// </para>
     /// </remarks>
     public partial class RoamingHub
@@ -131,7 +133,7 @@ namespace cloud.charging.open.RoamingHub
         /// <summary>
         /// What a roaming network to be made may say of itself; everything else is added by change sets.
         /// </summary>
-        public static readonly IReadOnlyList<String>  NewRoamingNetworkProperties  = [ "@id", "@context", "name", "description", "signingKeys", "identityKeys" ];
+        public static readonly IReadOnlyList<String>  NewRoamingNetworkProperties  = [ "@id", "@context", "name", "description" ];
 
         private readonly List<RoamingNetworkHistoryFileStore> poiStores = [];
 
@@ -162,6 +164,9 @@ namespace cloud.charging.open.RoamingHub
         /// </summary>
         private void BuildPOI()
         {
+
+            // Who signs what this hub makes of them: see RoamingHub.RoamingNetworkOperator.cs.
+            BuildNetworkOperator();
 
             POIDirectory  = Path.Combine(Path.GetDirectoryName(ConfigFile.Path) ?? ".", POIDirectoryName);
 
@@ -206,6 +211,10 @@ namespace cloud.charging.open.RoamingHub
                     lock (poiLock)
                         poiStores.Add(store);
 
+                    // The commits made here of a roaming network this hub operates are signed by its operator.
+                    if (NetworkOperator.Operates(history.Head.RoamingNetwork))
+                        history.Signers = [ NetworkOperator.CommitSigner() ];
+
                     Watch(history);
 
                     Log.Info($"The roaming network '{history.RoamingNetworkId}' from '{directory}', at revision {history.Head.Commit.Revision}.", "poi");
@@ -246,26 +255,19 @@ namespace cloud.charging.open.RoamingHub
         #endregion
 
 
-        #region CreateRoamingNetwork(Id, SigningKeys, IdentityKeys, Name = null, Description = null)
+        #region CreateRoamingNetwork(Id, Name = null, Description = null)
 
         /// <summary>
         /// Make a new roaming network, store it below "poi" and serve it: its genesis commit, revision 0, with
-        /// the public keys of its roaming network operator.
+        /// this hub as its roaming network operator, signed by it.
         /// </summary>
         /// <param name="Id">Its identification, which is the name of its directory as well: see <see cref="NewRoamingNetworkIdPattern"/>.</param>
-        /// <param name="SigningKeys">The public keys its RNO signs its change sets with, at least one.</param>
-        /// <param name="IdentityKeys">The public long-term keys its RNO changes its keys with, at least one; two with different validities are advised.</param>
         /// <param name="Name">Its name.</param>
         /// <param name="Description">What it is.</param>
-        public RoamingNetworkCreation CreateRoamingNetwork(RoamingNetwork_Id           Id,
-                                                           IEnumerable<POIPublicKey>   SigningKeys,
-                                                           IEnumerable<POIPublicKey>   IdentityKeys,
-                                                           I18NString?                 Name          = null,
-                                                           I18NString?                 Description   = null)
+        public RoamingNetworkCreation CreateRoamingNetwork(RoamingNetwork_Id  Id,
+                                                           I18NString?        Name          = null,
+                                                           I18NString?        Description   = null)
         {
-
-            var signingKeys   = SigningKeys. ToArray();
-            var identityKeys  = IdentityKeys.ToArray();
 
             #region What it must be
 
@@ -273,21 +275,14 @@ namespace cloud.charging.open.RoamingHub
                 return Invalid($"'{Id}' can not be the identification of a roaming network made here: it is the name of its directory as well, " +
                                "so it is letters, digits, '-' and '_', at most 64 of them, beginning with a letter or a digit.");
 
-            if (signingKeys.Length == 0)
-                return Invalid($"The roaming network '{Id}' needs at least one signing key of its roaming network operator: without one, nobody can ever sign a change of it.");
-
-            if (identityKeys.Length == 0)
-                return Invalid($"The roaming network '{Id}' needs at least one identity key of its roaming network operator: without one, nobody can ever replace its keys.");
-
             RoamingNetwork network;
 
             try
             {
                 network = new RoamingNetwork(Id,
-                                             Name:          Name        is not null && !Name.       IsNullOrEmpty() ? new ImmutableI18NString(Name)        : null,
-                                             Description:   Description is not null && !Description.IsNullOrEmpty() ? new ImmutableI18NString(Description) : null,
-                                             SigningKeys:   signingKeys,
-                                             IdentityKeys:  identityKeys);
+                                             Name:         Name        is not null && !Name.       IsNullOrEmpty() ? new ImmutableI18NString(Name)        : null,
+                                             Description:  Description is not null && !Description.IsNullOrEmpty() ? new ImmutableI18NString(Description) : null,
+                                             Operator:     NetworkOperator.Operator);
             }
             catch (Exception e)
             {
@@ -325,7 +320,7 @@ namespace cloud.charging.open.RoamingHub
 
                     store        = new RoamingNetworkHistoryFileStore(directory);
 
-                    var history  = RoamingNetworkHistory.Start(network, Store: store);
+                    var history  = RoamingNetworkHistory.Start(network, Signers: [ NetworkOperator.CommitSigner() ], Store: store);
 
                     if (!POI.AddRoamingNetworkHistory(history))
                         throw new InvalidOperationException($"The roaming network '{Id}' could not be served.");
@@ -338,8 +333,8 @@ namespace cloud.charging.open.RoamingHub
                     PublishAsDatexII(history);
 
                     return new (RoamingNetworkCreationStatus.Created,
-                                $"The roaming network '{Id}' was made, at revision 0, commit {history.Head.Commit.Id}. " +
-                                $"Its roaming network operator adds its parties now, with change sets it signs.",
+                                $"The roaming network '{Id}' was made, at revision 0, commit {history.Head.Commit.Id}, operated by this hub, '{NetworkOperator.Id}'. " +
+                                $"Its parties are added now, with change sets this hub signs.",
                                 history);
 
                 }
@@ -373,48 +368,38 @@ namespace cloud.charging.open.RoamingHub
         #region CreateRoamingNetwork(JSON)
 
         /// <summary>
-        /// Make a new roaming network as the given JSON says: {"@id", "name"?, "description"?, "signingKeys",
-        /// "identityKeys"}, as POI 3 writes a roaming network, and nothing else. A key is a public key as POI 3
-        /// writes it, {"@id"?, "key", "notBefore"?, "notAfter"?}, or the Base64 of its COSE key alone; its
-        /// identification is calculated where it is not given.
+        /// Make a new roaming network as the given JSON says: {"@id", "name"?, "description"?}, as POI 3 writes a
+        /// roaming network, and nothing else: its operator is this hub, with the keys of this hub.
         /// </summary>
         /// <param name="JSON">The roaming network to be made.</param>
         public RoamingNetworkCreation CreateRoamingNetwork(JObject JSON)
         {
 
             if (JSON.Properties().FirstOrDefault(property => !NewRoamingNetworkProperties.Contains(property.Name)) is JProperty other)
-                return Invalid($"A roaming network is made with {String.Join(", ", NewRoamingNetworkProperties.Where(name => name != "@context"))} only, not with '{other.Name}': " +
-                               "everything else in it is added by change sets its owners sign.");
+                return Invalid(other.Name is "signingKeys" or "identityKeys" or RoamingNetworkOperator.JSONProperty
+                                   ? $"A roaming network made here is operated by this hub, '{NetworkOperator.Id}', with its keys: '{other.Name}' is not given."
+                                   : $"A roaming network is made with {String.Join(", ", NewRoamingNetworkProperties.Where(name => name != "@context"))} only, not with '{other.Name}': " +
+                                      "everything else in it is added by change sets its owners sign.");
 
             if (JSON["@id"]?.Type != JTokenType.String || !RoamingNetwork_Id.TryParse(JSON["@id"]!.Value<String>()!, out var id))
                 return Invalid("A roaming network needs an identification, '@id'.");
 
-            if (!TryParsePublicKeys(JSON["signingKeys"],  "signing key",  out var signingKeys,  out var error) ||
-                !TryParsePublicKeys(JSON["identityKeys"], "identity key", out var identityKeys, out error))
-            {
-                return Invalid($"The roaming network '{id}' can not be made: {error}");
-            }
-
             // Its name and its description - and its context, where it says one - are read as a roaming
-            // network reads them, keys and all.
-            // When it is made is when this hub makes it; given here only as a roaming network is read with one.
+            // network reads them. When it is made is when this hub makes it; given here only as a roaming
+            // network is read with one.
             var parsed = new JObject(
-                             new JProperty("@id",           id.ToString()),
-                             new JProperty("created",       Timestamp.Now.ToISO8601()),
-                             new JProperty("signingKeys",   new JArray(signingKeys. Select(key => key.ToJSON()))),
-                             new JProperty("identityKeys",  new JArray(identityKeys.Select(key => key.ToJSON())))
+                             new JProperty("@id",      id.ToString()),
+                             new JProperty("created",  Timestamp.Now.ToISO8601())
                          );
 
             foreach (var name in new[] { "@context", "name", "description" })
                 if (JSON[name] is JToken text && text.Type != JTokenType.Null)
                     parsed[name] = text;
 
-            if (!RoamingNetwork.TryParse(parsed, out var network, out error))
+            if (!RoamingNetwork.TryParse(parsed, out var network, out var error))
                 return Invalid($"The roaming network '{id}' can not be made: {error}");
 
             return CreateRoamingNetwork(id,
-                                        network.SigningKeys,
-                                        network.IdentityKeys,
                                         network.Name.       IsNullOrEmpty() ? null : network.Name.       ToMutable(),
                                         network.Description.IsNullOrEmpty() ? null : network.Description.ToMutable());
 
@@ -499,7 +484,7 @@ namespace cloud.charging.open.RoamingHub
 
             if (JSON is not JArray array || array.Count == 0)
             {
-                ErrorResponse = $"its roaming network operator needs at least one {Kind}, '{Kind.Replace(" key", "")}Keys': [...]";
+                ErrorResponse = $"it needs at least one {Kind}, '{Kind.Replace(" key", "")}Keys': [...]";
                 return false;
             }
 

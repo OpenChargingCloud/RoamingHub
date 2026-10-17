@@ -1,7 +1,7 @@
 /**
  * The points of interest drawn, in a document of happy-dom, against a stand-in POI API: a list at the URL of the
  * page, searched and paged by asking that URL again, and counted by what the API says in X-Total-Count and
- * X-Filtered-Count. And a new roaming network, made below their list by whoever may.
+ * X-Filtered-Count. And a new roaming network, made below their list by whoever may, and a new party of one.
  */
 
 import { asked, field, open, refused, submit, type, until, type Asked } from '../../test/hub.ts';
@@ -274,16 +274,16 @@ describe('a new roaming network', () => {
 
     });
 
-    it('is asked for with what was typed in, and the form emptied once it is made', async () => {
+    it('is asked for with what was typed in, without keys, and the form emptied once it is made', async () => {
 
         const root = await open(poiNetworksPage, '/poi/RNs', [ 'poi:edit' ],
                                 making(() => ({ message: 'made', roamingNetwork: { '@id': 'QA' }, revision: 0, commitId: 'c0' })),
                                 listed);
 
-        type(field(root, '#network-form', 'id'),                                 'QA');
-        type(field(root, '#network-form', 'name'),                               'Quality assurance');
-        type(field<HTMLTextAreaElement>(root, '#network-form', 'signingKeys'),   'pAECIAEh');
-        type(field<HTMLTextAreaElement>(root, '#network-form', 'identityKeys'),  'pAECIAMh1\npAECIAMh2');
+        assert.equal(root.querySelector('#network-form [name="signingKeys"]'), null, 'asked for keys: its operator is this hub');
+
+        type(field(root, '#network-form', 'id'),    'QA');
+        type(field(root, '#network-form', 'name'),  'Quality assurance');
 
         submit(root, '#network-form');
 
@@ -291,10 +291,8 @@ describe('a new roaming network', () => {
         await until(() => field(root, '#network-form', 'id').value === '', 'the form was not emptied');
 
         assert.deepEqual(asked.find(one => one.method === 'POST')!.body, {
-                             '@id':         'QA',
-                             name:          { en: 'Quality assurance' },
-                             signingKeys:   [ 'pAECIAEh' ],
-                             identityKeys:  [ 'pAECIAMh1', 'pAECIAMh2' ]
+                             '@id':  'QA',
+                             name:   { en: 'Quality assurance' }
                          });
 
     });
@@ -305,9 +303,7 @@ describe('a new roaming network', () => {
                                 making(() => refused(409, "This hub serves a roaming network 'QA' already.")),
                                 listed);
 
-        type(field(root, '#network-form', 'id'),                                 'QA');
-        type(field<HTMLTextAreaElement>(root, '#network-form', 'signingKeys'),   'pAECIAEh');
-        type(field<HTMLTextAreaElement>(root, '#network-form', 'identityKeys'),  'pAECIAMh');
+        type(field(root, '#network-form', 'id'),  'QA');
 
         submit(root, '#network-form');
 
@@ -315,6 +311,103 @@ describe('a new roaming network', () => {
 
         assert.match(root.querySelector('#network-error')!.textContent!, /serves a roaming network 'QA' already/);
         assert.equal(field(root, '#network-form', 'id').value, 'QA');
+
+    });
+
+});
+
+
+describe('a new party of a roaming network', () => {
+
+    /** The stand-in POI API, and the hub adding a party as it is asked to - or saying why not. */
+    function adding(answer: (one: Asked) => unknown) {
+        return (one: Asked): unknown => one.method === 'POST' && one.path.startsWith('/poi/roamingNetworks/')
+                                            ? answer(one)
+                                            : poiAPI(one);
+    }
+
+    const listed = (root: HTMLElement) => root.querySelector('tbody') !== null;
+
+    it('is offered below the list to whoever may add one, and to nobody else', async () => {
+
+        const viewer   = await open(poiNetworksPage, '/poi/RNs', [ 'peers:read' ],  poiAPI, listed);
+        assert.equal(viewer.querySelector('#party-form'), null, 'offered to somebody who may not add one');
+
+        const admin    = await open(poiNetworksPage, '/poi/RNs', [ 'poi:edit' ],    poiAPI, listed);
+        assert.ok(admin.querySelector('#party-form'), 'not offered to whoever may add one');
+
+    });
+
+    it('is asked for at the list of its kind, with its public keys, and the form emptied once it is added', async () => {
+
+        const root = await open(poiNetworksPage, '/poi/RNs', [ 'poi:edit' ],
+                                adding(() => ({ message: 'added', revision: 1, commitId: 'c1' })),
+                                listed);
+
+        type(field(root, '#party-form', 'roamingNetwork'),                       'QA');
+        type(field(root, '#party-form', 'id'),                                   'DE*QAC');
+        type(field(root, '#party-form', 'name'),                                 'QA Charging');
+        type(field<HTMLTextAreaElement>(root, '#party-form', 'signingKeys'),     'pAECIAEh');
+        type(field<HTMLTextAreaElement>(root, '#party-form', 'identityKeys'),    'pAECIAMh1\npAECIAMh2');
+
+        submit(root, '#party-form');
+
+        await until(() => asked.some(one => one.method === 'POST'), 'the hub was not asked');
+        await until(() => field(root, '#party-form', 'id').value === '', 'the form was not emptied');
+
+        const post = asked.find(one => one.method === 'POST')!;
+
+        assert.equal(post.path, '/poi/roamingNetworks/QA/chargingStationOperators');
+        assert.deepEqual(post.body, {
+                             '@id':         'DE*QAC',
+                             name:          { en: 'QA Charging' },
+                             signingKeys:   [ 'pAECIAEh' ],
+                             identityKeys:  [ 'pAECIAMh1', 'pAECIAMh2' ]
+                         });
+
+    });
+
+    it('adds a grid operator not taking part without keys', async () => {
+
+        const root = await open(poiNetworksPage, '/poi/RNs', [ 'poi:edit' ],
+                                adding(() => ({ message: 'added', revision: 1, commitId: 'c1' })),
+                                listed);
+
+        type(field(root, '#party-form', 'roamingNetwork'),  'QA');
+        type(field(root, '#party-form', 'id'),              'DE*NET');
+
+        const kind = field<HTMLSelectElement>(root, '#party-form', 'kind');
+        kind.value = 'gridOperators';
+        kind.dispatchEvent(new Event('change', { bubbles: true }));
+
+        submit(root, '#party-form');
+
+        await until(() => asked.some(one => one.method === 'POST'), 'the hub was not asked');
+
+        const post = asked.find(one => one.method === 'POST')!;
+
+        assert.equal(post.path, '/poi/roamingNetworks/QA/gridOperators');
+        assert.deepEqual(post.body, { '@id': 'DE*NET' });
+
+    });
+
+    it('says why the hub did not add it, and keeps what was typed in', async () => {
+
+        const root = await open(poiNetworksPage, '/poi/RNs', [ 'poi:edit' ],
+                                adding(() => refused(403, "The roaming network 'QA' is operated by 'Somebody', not by this hub.")),
+                                listed);
+
+        type(field(root, '#party-form', 'roamingNetwork'),                       'QA');
+        type(field(root, '#party-form', 'id'),                                   'DE*QAC');
+        type(field<HTMLTextAreaElement>(root, '#party-form', 'signingKeys'),     'pAECIAEh');
+        type(field<HTMLTextAreaElement>(root, '#party-form', 'identityKeys'),    'pAECIAMh');
+
+        submit(root, '#party-form');
+
+        await until(() => root.querySelector('#party-error')!.textContent !== '', 'nothing was said');
+
+        assert.match(root.querySelector('#party-error')!.textContent!, /is operated by 'Somebody', not by this hub/);
+        assert.equal(field(root, '#party-form', 'id').value, 'DE*QAC');
 
     });
 

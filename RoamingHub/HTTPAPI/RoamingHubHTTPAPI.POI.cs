@@ -22,6 +22,7 @@ using Newtonsoft.Json.Linq;
 using org.GraphDefined.Vanaheimr.Illias;
 using org.GraphDefined.Vanaheimr.Hermod.HTTP;
 
+using cloud.charging.open.protocols.WWCP.POI;
 using cloud.charging.open.protocols.WWCP.Node.Web;
 
 #endregion
@@ -30,12 +31,13 @@ namespace cloud.charging.open.RoamingHub
 {
 
     /// <summary>
-    /// The part of the JSON API that is about the points of interest: a new roaming network.
+    /// The part of the JSON API that is about the points of interest: the roaming network operator this hub is,
+    /// a new roaming network, and the parties this hub adds to the roaming networks it operates.
     /// </summary>
     /// <remarks>
-    /// Only the making of one: reading them is the POI API's, below "/poi", public as it is; and what is in them
-    /// changes by change sets their owners sign, submitted there as well. Making one says whose keys rule it,
-    /// and is the permission poi:edit.
+    /// Only that: reading the roaming networks is the POI API's, below "/poi", public as it is; and what is in them
+    /// changes by change sets their owners sign, submitted there as well. Making a roaming network and adding a
+    /// party sign with the keys of this hub, and are the permission poi:edit.
     /// </remarks>
     public partial class RoamingHubHTTPAPI
     {
@@ -48,18 +50,36 @@ namespace cloud.charging.open.RoamingHub
         private void RegisterPOIRoutes()
         {
 
-            AddHandler(HTTPPath.Root + "v1/poi/roamingNetworks",  PostRoamingNetwork,  HTTPMethod.POST);
+            AddHandler(HTTPPath.Root + "v1/poi/roamingNetworkOperator",                     GetRoamingNetworkOperator,  HTTPMethod.GET);
+            AddHandler(HTTPPath.Root + "v1/poi/roamingNetworks",                            PostRoamingNetwork,         HTTPMethod.POST);
+            AddHandler(HTTPPath.Root + "v1/poi/roamingNetworks/{roamingNetworkId}/{parties}", PostParty,                  HTTPMethod.POST);
 
         }
 
         #endregion
 
 
+        #region (private) GetRoamingNetworkOperator(Request)
+
+        /// <summary>
+        /// GET /api/v1/poi/roamingNetworkOperator: the roaming network operator this hub is, as every roaming network
+        /// it operates embeds it, with the public halves of its keys - public, as they are in every one of them.
+        /// </summary>
+        private Task<HTTPResponse> GetRoamingNetworkOperator(HTTPRequest Request)
+
+            => Task.FromResult(
+                   JSONResponse(Request,
+                                HTTPStatusCode.OK,
+                                RoamingHub.NetworkOperator.Operator.ToJSON())
+               );
+
+        #endregion
+
         #region (private) PostRoamingNetwork(Request)
 
         /// <summary>
-        /// POST /api/v1/poi/roamingNetworks with {"@id", "name"?, "description"?, "signingKeys",
-        /// "identityKeys"}: make a new roaming network, with the public keys of its roaming network operator.
+        /// POST /api/v1/poi/roamingNetworks with {"@id", "name"?, "description"?}: make a new roaming network,
+        /// operated by this hub.
         /// </summary>
         /// <remarks>
         /// 201 with the network as the POI API lists it and its genesis commit; 400 where it is no roaming network
@@ -90,8 +110,7 @@ namespace cloud.charging.open.RoamingHub
 
             var network = result.History.Head.RoamingNetwork;
 
-            Log.Notice($"'{user.Id}' made the roaming network '{network.Id}', with {network.SigningKeys.Length} signing and " +
-                       $"{network.IdentityKeys.Length} identity key(s) of its roaming network operator.",
+            Log.Notice($"'{user.Id}' made the roaming network '{network.Id}', operated by this hub, '{RoamingHub.NetworkOperator.Id}'.",
                        "poi", "web", "security");
 
             var summary = new JObject(new JProperty("@id", network.Id.ToString()));
@@ -102,6 +121,8 @@ namespace cloud.charging.open.RoamingHub
             if (!network.Description.IsNullOrEmpty())
                 summary["description"]  = network.Description.ToJSON();
 
+            summary[RoamingNetworkOperator.JSONProperty] = new JObject(new JProperty("@id", RoamingHub.NetworkOperator.Id.ToString()));
+
             return Task.FromResult(
                        JSONResponse(Request,
                                     HTTPStatusCode.Created,
@@ -110,6 +131,72 @@ namespace cloud.charging.open.RoamingHub
                                         new JProperty("roamingNetwork",  summary),
                                         new JProperty("revision",        result.History.Head.Commit.Revision),
                                         new JProperty("commitId",        result.History.Head.Commit.Id.ToString())
+                                    ))
+                   );
+
+        }
+
+        #endregion
+
+        #region (private) PostParty(Request)
+
+        /// <summary>
+        /// POST /api/v1/poi/roamingNetworks/{roamingNetworkId}/{chargingStationOperators | eMobilityProviders |
+        /// gridOperators | parkingOperators} with the party as POI 3 writes it, {"@id", "name"?, ..., "signingKeys",
+        /// "identityKeys"}, its public keys: add it to a roaming network this hub operates, signed by this hub.
+        /// </summary>
+        /// <remarks>
+        /// 201 with the commit that added it; 400 where it is no party this hub adds, 404 where there is no such
+        /// roaming network, 403 where another roaming network operator operates it, 409 where it has that party
+        /// already, 422 where its history refused the commit.
+        /// </remarks>
+        private Task<HTTPResponse> PostParty(HTTPRequest Request)
+        {
+
+            if (!TryAuthorize(Request, Permission.Edit(HubAccess.POI), true, out var user, out var refused))
+                return Task.FromResult(refused);
+
+            var parameters = Request.ParsedURLParameters;
+
+            if (parameters.Length < 2 ||
+                !RoamingNetwork_Id.TryParse(parameters[0], out var roamingNetworkId) ||
+                !RoamingHub.PartyTypes.TryGetValue(parameters[1], out var entityType))
+            {
+                return Task.FromResult(
+                           ErrorJSON(Request,
+                                     HTTPStatusCode.NotFound,
+                                     $"A party is added at .../roamingNetworks/{{roamingNetworkId}}/{{{String.Join(" | ", RoamingHub.PartyTypes.Keys)}}}.")
+                       );
+            }
+
+            if (!TryParseJSONObject(Request, out var json, out var errorResponse))
+                return Task.FromResult(errorResponse);
+
+            var result = RoamingHub.AddParty(roamingNetworkId, entityType, json);
+
+            if (!result.Success || result.Commit is null)
+                return Task.FromResult(
+                           ErrorJSON(Request,
+                                     result.Status switch {
+                                         RoamingNetworkPartyStatus.UnknownRoamingNetwork  => HTTPStatusCode.NotFound,
+                                         RoamingNetworkPartyStatus.NotOperatedHere        => HTTPStatusCode.Forbidden,
+                                         RoamingNetworkPartyStatus.Exists                 => HTTPStatusCode.Conflict,
+                                         RoamingNetworkPartyStatus.Refused                => HTTPStatusCode.UnprocessableEntity,
+                                         _                                                => HTTPStatusCode.BadRequest
+                                     },
+                                     result.Message)
+                       );
+
+            Log.Notice($"'{user.Id}' added the {entityType} '{json["@id"]}' to the roaming network '{roamingNetworkId}', signed by this hub, '{RoamingHub.NetworkOperator.Id}'.",
+                       "poi", "web", "security");
+
+            return Task.FromResult(
+                       JSONResponse(Request,
+                                    HTTPStatusCode.Created,
+                                    new JObject(
+                                        new JProperty("message",   result.Message),
+                                        new JProperty("revision",  result.Commit.Revision),
+                                        new JProperty("commitId",  result.Commit.Id.ToString())
                                     ))
                    );
 

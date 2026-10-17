@@ -1,4 +1,4 @@
-import { api, type PublicKey } from '../api/client';
+import { api, type PartyList, type PublicKey } from '../api/client';
 import { poiBase, poiList, poiURL, textOf, type Address, type ChargingPool, type Entity, type ListPart, type Query, type Summary } from '../api/poi';
 import { auth } from '../auth';
 import { fromURL, toURL } from '@node/basePath';
@@ -16,7 +16,8 @@ import { html, live, nothing, render, repeat, type TemplateResult } from '@node/
  * the data, and a search or a page of the list is a URL to keep or to pass on.
  *
  * Public: the POI API is readable by everybody, and so are these pages; nobody signs in for them. Only a new
- * roaming network is made by somebody signed in who may edit the roaming networks, poi:edit: below their list.
+ * roaming network is made, and a party added to one, by somebody signed in who may edit the roaming networks,
+ * poi:edit: below their list.
  * The search is the API's: words separated by spaces or commas, each one found in a text of an entry, whatever its case;
  * a word starting with "!" must not be found.
  */
@@ -382,8 +383,8 @@ export function keysOf(text: string, kind: string): PublicKey[] {
 }
 
 /**
- * A new roaming network, for whoever may make one: its identification, its name, and the public keys of its
- * roaming network operator, who keeps the private ones. Made, the page goes to it.
+ * A new roaming network, for whoever may make one: its identification and its name. Its operator is this hub,
+ * with the keys it made at its first start. Made, the page goes to it.
  */
 function newNetworkCard(navigate: (path: string) => void): TemplateResult | typeof nothing {
 
@@ -401,10 +402,8 @@ function newNetworkCard(navigate: (path: string) => void): TemplateResult | type
             const name  = field(form, 'name');
 
             const made  = await api.poi.create({
-                              '@id':         field(form, 'id'),
-                              name:          name ? { en: name } : undefined,
-                              signingKeys:   keysOf(field(form, 'signingKeys'),  'signing key'),
-                              identityKeys:  keysOf(field(form, 'identityKeys'), 'identity key')
+                              '@id':  field(form, 'id'),
+                              name:   name ? { en: name } : undefined
                           });
 
             // Made: what was typed is no draft any more, and the page of the network is where to go on.
@@ -425,9 +424,9 @@ function newNetworkCard(navigate: (path: string) => void): TemplateResult | type
             <h2><i class="fa-solid fa-plus"></i> New roaming network</h2>
 
             <p class="hint">
-                Its roaming network operator keeps its private keys: this hub gets their public halves, one per line,
-                each the Base64 of its COSE key or a key as POI writes it, <code>{"key": ...}</code>. Everything else
-                in the network comes as change sets its owners sign, submitted to its history.
+                Operated by this hub, which signs its commits with the keys it made at its first start. This hub adds
+                its parties below; everything else in the network comes as change sets its owners sign, submitted to
+                its history.
             </p>
 
             <form id="network-form" class="form-stack"
@@ -446,21 +445,118 @@ function newNetworkCard(navigate: (path: string) => void): TemplateResult | type
 
                 </div>
 
-                <label>Signing keys of its roaming network operator
-                    <textarea name="signingKeys" rows="2" required spellcheck="false" placeholder="pAECIAEhWCD..."></textarea>
+                <div class="form-actions">
+                    <button type="submit" class="btn primary">Make the roaming network</button>
+                    <span id="network-error" class="form-error" role="alert"></span>
+                </div>
+
+            </form>
+
+        </section>`;
+
+}
+
+/** The parties this hub adds: their list in a roaming network, what they are called, and the list of the POI API. */
+export const partyKinds: ReadonlyArray<{ list: PartyList; label: string; segment: string }> = [
+    { list: 'chargingStationOperators',  label: 'Charging station operator',  segment: 'CSOs' },
+    { list: 'eMobilityProviders',        label: 'E-mobility provider',        segment: 'EMPs' },
+    { list: 'gridOperators',             label: 'Grid operator',              segment: 'GOs'  },
+    { list: 'parkingOperators',          label: 'Parking operator',           segment: 'POs'  }
+];
+
+/**
+ * A new party of a roaming network this hub operates, for whoever may add one: a change set this hub signs. The
+ * party keeps its private keys: this hub gets their public halves. Added, the page goes to the list of its kind.
+ */
+function newPartyCard(navigate: (path: string) => void): TemplateResult | typeof nothing {
+
+    if (!auth.can('poi', 'edit'))
+        return nothing;
+
+    async function add(form: HTMLFormElement): Promise<void> {
+
+        const error = must<HTMLElement>(form, '#party-error');
+        error.textContent = '';
+
+        try
+        {
+
+            const roamingNetworkId  = field(form, 'roamingNetwork');
+            const kind              = partyKinds.find(entry => entry.list === field(form, 'kind')) ?? partyKinds[0];
+            const name              = field(form, 'name');
+            const signingKeys       = keysOf(field(form, 'signingKeys'),  'signing key');
+            const identityKeys      = keysOf(field(form, 'identityKeys'), 'identity key');
+
+            await api.poi.addParty(roamingNetworkId, kind.list, {
+                '@id':         field(form, 'id'),
+                name:          name ? { en: name } : undefined,
+                // A grid operator not taking part comes without keys: the hub signs in its place.
+                signingKeys:   signingKeys. length > 0 || kind.list !== 'gridOperators' ? signingKeys  : undefined,
+                identityKeys:  identityKeys.length > 0 || kind.list !== 'gridOperators' ? identityKeys : undefined
+            });
+
+            form.reset();
+            navigate(`${networkPath(roamingNetworkId)}/${kind.segment}`);
+
+        }
+        catch (problem)
+        {
+            error.textContent = errorMessage(problem);
+        }
+
+    }
+
+    return html`
+        <section class="card wide poi-new-party">
+
+            <h2><i class="fa-solid fa-user-plus"></i> New party of a roaming network</h2>
+
+            <p class="hint">
+                Added by this hub as the operator of the roaming network, with a change set it signs. The party keeps
+                its private keys: this hub gets their public halves, one per line, each the Base64 of its COSE key or
+                a key as POI writes it, <code>{"key": ...}</code>. Its data is its own to add afterwards.
+            </p>
+
+            <form id="party-form" class="form-stack"
+                  @submit=${(event: SubmitEvent) => { event.preventDefault(); void add(event.currentTarget as HTMLFormElement); }}>
+
+                <div class="form-grid">
+
+                    <label>Roaming network
+                        <input type="text" name="roamingNetwork" placeholder="QA" maxlength="64" required autocomplete="off" />
+                    </label>
+
+                    <label>Party
+                        <select name="kind">
+                            ${partyKinds.map(kind => html`<option value=${kind.list}>${kind.label}</option>`)}
+                        </select>
+                    </label>
+
+                    <label>Identification
+                        <input type="text" name="id" placeholder="DE*QAC" maxlength="64" required autocomplete="off" />
+                    </label>
+
+                    <label>Name
+                        <input type="text" name="name" placeholder="QA Charging" maxlength="100" />
+                    </label>
+
+                </div>
+
+                <label>Signing keys
+                    <textarea name="signingKeys" rows="2" spellcheck="false" placeholder="pAECIAEhWCD..."></textarea>
                 </label>
 
-                <label>Identity keys of its roaming network operator
-                    <textarea name="identityKeys" rows="3" required spellcheck="false" placeholder="pAECIAMhWEIB..."></textarea>
+                <label>Identity keys
+                    <textarea name="identityKeys" rows="3" spellcheck="false" placeholder="pAECIAMhWEIB..."></textarea>
                     <span class="hint">
-                        Two at least, with different validities, one of them kept offline: nobody can replace them
-                        once they are lost.
+                        At least one of each; for an identity key, two with different validities, one of them kept
+                        offline. A grid operator not taking part comes without keys.
                     </span>
                 </label>
 
                 <div class="form-actions">
-                    <button type="submit" class="btn primary">Make the roaming network</button>
-                    <span id="network-error" class="form-error" role="alert"></span>
+                    <button type="submit" class="btn primary">Add the party</button>
+                    <span id="party-error" class="form-error" role="alert"></span>
                 </div>
 
             </form>
@@ -483,7 +579,7 @@ export const poiNetworksPage: Page = listPage<Summary>({
             <td>${textOf(entry.name)}</td>
             <td class="muted">${textOf(entry.description)}</td>
         </tr>`,
-    below:        newNetworkCard
+    below:        navigate => html`${newNetworkCard(navigate)}${newPartyCard(navigate)}`
 });
 
 /** The charging pools of every operator of a roaming network: what the points of interest are about. */

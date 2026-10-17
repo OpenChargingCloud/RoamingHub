@@ -276,9 +276,7 @@ namespace cloud.charging.open.RoamingHub.Tests
             var response      = await admin.PostAsync(NewPath,
                                                       new StringContent(new JObject(
                                                                             new JProperty("@id",           Id),
-                                                                            new JProperty("name",          new JObject(new JProperty("en", "Quality assurance"))),
-                                                                            new JProperty("signingKeys",   new JArray(POIPublicKey.From(rnoSigningKey).ToJSON())),
-                                                                            new JProperty("identityKeys",  new JArray(POIPublicKey.From(rnoIdentityKey).ToJSON()["key"]!))
+                                                                            new JProperty("name",          new JObject(new JProperty("en", "Quality assurance")))
                                                                         ).ToString(),
                                                                         Encoding.UTF8,
                                                                         "application/json"));
@@ -455,9 +453,7 @@ namespace cloud.charging.open.RoamingHub.Tests
             using var admin     = await SignedIn();
 
             var made            = await admin.PostAsync("api/v1/poi/roamingNetworks",
-                                                        JSONBody(new JProperty("@id",           "QA"),
-                                                                 new JProperty("signingKeys",   new JArray(POIPublicKey.From((ECPrivateKeyParameters) rnoSigningKey. GenerateKeyPair().Private).ToJSON())),
-                                                                 new JProperty("identityKeys",  new JArray(POIPublicKey.From((ECPrivateKeyParameters) rnoIdentityKey.GenerateKeyPair().Private).ToJSON()["key"]!))));
+                                                        JSONBody(new JProperty("@id",           "QA")));
 
             Assert.That(made.StatusCode, Is.EqualTo(HttpStatusCode.Created), await made.Content.ReadAsStringAsync());
 
@@ -692,9 +688,7 @@ namespace cloud.charging.open.RoamingHub.Tests
         public async Task ANetworkMadeAtRuntimeIsPushedOverMutualTLS()
         {
 
-            Assert.That(roamingHub.CreateRoamingNetwork(RoamingNetwork_Id.Parse("QA"),
-                                                        new[] { POIPublicKey.From(NewKey(COSECurve.P256)) },
-                                                        new[] { POIPublicKey.From(NewKey(COSECurve.P521)) }).Success,
+            Assert.That(roamingHub.CreateRoamingNetwork(RoamingNetwork_Id.Parse("QA")).Success,
                         Is.True);
 
             Assert.That(await Eventually(() => { lock (pushes) return pushes.Count >= 2; }), Is.True, "The table and the full status were not pushed.");

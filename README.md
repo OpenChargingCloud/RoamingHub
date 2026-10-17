@@ -40,7 +40,7 @@ what goes between them.
 | Who may do what | three roles - `viewer`, `hub` and `systemadmin` - over the node's resources and the hub's two, `peers` and `traffic`, and whatever the configuration file adds |
 | The web interface | all of the above in a browser: the traffic as it happens, the peers, the name servers, the time servers, the certificates and the log |
 | HubClientInfo | who is on this hub and whether they can be reached, over OCPI and on the Peers page |
-| The points of interest | roaming networks of POI 3 below `/poi`, public: made here with the public keys of their roaming network operator, and filled by change sets their owners sign |
+| The points of interest | roaming networks of POI 3 below `/poi`, public: operated by this hub, which is a roaming network operator with keys of its own, and filled by change sets their owners sign |
 
 **What is not here yet.** Forwarding what one peer sends to another, which is
 what would make this hub more than a directory. That is the next thing.
@@ -466,20 +466,52 @@ a directory below `poi/` beside the configuration file, its history's store,
 read back at every start; one that cannot be read is said in the log and left
 alone.
 
-A new roaming network is made with the public keys of its roaming network
-operator and nothing else but a name and a description:
-`CreateRoamingNetwork(id, signingKeys, identityKeys, name)` in C#,
-`POST /api/v1/poi/roamingNetworks` with `{"@id", "name"?, "description"?,
-"signingKeys", "identityKeys"}`, the form below the list of the roaming
-networks, or `roamingNetworks add` at the command line. A key is the Base64 of
-its COSE key or a key as POI writes it, its identification calculated where it
-is not given; a private key is refused, as it is private no more once it was
-sent. The identification is the name of its directory as well: letters, digits,
-`-` and `_`, at most 64 of them. 201 with its genesis commit, 400 where it is no
-roaming network this hub makes - one with a party or a registry in it among
-them, as nothing in a genesis is signed - 409 where there is one of the same
-identification already, also in another case, and 500 where its store could
-not be written. Making one is `poi:edit`.
+The hub is a **roaming network operator** (`RoamingHub.RoamingNetworkOperator.cs`).
+At its first start it makes a signing key (P-256) and an identity key (P-521)
+and keeps them below `roamingNetworkOperator/` beside the configuration file:
+`operator.json`, the operator as its roaming networks embed it, with the public
+halves of the keys, and `signing-key.pem` and `identity-key.pem`, the private
+keys as PKCS #8, readable only by the account the hub runs as. It is read back
+at every start; a missing private key stops the start, as a new one would be
+none its roaming networks know. Who it is is said once, at the first start, by
+the section `roamingNetworkOperator` of the configuration file,
+`{"@id": "GraphDefined", "name": "GraphDefined GmbH"}`; without it, it is
+`RNO-` and the first eight hex digits of its identity key. Keep a copy of both
+keys where nobody else can read it: without the identity key, the keys of the
+roaming networks it operates can never be replaced. `roamingNetworkOperator` at
+the command line and `GET /api/v1/poi/roamingNetworkOperator`, public, show it
+with its public keys. A fresh hub serves no roaming network.
+
+A new roaming network is made with nothing but a name and a description, and
+this hub as its operator: `CreateRoamingNetwork(id, name)` in C#,
+`POST /api/v1/poi/roamingNetworks` with `{"@id", "name"?, "description"?}`, the
+form below the list of the roaming networks, or `roamingNetworks add <id>
+[<name>]` at the command line. The identification is the name of its directory
+as well: letters, digits, `-` and `_`, at most 64 of them. 201 with its genesis
+commit, 400 where it is no roaming network this hub makes - one with keys, an
+operator, a party or a registry in it among them - 409 where there is one of
+the same identification already, also in another case, and 500 where its store
+could not be written. Every commit the hub makes of a roaming network it
+operates is signed by its signing key, in the role `roamingNetworkOperator`.
+
+The hub adds the parties of a roaming network it operates - charging station
+operators, e-mobility providers, grid operators and parking operators - with a
+change set it signs: `AddParty(roamingNetworkId, entityType, json)` in C#,
+`POST /api/v1/poi/roamingNetworks/{id}/chargingStationOperators` (or
+`eMobilityProviders`, `gridOperators`, `parkingOperators`) with the party as
+POI writes it, `{"@id", "name"?, …, "signingKeys", "identityKeys"}`, the second
+form below the list, or `roamingNetworks <id> add chargingStationOperator
+<operatorId> signingKey <key> identityKey <key> [<name>]` at the command line.
+The party keeps its private keys: a key is the Base64 of its COSE key or a key
+as POI writes it, its identification calculated where it is not given, and a
+private key is refused, as it is private no more once it was sent. A grid
+operator not taking part comes without keys. 201 with the commit, 400 where it
+is no party this hub adds, 403 where another operator operates the network,
+404 where there is no such network, 409 where it has that party already, and
+422 where its history refused the commit, e.g. for a party with its charging
+pools in it: they are its own to add. `roamingNetworks <id>` shows a network
+with its parties and their keys. Making a network and adding a party is
+`poi:edit`.
 
 Everything else in a roaming network comes as change sets, which the hub takes
 from everybody, over HTTP and over the WebSocket of its history: what a change
@@ -563,7 +595,7 @@ and the resources are the node's four, `configuration`, `dns`, `nts` and
 |---|---|
 | `peers` | who is on this hub - read; edited, a peer added, suspended, resumed or removed, and the token it signs in with shown; run, the credentials handshake with one |
 | `traffic` | what went between the peers - read, and nothing else |
-| `poi` | the roaming networks of the points of interest - edited, a new one made with the public keys of its roaming network operator; reading them needs nothing, as the POI API is public, and what is in them changes by change sets their owners sign, not by a role |
+| `poi` | the roaming networks of the points of interest - edited: a new one made, operated by this hub, and a party added to one, signed with the keys of this hub; reading them needs nothing, as the POI API is public, and what is in them changes by change sets their owners sign, not by a role |
 
 A hub brings three roles:
 
@@ -670,13 +702,19 @@ API, a refusal naming the roles that would have been let in, a role the
 configuration file adds heard by the API, and the clock read with the time
 servers' permission; and what the certificate store keeps - TLS's four kinds
 and none of a vehicle's, and what each of them may be told, as the store says
-it. And the points of interest: a roaming network made by an administrator
-with the public keys of its RNO, served and stored, and nobody signed in
-making one; one with no signing or no identity key, a private key, a wrong
-thumbprint, a party in it or a path for a name refused, and a second one of
-the same identification in another case; a charging station operator and its
-pool submitted by somebody not signed in, each signed by its owner, and the
-pool signed by the RNO refused; and the network there after a restart. And
+it. And the points of interest: the hub a roaming network operator from its
+first start, its keys kept and served as their public halves, the same one
+after a restart and none without its private key, and the one the
+configuration names; a roaming network made by an administrator, operated by
+the hub and its genesis signed by it, served and stored, and nobody signed in
+making one or adding a party; one with keys, an operator, a party in it or a
+path for a name refused, and a second one of the same identification in
+another case; a charging station operator added by the hub and its pool
+submitted by somebody not signed in, signed by the operator, and the pool
+signed by another key refused; a party of no network, of no kind, without a
+signing key, with a private key, with its pools or a second time refused; a
+network of another operator served but not added to; and the network there
+after a restart, signed by the hub again. And
 DATEX II: the `datex2` section read and written again, pull on by default,
 what is wrong in it named by its field, a network named twice refused; a
 network the section names published as XML, JSON and the JSON of the

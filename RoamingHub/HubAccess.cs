@@ -69,7 +69,8 @@ namespace cloud.charging.open.RoamingHub
 
         /// <summary>
         /// The roaming networks of the points of interest: edited, a new one
-        /// made, named and given the keys of its roaming network operator.
+        /// made, operated by this hub, and a party added to one, signed with
+        /// the keys of this hub.
         /// Reading them needs nothing, as the POI API is public, and what is
         /// in them is changed by change sets their owners sign, not by a role.
         /// </summary>

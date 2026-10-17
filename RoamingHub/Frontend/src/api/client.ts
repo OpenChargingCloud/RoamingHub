@@ -271,26 +271,42 @@ export interface CallPage {
 
 
 /**
- * A public key of a roaming network operator: the Base64 of its COSE key, or
- * the key as POI 3 writes it, {"@id"?, "key", "notBefore"?, "notAfter"?}.
+ * A public key of a party: the Base64 of its COSE key, or the key as POI 3
+ * writes it, {"@id"?, "key", "notBefore"?, "notAfter"?}.
  */
 export type PublicKey = string | { '@id'?: string; key: string; notBefore?: string; notAfter?: string };
 
-/** A roaming network to be made: what names it, and the public keys of its roaming network operator. */
+/** A roaming network to be made: what names it. Its operator is this hub. */
 export interface RoamingNetworkSpec {
     '@id':         string;
     name?:         Record<string, string>;
     description?:  Record<string, string>;
-    signingKeys:   PublicKey[];
-    identityKeys:  PublicKey[];
 }
 
-/** What the hub says of a roaming network it made: at revision 0, with its genesis commit. */
+/** What the hub says of a roaming network it made: at revision 0, with its genesis commit, operated by the hub. */
 export interface RoamingNetworkMade {
     message:         string;
-    roamingNetwork:  { '@id': string; name?: Record<string, string>; description?: Record<string, string> };
+    roamingNetwork:  { '@id': string; name?: Record<string, string>; description?: Record<string, string>; roamingNetworkOperator?: { '@id': string } };
     revision:        number;
     commitId:        string;
+}
+
+/** The lists of the parties of a roaming network the hub adds to: the last segment of where a party is added. */
+export type PartyList = 'chargingStationOperators' | 'eMobilityProviders' | 'gridOperators' | 'parkingOperators';
+
+/** A party to be added: what names it, and its public keys. A grid operator not taking part comes without keys. */
+export interface PartySpec {
+    '@id':          string;
+    name?:          Record<string, string>;
+    signingKeys?:   PublicKey[];
+    identityKeys?:  PublicKey[];
+}
+
+/** What the hub says of a party it added, with a change set it signed: the commit. */
+export interface PartyAdded {
+    message:   string;
+    revision:  number;
+    commitId:  string;
 }
 
 
@@ -388,10 +404,13 @@ export const api = {
     /** Every party that has been at either end of a call. */
     trafficPeers: () => request<{ peers: string[] }>('GET', '/traffic/peers'),
 
-    /** The points of interest: a new roaming network, with the public keys of its roaming network operator. */
+    /** The points of interest: a new roaming network operated by this hub, and a new party of one. */
     poi: {
 
-        create: (spec: RoamingNetworkSpec) => request<RoamingNetworkMade>('POST', '/poi/roamingNetworks', spec)
+        create:    (spec: RoamingNetworkSpec) => request<RoamingNetworkMade>('POST', '/poi/roamingNetworks', spec),
+
+        addParty:  (roamingNetworkId: string, list: PartyList, spec: PartySpec) =>
+                       request<PartyAdded>('POST', `/poi/roamingNetworks/${encodeURIComponent(roamingNetworkId)}/${list}`, spec)
 
     }
 
