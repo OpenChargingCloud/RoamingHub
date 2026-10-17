@@ -189,10 +189,24 @@ body. What failed is an error in the log, tagged `ocpi` and `http`, with the
 call's method and path, the peer or the address it came from, and the same
 ids - not its headers, whose `Authorization` is a token.
 
-It is in memory and nowhere else, because how long a hub may keep its peers'
-business is a question with a different answer in every jurisdiction. A
-deployment that has to keep more should read the stream and put it where it
-has decided to keep it.
+It is in memory and nowhere else to begin with, because how long a hub may
+keep its peers' business is a question with a different answer in every
+jurisdiction - so the hub does not answer it, and an upgrade must not answer
+it either.
+
+A deployment that has decided may say so:
+
+```json
+"ocpi": { "logging": { "file": true } }
+```
+
+Every call is then also appended to `traffic/` beside the configuration, one
+file per day, one JSON object per line, flushed as it is written. The ring
+buffer stays what it was - the fast answer for the page and the stream - and
+the file is the part that forgets nothing. The `id` of a line belongs to the
+buffer and starts again at one after a restart; a line is found by when it was
+written, and across systems by the OCPI `X-Request-ID` and `X-Correlation-ID`
+that are on the record already.
 
 Reading it is its own permission - `traffic:read` - and not part of
 `configuration:read`: the configuration is what this hub is, and the traffic is

@@ -88,6 +88,17 @@ namespace cloud.charging.open.RoamingHub
         /// </summary>
         private OCPITrafficFile?         trafficFile;
 
+        /// <summary>
+        /// Where the traffic is appended to disk, or null where it is not.
+        /// </summary>
+        /// <remarks>
+        /// So that a hub can say so. Whether what went between the peers
+        /// leaves this process is the kind of thing somebody starting one
+        /// should read on the console rather than find out later.
+        /// </remarks>
+        public String?                   TrafficDirectory
+            => trafficFile?.Directory;
+
         private CommonHTTPAPI            ocpiAPI       = default!;
         private OCPIConfiguration        ocpiSettings  = new ();
 
