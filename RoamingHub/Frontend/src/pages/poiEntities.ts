@@ -4,8 +4,8 @@ import type { Page } from '@node/router';
 import { reloadButton, shell } from '@node/shell';
 import { errorMessage, formatValue, humanizeKey } from '@node/ui';
 import { html, nothing, render, type TemplateResult } from '@node/view';
-import { addressLine, entityURL, evseCountOf, gridConnectionPoints, networkPath, operatorCollections, parkingCollections, poiHome, roamingNetworkOf, sections, sectionsView, type EmbeddedCollection } from './poi';
-import { loadOrigins, type Origin } from './poiOrigins';
+import { addressLine, entityURL, evseCountOf, gridCollections, networkPath, operatorCollections, parkingCollections, poiHome, roamingNetworkOf, sections, sectionsView, type EmbeddedCollection } from './poi';
+import { loadOrigins, type Origin, type Origins } from './poiOrigins';
 
 /**
  * The single things of the points of interest: a roaming network with what it holds, and every entity below it -
@@ -19,11 +19,12 @@ import { loadOrigins, type Origin } from './poiOrigins';
  *
  * A charging station operator is asked for without its charging pools, which may be thousands, each with its
  * stations and EVSEs: its table holds the first of them, from the charging pools of the roaming network. So is a
- * grid operator without its grid connection points, the first of them from its list of them, and a parking operator
- * without its garages, spaces, groups of spaces, sensors and products, the first of each from their lists. Each of
- * them has a page of its own, below its parking operator, and a parking space leads to its garage, sensors and
+ * grid operator without its grid connection points and its energy meter groups, and a parking operator without its
+ * garages, spaces, groups of spaces, sensors and products, the first of each from their lists. Each of what a parking
+ * operator embeds has a page of its own, below its parking operator, and a parking space leads to its garage, sensors and
  * products, as a group to its spaces. So has every charging tariff and every group of a charging station operator,
- * below it, and what names a tariff or pools of it leads there.
+ * below it, and what names a tariff or pools of it leads there; and every energy meter group, below the charging
+ * station operator or the grid operator it is of.
  *
  * Brands are embedded in what they are a brand of, every level its own, each meaning something of its own: an operator
  * is a white-label solution for its brands, a pool, station or EVSE also appears under its brands. A table of them
@@ -35,7 +36,8 @@ import { loadOrigins, type Origin } from './poiOrigins';
  *
  * A charging pool, a charging station, an EVSE and a parking space of a parking operator are drawn as they are at
  * runtime, with the properties their groups give them: what of it a group gives says so, and leads to the group -
- * found by asking the member as it is given, and its groups (see poiOrigins).
+ * found by asking the member as it is given, and its groups (see poiOrigins). So are the energy meters a pool,
+ * station, EVSE or grid connection point embeds, with what their energy meter groups give them.
  */
 
 
@@ -140,8 +142,8 @@ const kinds: Record<string, Kind> = {
     Brands: { label: 'Brand',  icon: 'fa-copyright' },
 
     GOs:    { label: 'Grid operator',  icon: 'fa-bolt',
-              children:   [ listedChildren(gridConnectionPoints) ],
-              parameters: { without: gridConnectionPoints.field } },
+              children:   gridCollections.map(collection => listedChildren(collection)),
+              parameters: { without: gridCollections.map(collection => collection.field).join(',') } },
 
     GCPs:   { label: 'Grid connection point',          icon: 'fa-plug-circle-bolt' },
     EMPs:   { label: 'E-mobility provider',            icon: 'fa-id-card'          },
@@ -153,7 +155,8 @@ const kinds: Record<string, Kind> = {
     // What a parking operator embeds, each below it.
     ...Object.fromEntries(parkingCollections.map(collection => [ collection.segment, { label: collection.one, icon: collection.icon } ])),
 
-    // The charging tariffs and the groups of a charging station operator, each below it.
+    // The charging tariffs and the groups of a charging station operator, each below it; an energy meter group below
+    // a grid operator as well.
     ...Object.fromEntries(operatorCollections.map(collection => [ collection.segment, { label: collection.one, icon: collection.icon } ]))
 
 };
@@ -262,8 +265,14 @@ function away(href: string, text: string): TemplateResult {
 }
 
 
-/** The value of a field, drawn as it reads best; null for one that is a block of fields of its own. */
-function valueView(key: string, value: unknown, steps: Step[]): TemplateResult | string | null {
+/** The fields holding energy meters: in what they measure, a thing of its own each. */
+const meterFields = new Set([ 'energyMeter', 'energyMeters' ]);
+
+/**
+ * The value of a field, drawn as it reads best; null for one that is a block of fields of its own. Within, the field
+ * of the entity holding it, of a thing in it.
+ */
+function valueView(key: string, value: unknown, steps: Step[], within?: string): TemplateResult | string | null {
 
     const network = steps[0]?.path ?? '';
 
@@ -294,7 +303,10 @@ function valueView(key: string, value: unknown, steps: Step[]): TemplateResult |
                         <span class="muted"><code>${point['@id']}</code> of <code>${point.gridOperatorId}</code></span>`;
     }
 
-    if (key === 'manufacturerId' && typeof value === 'string')
+    // The manufacturer of a charging station; the one of an energy meter, also as its group gives it, has no page.
+    const ofMeter = (within !== undefined && meterFields.has(within)) || steps.at(-1)?.segment === 'EMGs';
+
+    if (key === 'manufacturerId' && typeof value === 'string' && !ofMeter)
         return html`<a href=${entityURL(`${network}/CSMs/${encodeURIComponent(value)}`)}><code>${value}</code></a>`;
 
     // What a thing of an operator names of it: a tariff, pools, a garage, sensors, products, spaces.
@@ -378,15 +390,18 @@ function originView(origin: Origin): TemplateResult {
 
 /**
  * The fields of an entity, or of a thing in it, a line each, and a thing of its own as a block below its name; of an
- * entity, where its groups give a value, which ones.
+ * entity, where its groups give a value, which ones, and of an energy meter in it, which its energy meter groups give.
+ * Within, the field of the entity holding the thing.
  */
 function fieldsView(fields:    [ string, unknown ][],
                     steps:     Step[],
-                    origins?:  Map<string, Origin> | null): TemplateResult[] {
+                    origins?:  Map<string, Origin> | null,
+                    meters?:   Map<string, Map<string, Origin>>,
+                    within?:   string): TemplateResult[] {
 
     return inReadingOrder(fields).map(([ key, value ]) => {
 
-        const shown   = valueView(key, value, steps);
+        const shown   = valueView(key, value, steps, within);
         const origin  = origins?.get(key);
 
         return shown !== null
@@ -402,7 +417,11 @@ function fieldsView(fields:    [ string, unknown ][],
                     <div class="nested">
                         ${thingsIn(value)!.map(thing => html`
                             <div class="nested-item">
-                                ${fieldsView(Object.entries(thing), steps)}
+                                ${fieldsView(Object.entries(thing),
+                                             steps,
+                                             meterFields.has(key) && typeof thing['@id'] === 'string' ? meters?.get(thing['@id']) : undefined,
+                                             undefined,
+                                             key)}
                             </div>`)}
                     </div>
                 </div>`;
@@ -512,7 +531,7 @@ function entityPage(segment: string): Page {
 
             let loaded:     Loaded | null              = null;
             let listed:     (ChildrenPart | null)[]    = [];
-            let origins:    Map<string, Origin> | null = null;
+            let origins:    Origins | null             = null;
             let problem:    unknown                    = null;
             let asking:     AbortController | null   = null;
             let cancelled                            = false;
@@ -530,6 +549,11 @@ function entityPage(segment: string): Page {
                                      ? []
                                      : Object.entries(loaded.entity).filter(([ key ]) => !notAField.has(key) && !kind.children?.some(children => children.field === key));
 
+                // What its groups give it, and the energy meters in it their energy meter groups.
+                const given    = origins === null
+                                     ? 0
+                                     : origins.values.size + [ ...origins.meters.values() ].reduce((sum, meter) => sum + meter.size, 0);
+
                 render(content, html`
 
                     ${pathView(steps)}
@@ -543,12 +567,12 @@ function entityPage(segment: string): Page {
 
                                       <section class="card poi-entity">
                                           <h2><i class="fa-solid ${kind.icon}"></i> ${kind.label}</h2>
-                                          ${origins !== null && origins.size > 0
+                                          ${given > 0
                                                 ? html`<p class="muted small poi-origins"><i class="fa-solid fa-layer-group"></i>
-                                                           As it is at runtime: ${origins.size === 1 ? 'one value comes' : `${origins.size} values come`} from its groups.</p>`
+                                                           As it is at runtime: ${given === 1 ? 'one value comes' : `${given} values come`} from its groups.</p>`
                                                 : nothing}
                                           <div class="kv-list">
-                                              ${fieldsView(fields, steps, origins)}
+                                              ${fieldsView(fields, steps, origins?.values, origins?.meters)}
                                           </div>
                                       </section>
 
@@ -768,6 +792,7 @@ export const poiEntityPages: Record<string, Page> = {
     [`${station}/EVSEs/:evse/Brands/:id`]:        entityPage('Brands'),
     [gridOperator]:                  entityPage('GOs'),
     [`${gridOperator}/GCPs/:gcp`]:   entityPage('GCPs'),
+    [`${gridOperator}/EMGs/:id`]:    entityPage('EMGs'),
     [`${network}/EMPs/:emp`]:        entityPage('EMPs'),
     [`${network}/CSMs/:csm`]:        entityPage('CSMs'),
     ...Object.fromEntries(operatorCollections.map(collection => [ `${operator}/${collection.segment}/:id`, entityPage(collection.segment) ])),

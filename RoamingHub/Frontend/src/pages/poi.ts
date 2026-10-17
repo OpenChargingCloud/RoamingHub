@@ -663,6 +663,19 @@ export const gridConnectionPoints: EmbeddedCollection = {
     cells:   point => [ String(point.voltageLevel ?? ''), addressLine(point.address as Address | undefined) ]
 };
 
+/**
+ * The groups of the energy meters of a charging station operator, of its pools, stations and EVSEs, or of a grid
+ * operator, of its grid connection points: giving them what a series of meters has in common.
+ */
+export const energyMeterGroups: EmbeddedCollection = {
+    segment: 'EMGs',  field: 'energyMeterGroups',  label: 'Energy meter groups',  one: 'Energy meter group',  icon: 'fa-gauge',
+    head:    [ 'Meters', 'Manufacturer', 'Model' ],
+    cells:   group => [ idCount(group.energyMeterIds), String(group.manufacturerId ?? ''), String(group.modelId ?? '') ]
+};
+
+/** What a grid operator embeds, each in a list of its own. */
+export const gridCollections: EmbeddedCollection[] = [ gridConnectionPoints, energyMeterGroups ];
+
 /** What a parking operator embeds, each in a list of its own. */
 export const parkingCollections: EmbeddedCollection[] = [
     { segment: 'PGs',   field: 'parkingGarages',      label: 'Parking garages',       one: 'Parking garage',       icon: 'fa-warehouse',
@@ -698,7 +711,8 @@ export const operatorCollections: EmbeddedCollection[] = [
       cells:   group => [ idCount(group.chargingStationIds), String(group.chargingTariffId ?? '') ] },
     { segment: 'EVSEGs',  field: 'EVSEGroups',             label: 'EVSE groups',              one: 'EVSE group',              icon: 'fa-object-group',
       head:    [ 'EVSEs', 'Tariff' ],
-      cells:   group => [ idCount(group.EVSEIds), String(group.chargingTariffId ?? '') ] }
+      cells:   group => [ idCount(group.EVSEIds), String(group.chargingTariffId ?? '') ] },
+    energyMeterGroups
 ];
 
 /** The operator a page below it is of, from its URL: /poi/RNs/{RN_Id}/{CSOs|GOs|POs}/{Id}/... */
@@ -735,8 +749,11 @@ function embeddedListPage(parent:      'CSOs' | 'GOs' | 'POs',
 
 }
 
-/** The grid connection points of a grid operator, as it embeds them: all of them, beyond the first its page shows. */
+/** The grid connection points of a grid operator, as they are at runtime: all of them, beyond the first its page shows. */
 export const poiGridConnectionPointsPage: Page = embeddedListPage('GOs', gridConnectionPoints, 'Where the charging pools are connected to the grid of a grid operator.');
+
+/** The groups of the energy meters of the grid connection points of a grid operator. */
+export const poiGridEnergyMeterGroupsPage: Page = embeddedListPage('GOs', energyMeterGroups, 'The groups of the energy meters of the grid connection points of a grid operator.');
 
 /** The charging tariffs and the groups of a charging station operator, a list each. */
 export const poiOperatorListPages: Record<string, Page> = Object.fromEntries(
@@ -760,6 +777,7 @@ export const poiListPages: Record<string, Page> = {
     [`${poiHome}/:rn/CSMs`]:            poiManufacturersPage,
     [`${poiHome}/:rn/POs`]:             poiParkingPage,
     [`${poiHome}/:rn/GOs/:go/GCPs`]:    poiGridConnectionPointsPage,
+    [`${poiHome}/:rn/GOs/:go/EMGs`]:    poiGridEnergyMeterGroupsPage,
     ...poiOperatorListPages,
     ...poiParkingListPages
 };

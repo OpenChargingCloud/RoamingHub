@@ -9,7 +9,7 @@ import { asked, field, open, refused, submit, type, until, type Asked } from '..
 import { strict as assert }  from 'node:assert';
 import { describe, it }      from 'node:test';
 
-const { addressLine, gridOperatorOf, keysOf, poiChargingPoolsPage, poiGridConnectionPointsPage, poiNetworksPage, poiOperatorListPages, poiOperatorsPage, poiParkingListPages, queryOf, roamingNetworkOf } = await import('./poi.ts');
+const { addressLine, gridOperatorOf, keysOf, poiChargingPoolsPage, poiGridConnectionPointsPage, poiGridEnergyMeterGroupsPage, poiListPages, poiNetworksPage, poiOperatorListPages, poiOperatorsPage, poiParkingListPages, queryOf, roamingNetworkOf } = await import('./poi.ts');
 
 
 /** A part of a list, as the POI API answers: the entries, with the counts in the headers. */
@@ -59,6 +59,9 @@ function poiAPI({ path, query }: Asked): unknown {
     if (path === '/poi/RNs/rn1/GOs/DE*NET/GCPs')
         return listOf([ { '@id': 'GCP1', name: { de: 'Netzanschluss 1' }, voltageLevel: 'LowVoltage',
                           address: { street: 'Netzweg', houseNumber: '1', postalCode: '07743', city: { de: 'Jena' }, country: 'DEU' } } ], 1);
+
+    if (path === '/poi/RNs/rn1/GOs/DE*NET/EMGs')
+        return listOf([ { '@id': 'net-grid-meters', name: { en: 'Grid meters' }, energyMeterIds: [ 'grid-meter-1', 'grid-meter-2' ], manufacturerId: 'ZAP', modelId: 'ZAP-1' } ], 1);
 
     if (path === '/poi/RNs/rn1/CSOs/DE*GEF/EVSEGs')
         return listOf([ { '@id': 'DE*GEF*EG1', EVSEIds: [ 'DE*GEF*E1*1', 'DE*GEF*E1*2' ], chargingTariffId: 'DE*GEF*T1' } ], 1);
@@ -201,6 +204,21 @@ describe('the points of interest', () => {
         assert.deepEqual([ ...root.querySelectorAll('tbody tr td') ].map(cell => cell.textContent!.trim()),
                          [ 'GCP1', 'Netzanschluss 1', 'LowVoltage', 'Netzweg 1, 07743 Jena, DEU' ]);
         assert.equal(root.querySelector<HTMLAnchorElement>('tbody a')!.getAttribute('href'), '/poi/RNs/rn1/GOs/DE*NET/GCPs/GCP1');
+        assert.equal(root.querySelector('.poi-sections a.active')!.textContent!.trim(), 'Grid operators');
+
+    });
+
+    it('list the energy meter groups of a grid operator and of a charging station operator, each leading to its page', async () => {
+
+        assert.equal(poiListPages['/poi/RNs/:rn/GOs/:go/EMGs'],   poiGridEnergyMeterGroupsPage);
+        assert.ok   (poiOperatorListPages['/poi/RNs/:rn/CSOs/:cso/EMGs'] !== undefined);
+
+        const root = await open(poiGridEnergyMeterGroupsPage, '/poi/RNs/rn1/GOs/DE*NET/EMGs', null, poiAPI, root => root.querySelector('tbody') !== null);
+
+        assert.equal(root.querySelector('h1')!.textContent!.trim(), 'Energy meter groups of DE*NET');
+        assert.deepEqual([ ...root.querySelectorAll('tbody tr td') ].map(cell => cell.textContent!.trim()),
+                         [ 'net-grid-meters', 'Grid meters', '2', 'ZAP', 'ZAP-1' ]);
+        assert.equal(root.querySelector<HTMLAnchorElement>('tbody a')!.getAttribute('href'), '/poi/RNs/rn1/GOs/DE*NET/EMGs/net-grid-meters');
         assert.equal(root.querySelector('.poi-sections a.active')!.textContent!.trim(), 'Grid operators');
 
     });

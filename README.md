@@ -473,7 +473,10 @@ group DE*GEF*SG1", or of an array the elements each group gives. The page asks
 the member as it is given (`?view=stored`) and its groups, listed below it
 (`…/CSGs` and the like), and decides as the POI API does: a single value of the
 group with the highest priority, the charging tariffs of an EVSE of its most
-specific groups (`poiOrigins.ts`).
+specific groups (`poiOrigins.ts`). So are the energy meters a pool, station,
+EVSE or grid connection point embeds, with what the energy meter groups of
+their charging station operator or grid operator give them (`…/EMGs`); each
+energy meter group has a page below its owner.
 
 The hub is a **roaming network operator** (`RoamingHub.RoamingNetworkOperator.cs`).
 At its first start it makes a signing key (P-256) and an identity key (P-521)

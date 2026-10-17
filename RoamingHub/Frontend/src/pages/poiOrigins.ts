@@ -13,6 +13,10 @@ import { poiEntity, poiList, type Entity } from '../api/poi';
  *   else by what it is.
  * - The charging tariffs of an EVSE are its own, else the charging tariff of its EVSE groups, else of the groups of its
  *   charging station, else of the groups of its charging pool.
+ *
+ * The energy meters a charging pool, a charging station, an EVSE or a grid connection point embeds take what their
+ * energy meter groups give them by the same rules: the groups of its owner, a charging station operator or a grid
+ * operator, listed below it, ~/…/{CSOs|GOs}/{id}/EMGs, naming the meter among their energyMeterIds.
  */
 
 
@@ -35,13 +39,20 @@ export interface Groups {
     tariffs?: GroupOf[][];
 }
 
+/** Where the values of an entity come from, by their keys; and those of the energy meters in it, by their identifications. */
+export interface Origins {
+    values:  Map<string, Origin>;
+    meters:  Map<string, Map<string, Origin>>;
+}
+
 /** The keys of the elements of the arrays a member unites with those of its groups. */
 const elementKeys: Record<string, string> = {
-    authenticationModes:  'type',
-    brands:               '@id',
-    chargingConnectors:   '@id',
-    dataLicenses:         '@id',
-    images:               'url'
+    authenticationModes:         'type',
+    brands:                      '@id',
+    chargingConnectors:          '@id',
+    dataLicenses:                '@id',
+    images:                      'url',
+    transparencySoftwareStatus:  'transparencySoftwareId'
 };
 
 /** The arrays a member takes whole, its own, else the one of its groups: written as arrays, they are single values. */
@@ -172,6 +183,51 @@ export function originsOf(effective:  Entity,
 }
 
 
+/** The energy meters an entity embeds: its energy meter, or its energy meters. */
+export function metersOf(entity: Entity): Entity[] {
+
+    const isMeter = (meter: unknown): meter is Entity => typeof meter === 'object' && meter !== null && typeof (meter as Entity)['@id'] === 'string';
+
+    return [ ...(isMeter(entity.energyMeter) ? [ entity.energyMeter ] : []),
+             ...(Array.isArray(entity.energyMeters) ? entity.energyMeters.filter(isMeter) : []) ];
+
+}
+
+/**
+ * Where the values of the energy meters an entity embeds come from that they have at runtime, but not as they are
+ * given: from the energy meter groups naming them, by the identifications of the meters. Meters taking nothing have none.
+ */
+export function meterOriginsOf(effective:  Entity,
+                               stored:     Entity,
+                               groups:     GroupOf[]): Map<string, Map<string, Origin>> {
+
+    const origins       = new Map<string, Map<string, Origin>>();
+    const storedMeters  = new Map(metersOf(stored).map(meter => [ meter['@id'].toLowerCase(), meter ]));
+
+    for (const meter of metersOf(effective))
+    {
+
+        const own = storedMeters.get(meter['@id'].toLowerCase());
+
+        // Identifications of energy meters compare without case.
+        const ofMeter = groups.filter(group => Array.isArray(group.group.energyMeterIds) &&
+                                               (group.group.energyMeterIds as unknown[]).some(id => typeof id === 'string' && id.toLowerCase() === meter['@id'].toLowerCase()));
+
+        if (own === undefined || ofMeter.length === 0)
+            continue;
+
+        const given = originsOf(meter, own, { groups: ofMeter });
+
+        if (given.size > 0)
+            origins.set(meter['@id'], given);
+
+    }
+
+    return origins;
+
+}
+
+
 /** The groups of a member below its page, each with the path of its page below its operator. */
 async function groupsOf(member:    string,
                         segment:   string,
@@ -187,16 +243,20 @@ async function groupsOf(member:    string,
 /** The segments of the groups of a member, by the segment of the member. */
 export const groupSegments: Record<string, string> = { CPs: 'CPGs', CSs: 'CSGs', EVSEs: 'EVSEGs', PSs: 'PSGs' };
 
+/** The segment of the owner of the energy meter groups, by the segment of what embeds energy meters. */
+const meterOwners: Record<string, string> = { CPs: 'CSOs', CSs: 'CSOs', EVSEs: 'CSOs', GCPs: 'GOs' };
+
 /**
- * Where the values of the member at the given path come from: it as it is given, and its groups, asked for. The paths
- * below /poi of its roaming network, its operator, and, of an EVSE, its charging pool and station; the parameters the
- * member was asked with. Null for what has no groups.
+ * Where the values of the entity at the given path come from: it as it is given, and its groups, asked for; and of the
+ * energy meters it embeds, the energy meter groups of its owner. The paths below /poi of its roaming network, its
+ * operator, and, of an EVSE, its charging pool and station; the parameters it was asked with. Null for what has no
+ * groups, nor energy meters with groups.
  */
 export async function loadOrigins(steps:       { segment: string; path: string }[],
                                   effective:   Entity,
                                   parameters:  Record<string, string> | undefined,
                                   embedded:    string[],
-                                  signal:      AbortSignal): Promise<Map<string, Origin> | null> {
+                                  signal:      AbortSignal): Promise<Origins | null> {
 
     const self      = steps.at(-1)!;
     const operator  = steps[1];
@@ -204,19 +264,31 @@ export async function loadOrigins(steps:       { segment: string; path: string }
 
     // Groups are of charging station operators and of parking operators: the parking spaces of a charging station
     // operator have none.
-    if (segment === undefined || operator === undefined ||
-        (self.segment === 'PSs' ? operator.segment !== 'POs' : operator.segment !== 'CSOs'))
+    const ofMember  = segment !== undefined && operator !== undefined &&
+                      (self.segment === 'PSs' ? operator.segment === 'POs' : operator.segment === 'CSOs');
+
+    // Energy meter groups are of charging station operators and of grid operators.
+    const ofMeters  = operator !== undefined && meterOwners[self.segment] === operator.segment && metersOf(effective).length > 0;
+
+    if (!ofMember && !ofMeters)
         return null;
 
-    const isEVSE    = self.segment === 'EVSEs' && steps.length >= 5;
+    const isEVSE    = ofMember && self.segment === 'EVSEs' && steps.length >= 5;
 
-    const [ stored, groups, stationGroups, poolGroups ] = await Promise.all([
+    // Without its groups, or the energy meter groups, where they can not be asked: what the others give still shows.
+    const [ stored, groups, stationGroups, poolGroups, meterGroups ] = await Promise.all([
         poiEntity(self.path, { ...parameters, view: 'stored' }, signal),
-        groupsOf(self.path, segment, operator.path, signal),
-        isEVSE ? groupsOf(steps[3]!.path, 'CSGs', operator.path, signal) : Promise.resolve([]),
-        isEVSE ? groupsOf(steps[2]!.path, 'CPGs', operator.path, signal) : Promise.resolve([])
+        ofMember ? groupsOf(self.path, segment!, operator!.path, signal).catch(() => null) : Promise.resolve(null),
+        isEVSE   ? groupsOf(steps[3]!.path, 'CSGs', operator!.path, signal).catch(() => []) : Promise.resolve([]),
+        isEVSE   ? groupsOf(steps[2]!.path, 'CPGs', operator!.path, signal).catch(() => []) : Promise.resolve([]),
+        ofMeters ? groupsOf(operator!.path, 'EMGs', operator!.path, signal).catch(() => []) : Promise.resolve([])
     ]);
 
-    return originsOf(effective, stored.entity, { groups, tariffs: isEVSE ? [ groups, stationGroups, poolGroups ] : undefined }, embedded);
+    return {
+        values:  groups === null
+                     ? new Map()
+                     : originsOf(effective, stored.entity, { groups, tariffs: isEVSE ? [ groups, stationGroups, poolGroups ] : undefined }, embedded),
+        meters:  meterOriginsOf(effective, stored.entity, meterGroups)
+    };
 
 }
