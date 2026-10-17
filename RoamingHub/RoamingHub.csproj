@@ -17,6 +17,7 @@
     <ProjectReference Include="..\..\WWCP_OCPI\WWCP_OCPIv2.2.1\WWCP_OCPIv2.2.1.csproj" />
     <ProjectReference Include="..\..\WWCP_OCPI\WWCP_OCPIv2.3.0\WWCP_OCPIv2.3.0.csproj" />
     <ProjectReference Include="..\..\WWCP_POI\WWCP_POI3\WWCP_POI3.csproj" />
+    <ProjectReference Include="..\..\WWCP_DatexII\WWCP_DatexII_WebAPI\WWCP_DatexII_WebAPI.csproj" />
   </ItemGroup>
 
   <!--

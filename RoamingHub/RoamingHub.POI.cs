@@ -334,6 +334,9 @@ namespace cloud.charging.open.RoamingHub
 
                     Watch(history);
 
+                    // Published as DATEX II, when the configuration names it.
+                    PublishAsDatexII(history);
+
                     return new (RoamingNetworkCreationStatus.Created,
                                 $"The roaming network '{Id}' was made, at revision 0, commit {history.Head.Commit.Id}. " +
                                 $"Its roaming network operator adds its parties now, with change sets it signs.",
@@ -536,6 +539,9 @@ namespace cloud.charging.open.RoamingHub
         /// </summary>
         private async ValueTask DisposePOI()
         {
+
+            // Before the roaming networks they publish.
+            await DisposeDatexIIAsync();
 
             await POI.DisposeAsync();
 

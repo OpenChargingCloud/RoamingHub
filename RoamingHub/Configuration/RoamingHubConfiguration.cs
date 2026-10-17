@@ -44,7 +44,9 @@ namespace cloud.charging.open.RoamingHub.Configuration
     /// each one only where it actually speaks.
     /// </remarks>
     /// <param name="OCPI">Who this hub is when it speaks OCPI, and which versions of it it speaks.</param>
-    public sealed record RoamingHubConfiguration(OCPIConfiguration?  OCPI   = null)
+    /// <param name="DatexII">Which roaming networks this hub publishes as DATEX II, to be pulled and pushed to the Mobilithek.</param>
+    public sealed record RoamingHubConfiguration(OCPIConfiguration?     OCPI      = null,
+                                                 DatexIIConfiguration?  DatexII   = null)
     {
 
         #region Properties
@@ -53,7 +55,7 @@ namespace cloud.charging.open.RoamingHub.Configuration
         /// Whether the document says anything this hub reads itself.
         /// </summary>
         public Boolean IsEmpty
-            => OCPI is null;
+            => OCPI is null && DatexII is null;
 
         #endregion
 
@@ -95,7 +97,27 @@ namespace cloud.charging.open.RoamingHub.Configuration
 
             #endregion
 
-            Configuration = new RoamingHubConfiguration(ocpi);
+            #region DATEX II
+
+            DatexIIConfiguration? datexII = null;
+
+            if (JSON[DatexIIConfiguration.SectionName] is JToken datexIIToken && datexIIToken.Type != JTokenType.Null)
+            {
+
+                if (datexIIToken is not JObject datexIIJSON)
+                {
+                    Error = $"'{DatexIIConfiguration.SectionName}' must be a JSON object.";
+                    return false;
+                }
+
+                if (!DatexIIConfiguration.TryParse(datexIIJSON, out datexII, out Error))
+                    return false;
+
+            }
+
+            #endregion
+
+            Configuration = new RoamingHubConfiguration(ocpi, datexII);
             return true;
 
         }
@@ -115,6 +137,9 @@ namespace cloud.charging.open.RoamingHub.Configuration
             if (OCPI is not null)
                 json.Add(OCPIConfiguration.SectionName, OCPI.ToJSON());
 
+            if (DatexII is not null)
+                json.Add(DatexIIConfiguration.SectionName, DatexII.ToJSON());
+
             return json;
 
         }
@@ -127,7 +152,7 @@ namespace cloud.charging.open.RoamingHub.Configuration
 
             => IsEmpty
                    ? "nothing configured"
-                   : OCPI!.ToString();
+                   : String.Join("; ", new Object?[] { OCPI, DatexII }.OfType<Object>());
 
         #endregion
 

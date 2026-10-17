@@ -235,10 +235,11 @@ The `configuration.json` beside it, in the same shape as the EMSP's:
 | `certificates` | where the certificate store is: `directory`, `certificates/` beside the file by default |
 | `roles` | roles beyond the three a hub brings, or what one of them may do |
 | `ocpi` | who this hub is - country code, party identification, name - and which versions it offers |
+| `datex2` | which roaming networks are published as DATEX II, to be pulled and pushed to the Mobilithek |
 
 The node below reads the sections every one of these programs has - `dns`,
-`nts`, `certificates` and `roles` - and the hub reads its own, `ocpi`, from
-the same document; each passes over what is the other's.
+`nts`, `certificates` and `roles` - and the hub reads its own, `ocpi` and
+`datex2`, from the same document; each passes over what is the other's.
 
 Everything in `dns` and `nts` takes effect the moment it is saved. The `ocpi`
 section is read once at the start and deliberately not changeable while
@@ -487,6 +488,69 @@ checks against the keys in the network, not by who sent it. Every commit the
 history takes, a merge as well, is in the log, tagged `poi` and `commit`.
 
 
+## DATEX II and the Mobilithek
+
+`RoamingHub.DatexII.cs` publishes the roaming networks the `datex2` section
+names as DATEX II 3.7 AFIR Energy Infrastructure publications
+([WWCP_DatexII](https://github.com/OpenChargingCloud/WWCP_DatexII)): the table
+of the sites, stations and refill points, and their status - status, planned
+status, energy status and prices - as a full status and as deltas of what
+changed. A network it names that is not there yet is published the moment it
+is made; one it does not name is not published at all.
+
+To be pulled, open as AFIR data is, below
+`/datex2/RNs/{roamingNetworkId}/`: `table.xml` and `status.xml` (DATEX II 3.7
+XML), `table.json` and `status.json` (DATEX II 3.7 JSON), and
+`mobilithek/table.json` and `mobilithek/status.json` (the JSON of the
+Mobilithek profile 01-00-00). Each tells its publication time as
+`Last-Modified` and answers `If-Modified-Since` with 304; before the first
+publication it is 503. `"pull": false` switches them off.
+
+To be pushed, a publication takes a `mobilithek` block: the two publications
+(offers) of the data provider there - the static one takes the table, the
+dynamic one the status, as snapshots and deltas - and the machine certificate
+the Mobilithek issued, for the mutual TLS it asks for. With it, the defaults are
+what the Mobilithek profile wants: deltas at most once a second, a full status
+at the latest every 6 hours or after 3,500 deltas. A failed push is said in the
+log, tagged `datex2` and `mobilithek`; after a status that could not be pushed,
+the next one is a full status again.
+
+```json
+"datex2": {
+  "pull": true,
+  "publications": [ {
+    "roamingNetworkId":           "rn1",
+    "publicationCreator":         { "country": "DE", "nationalIdentifier": "DE-NAP-GraphDefined" },
+    "operatorIds":                [ "DE*GEF" ],
+    "language":                   "de",
+    "energyStatusDeltaInterval":  60,
+    "statusDeltaInterval":        1,
+    "snapshotInterval":           21600,
+    "maxDeltasPerSnapshot":       3500,
+    "mobilithek": {
+      "staticPublicationId":                          "123456",
+      "dynamicPublicationId":                         "123457",
+      "url":                                          "https://mobilithek.info:8443/mobilithek/api/v1.0/publication/",
+      "clientCertificate":                            "certs/mobilithek.p12",
+      "clientCertificatePasswordEnvironmentVariable": "MOBILITHEK_P12_PASSWORD",
+      "trustedCertificates":                          "certs/mobilithek-ca.pem",
+      "compress":                                     true
+    }
+  } ]
+}
+```
+
+Only `roamingNetworkId` and `publicationCreator` are needed; `operatorIds`
+limits a publication to these operators, the intervals are seconds. Files are
+relative to the configuration file. The password of the machine certificate
+may be in the file as `clientCertificatePassword`, better in the environment
+variable named; without `trustedCertificates` the operating system checks the
+certificate of the Mobilithek, which its own certification authority signed.
+The section is read once at the start; the banner then tells a `DATEX II`
+line for every network it names - where it is pulled and where it is pushed
+to, or that it is not made yet.
+
+
 ## Who may do what
 
 A role is a user group of the accounts, and what it may do is a list of
@@ -612,7 +676,17 @@ making one; one with no signing or no identity key, a private key, a wrong
 thumbprint, a party in it or a path for a name refused, and a second one of
 the same identification in another case; a charging station operator and its
 pool submitted by somebody not signed in, each signed by its owner, and the
-pool signed by the RNO refused; and the network there after a restart. None of
+pool signed by the RNO refused; and the network there after a restart. And
+DATEX II: the `datex2` section read and written again, pull on by default,
+what is wrong in it named by its field, a network named twice refused; a
+network the section names published as XML, JSON and the JSON of the
+Mobilithek when it is made and after a restart, one it does not name not,
+nothing served with `"pull": false`, and what the banner says of each; and
+pushed to a Mobilithek on this machine over mutual TLS - its server
+certificate of a certification authority only the section makes trusted, the
+machine certificate a PKCS #12 file beside the configuration whose password
+is in an environment variable - the table to the static publication and the
+full status as a snapshot to the dynamic one. None of
 them asks a name server or a time server anything. And the hub's
 own code is held to what the kit holds every kind's to, SourceRules: nothing
 it says puts "a" or "an" in front of a name it is handed.

@@ -396,6 +396,13 @@ namespace cloud.charging.open.RoamingHub
 
             #endregion
 
+            #region The roaming networks published as DATEX II, below "/datex2" and to the Mobilithek
+
+            // After the points of interest, whose roaming networks they publish: see RoamingHub.DatexII.cs.
+            BuildDatexII(configuration.DatexII);
+
+            #endregion
+
         }
 
         #endregion
@@ -424,7 +431,8 @@ namespace cloud.charging.open.RoamingHub
                         $"({POI.RoamingNetworks.Count()} roaming network(s)).",
                         "poi");
 
-            return Task.CompletedTask;
+            // The DATEX II publishers publish the heads now, and push them where they are pushed.
+            return StartDatexIIAsync();
 
         }
 
