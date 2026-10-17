@@ -69,7 +69,7 @@ function poiAPI({ path, query }: Asked): unknown {
     if (path === '/poi/RNs/rn1' && query.get('without') === 'chargingStationManufacturers,chargingStationOperators,eMobilityProviders,gridOperators,parkingOperators')
         return entityOf({ '@context': 'https://open.charging.cloud/contexts/POI3/roamingNetwork', '@id': 'rn1',
                           name: { en: 'Roaming Network 1' }, description: { en: 'The first one.' }, dataSource: 'https://data.example',
-                          eTags: [ { format: 'json', algorithm: 'sha256', digest: 'abc' } ] }, '"json:sha256:hex:slim"');
+                          eTags: [ [ 'json', 'sha256', 'hex', 'abc' ], [ 'cbor', 'sha256', 'hex', 'def' ] ] }, '"json:sha256:hex:slim"');
 
     const counts: Record<string, number> = { CPs: 42, CSOs: 3, GOs: 1, EMPs: 2, CSMs: 0, POs: 0 };
     const list = /^\/poi\/RNs\/rn1\/([A-Za-z]+)$/.exec(path);
@@ -177,7 +177,8 @@ describe('the single things of the points of interest', () => {
 
         // What it says of itself, without what it holds, field by field, and as JSON with its ETag.
         assert.equal(value(root, 'Data source')!.querySelector('a')!.getAttribute('href'), 'https://data.example');
-        assert.ok([ ...root.querySelectorAll('.poi-entity .k') ].some(key => key.textContent!.trim() === 'ETags'), 'its ETags, of all of it');
+        // Its ETags, of all of it, each as a POI ETag: the API sends [ format, algorithm, encoding, digest ].
+        assert.deepEqual([ ...value(root, 'ETags')!.querySelectorAll('code') ].map(code => code.textContent), [ 'json:sha256:hex:abc', 'cbor:sha256:hex:def' ]);
         assert.equal([ ...root.querySelectorAll('.poi-entity .k') ].find(key => key.textContent!.trim() === 'Context'), undefined);
         assert.match(root.querySelector('.poi-json summary')!.textContent!, /json:sha256:hex:slim/);
 

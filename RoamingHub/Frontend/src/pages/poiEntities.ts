@@ -265,6 +265,11 @@ function valueView(key: string, value: unknown, steps: Step[]): TemplateResult |
     if (key === '@id' && typeof value === 'string')
         return html`<code>${value}</code>`;
 
+    // The ETags of a roaming network, of all of it: [ format, algorithm, encoding, digest ] each, read as a POI ETag.
+    if (key === 'eTags' && Array.isArray(value) && value.length > 0 &&
+        value.every(eTag => Array.isArray(eTag) && eTag.every(part => typeof part === 'string')))
+        return html`${(value as string[][]).map(eTag => html`<div><code>${eTag.join(':')}</code></div>`)}`;
+
     if (key === 'address' && typeof value === 'object' && value !== null && !Array.isArray(value))
         return addressLine(value as Address) || formatValue(value);
 
