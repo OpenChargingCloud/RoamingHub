@@ -139,6 +139,12 @@ namespace cloud.charging.open.RoamingHub
 
         private readonly Lock poiLock = new ();
 
+        /// <summary>
+        /// How many directories below "poi" could not be read at the start: the roaming networks in them may name
+        /// keys of the roaming network operator this hub is, which are therefore not forgotten when it replaces them.
+        /// </summary>
+        private Int32 unreadPOIStores;
+
         #endregion
 
         #region Properties
@@ -198,6 +204,7 @@ namespace cloud.charging.open.RoamingHub
                     {
                         Log.Error($"The roaming network stored in '{directory}' can not be read: {error}", "poi");
                         store.Dispose();
+                        unreadPOIStores++;
                         continue;
                     }
 
@@ -205,15 +212,17 @@ namespace cloud.charging.open.RoamingHub
                     {
                         Log.Error($"The roaming network '{history.RoamingNetworkId}' stored in '{directory}' is served already.", "poi");
                         store.Dispose();
+                        unreadPOIStores++;
                         continue;
                     }
 
                     lock (poiLock)
                         poiStores.Add(store);
 
-                    // The commits made here of a roaming network this hub operates are signed by its operator.
-                    if (NetworkOperator.Operates(history.Head.RoamingNetwork))
-                        history.Signers = [ NetworkOperator.CommitSigner() ];
+                    // The commits made here of a roaming network this hub operates are signed by its operator,
+                    // with the signing key the network names.
+                    if (NetworkOperator.CommitSigner(history.Head.RoamingNetwork) is RoamingNetworkCommitSigner signer)
+                        history.Signers = [ signer ];
 
                     Watch(history);
 
@@ -223,6 +232,7 @@ namespace cloud.charging.open.RoamingHub
                 catch (Exception e)
                 {
                     store?.Dispose();
+                    unreadPOIStores++;
                     Log.Exception(e, $"The roaming network stored in '{directory}' can not be read.", "poi");
                 }
 
@@ -291,6 +301,8 @@ namespace cloud.charging.open.RoamingHub
 
             #endregion
 
+            // Not while the keys of the operator are replaced: the network would name the one replaced.
+            lock (networkOperatorLock)
             lock (poiLock)
             {
 
@@ -320,7 +332,7 @@ namespace cloud.charging.open.RoamingHub
 
                     store        = new RoamingNetworkHistoryFileStore(directory);
 
-                    var history  = RoamingNetworkHistory.Start(network, Signers: [ NetworkOperator.CommitSigner() ], Store: store);
+                    var history  = RoamingNetworkHistory.Start(network, Signers: [ NetworkOperator.CommitSigner(network)! ], Store: store);
 
                     if (!POI.AddRoamingNetworkHistory(history))
                         throw new InvalidOperationException($"The roaming network '{Id}' could not be served.");

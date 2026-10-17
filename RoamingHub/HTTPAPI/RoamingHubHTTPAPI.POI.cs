@@ -32,12 +32,13 @@ namespace cloud.charging.open.RoamingHub
 
     /// <summary>
     /// The part of the JSON API that is about the points of interest: the roaming network operator this hub is,
-    /// a new roaming network, and the parties this hub adds to the roaming networks it operates.
+    /// its keys replaced and its name changed, a new roaming network, and the parties this hub adds to the roaming
+    /// networks it operates.
     /// </summary>
     /// <remarks>
     /// Only that: reading the roaming networks is the POI API's, below "/poi", public as it is; and what is in them
-    /// changes by change sets their owners sign, submitted there as well. Making a roaming network and adding a
-    /// party sign with the keys of this hub, and are the permission poi:edit.
+    /// changes by change sets their owners sign, submitted there as well. Everything here but reading the operator
+    /// signs with the keys of this hub, and is the permission poi:edit.
     /// </remarks>
     public partial class RoamingHubHTTPAPI
     {
@@ -51,6 +52,9 @@ namespace cloud.charging.open.RoamingHub
         {
 
             AddHandler(HTTPPath.Root + "v1/poi/roamingNetworkOperator",                     GetRoamingNetworkOperator,  HTTPMethod.GET);
+            AddHandler(HTTPPath.Root + "v1/poi/roamingNetworkOperator/signingKey/rotate",   request => PostRotateKey(request, POIKeyKind.Signing),   HTTPMethod.POST);
+            AddHandler(HTTPPath.Root + "v1/poi/roamingNetworkOperator/identityKey/rotate",  request => PostRotateKey(request, POIKeyKind.Identity),  HTTPMethod.POST);
+            AddHandler(HTTPPath.Root + "v1/poi/roamingNetworkOperator/name",                PutNetworkOperatorName,     HTTPMethod.PUT);
             AddHandler(HTTPPath.Root + "v1/poi/roamingNetworks",                            PostRoamingNetwork,         HTTPMethod.POST);
             AddHandler(HTTPPath.Root + "v1/poi/roamingNetworks/{roamingNetworkId}/{parties}", PostParty,                  HTTPMethod.POST);
 
@@ -72,6 +76,91 @@ namespace cloud.charging.open.RoamingHub
                                 HTTPStatusCode.OK,
                                 RoamingHub.NetworkOperator.Operator.ToJSON())
                );
+
+        #endregion
+
+        #region (private) PostRotateKey(Request, Kind)
+
+        /// <summary>
+        /// POST /api/v1/poi/roamingNetworkOperator/signingKey/rotate or …/identityKey/rotate: replace the current key
+        /// of that kind of the roaming network operator this hub is by a new one, in every roaming network it operates.
+        /// </summary>
+        /// <remarks>
+        /// 200 with what became of it and the operator as it is now; 207 where a roaming network refused it, which
+        /// keeps the key it names.
+        /// </remarks>
+        private Task<HTTPResponse> PostRotateKey(HTTPRequest  Request,
+                                                 POIKeyKind   Kind)
+        {
+
+            if (!TryAuthorize(Request, Permission.Edit(HubAccess.POI), true, out var user, out var refused))
+                return Task.FromResult(refused);
+
+            var result = RoamingHub.RotateNetworkOperatorKey(Kind);
+
+            Log.Notice($"'{user.Id}' replaced the {(Kind == POIKeyKind.Signing ? "signing" : "identity")} key of the roaming network operator '{RoamingHub.NetworkOperator.Id}'.",
+                       "poi", "web", "security");
+
+            return Task.FromResult(NetworkOperatorUpdated(Request, result));
+
+        }
+
+        #endregion
+
+        #region (private) PutNetworkOperatorName(Request)
+
+        /// <summary>
+        /// PUT /api/v1/poi/roamingNetworkOperator/name with {"name": "…"} or {"name": {"en": "…", …}}: give the roaming
+        /// network operator this hub is a new name, in every roaming network it operates.
+        /// </summary>
+        /// <remarks>
+        /// 200 with what became of it and the operator as it is now; 207 where a roaming network refused it; 400
+        /// where there is no name.
+        /// </remarks>
+        private Task<HTTPResponse> PutNetworkOperatorName(HTTPRequest Request)
+        {
+
+            if (!TryAuthorize(Request, Permission.Edit(HubAccess.POI), true, out var user, out var refused))
+                return Task.FromResult(refused);
+
+            if (!TryParseJSONObject(Request, out var json, out var errorResponse))
+                return Task.FromResult(errorResponse);
+
+            var name = json["name"] switch {
+                           JValue  { Type: JTokenType.String } text  => I18NString.Create(Languages.en, text.Value<String>()!.Trim()),
+                           JObject                             texts => I18NString.Parse(texts),
+                           _                                         => null
+                       };
+
+            if (name is null || name.IsNullOrEmpty() || name.FirstText().Trim().Length == 0)
+                return Task.FromResult(ErrorJSON(Request, HTTPStatusCode.BadRequest, "A roaming network operator is renamed with {\"name\": \"…\"} or {\"name\": {\"en\": \"…\"}}."));
+
+            var result = RoamingHub.RenameNetworkOperator(name);
+
+            Log.Notice($"'{user.Id}' renamed the roaming network operator '{RoamingHub.NetworkOperator.Id}' to '{name.FirstText()}'.",
+                       "poi", "web");
+
+            return Task.FromResult(NetworkOperatorUpdated(Request, result));
+
+        }
+
+        #endregion
+
+        #region (private) NetworkOperatorUpdated(Request, Update)
+
+        private HTTPResponse NetworkOperatorUpdated(HTTPRequest                   Request,
+                                                    RoamingNetworkOperatorUpdate  Update)
+        {
+
+            var json = Update.ToJSON();
+
+            json[RoamingNetworkOperator.JSONProperty] = RoamingHub.NetworkOperator.Operator.ToJSON();
+
+            return JSONResponse(Request,
+                                Update.Success ? HTTPStatusCode.OK : HTTPStatusCode.MultiStatus,
+                                json);
+
+        }
 
         #endregion
 

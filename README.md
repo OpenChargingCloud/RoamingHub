@@ -513,6 +513,27 @@ pools in it: they are its own to add. `roamingNetworks <id>` shows a network
 with its parties and their keys. Making a network and adding a party is
 `poi:edit`.
 
+A key of the operator is replaced by a new one in every roaming network it
+operates (`RoamingHub.RoamingNetworkOperator.Changes.cs`):
+`RotateNetworkOperatorKey(Signing | Identity)` in C#,
+`POST /api/v1/poi/roamingNetworkOperator/signingKey/rotate` or
+`…/identityKey/rotate`, or `roamingNetworkOperator rotate signingKey` (or
+`identityKey`) at the command line. Each roaming network gets a change set the
+key replaced signs - a signing key by the old signing key, an identity key by
+the old identity key - and its commits are signed by the new signing key from
+then on; `operator.json` names the new key, so every roaming network made
+afterwards does. The old key is forgotten, its file deleted, once no roaming
+network the hub serves names it any more. A roaming network whose history
+refuses the change keeps it, and so do all while a directory below `poi/` could
+not be read at the start, whose network may name it: it is kept beside the
+current one as `signing-key-` or `identity-key-` and the first 16 hex digits of
+its identification, read back at every start, and signs for whoever still
+names it. The operator is renamed the same way, `RenameNetworkOperator(name)`,
+`PUT /api/v1/poi/roamingNetworkOperator/name` with `{"name": "…"}`, or
+`roamingNetworkOperator name <name>`; a network called so already gets no
+commit. 200 with what became of it in each roaming network and the operator as
+it is now, 207 where a roaming network refused it. Both are `poi:edit`.
+
 Everything else in a roaming network comes as change sets, which the hub takes
 from everybody, over HTTP and over the WebSocket of its history: what a change
 set may change is decided by the signatures of its owners, which every commit
@@ -714,7 +735,13 @@ submitted by somebody not signed in, signed by the operator, and the pool
 signed by another key refused; a party of no network, of no kind, without a
 signing key, with a private key, with its pools or a second time refused; a
 network of another operator served but not added to; and the network there
-after a restart, signed by the hub again. And
+after a restart, signed by the hub again; its signing key and its identity key
+replaced in every roaming network, each by a change set the old key signs, the
+old key forgotten and the new ones those of the hub after a restart, an old key
+kept beside the new one while a directory below `poi/` could not be read, and
+after the next restart as well; the operator renamed in every roaming network
+and in those made afterwards; and over HTTP, only by whoever may edit the
+points of interest. And
 DATEX II: the `datex2` section read and written again, pull on by default,
 what is wrong in it named by its field, a network named twice refused; a
 network the section names published as XML, JSON and the JSON of the
