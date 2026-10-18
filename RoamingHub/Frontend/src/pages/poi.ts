@@ -1,4 +1,4 @@
-import { api, type PartyList, type PublicKey } from '../api/client';
+import { api, type PartySegment, type PublicKey } from '../api/client';
 import { poiBase, poiList, poiURL, textOf, type Address, type ChargingPool, type Entity, type ListPart, type Query, type Summary } from '../api/poi';
 import { auth } from '../auth';
 import { fromURL, toURL } from '@node/basePath';
@@ -456,12 +456,12 @@ function newNetworkCard(navigate: (path: string) => void): TemplateResult | type
 
 }
 
-/** The parties this hub adds: their list in a roaming network, what they are called, and the list of the POI API. */
-export const partyKinds: ReadonlyArray<{ list: PartyList; label: string; segment: string }> = [
-    { list: 'chargingStationOperators',  label: 'Charging station operator',  segment: 'CSOs' },
-    { list: 'eMobilityProviders',        label: 'E-mobility provider',        segment: 'EMPs' },
-    { list: 'gridOperators',             label: 'Grid operator',              segment: 'GOs'  },
-    { list: 'parkingOperators',          label: 'Parking operator',           segment: 'POs'  }
+/** The parties this hub adds: the segment the POI API lists them at, which is where they are added, and what they are called. */
+export const partyKinds: ReadonlyArray<{ segment: PartySegment; label: string }> = [
+    { segment: 'CSOs',  label: 'Charging station operator' },
+    { segment: 'EMPs',  label: 'E-mobility provider'       },
+    { segment: 'GOs',   label: 'Grid operator'             },
+    { segment: 'POs',   label: 'Parking operator'          }
 ];
 
 /**
@@ -482,17 +482,17 @@ function newPartyCard(navigate: (path: string) => void): TemplateResult | typeof
         {
 
             const roamingNetworkId  = field(form, 'roamingNetwork');
-            const kind              = partyKinds.find(entry => entry.list === field(form, 'kind')) ?? partyKinds[0];
+            const kind              = partyKinds.find(entry => entry.segment === field(form, 'kind')) ?? partyKinds[0];
             const name              = field(form, 'name');
             const signingKeys       = keysOf(field(form, 'signingKeys'),  'signing key');
             const identityKeys      = keysOf(field(form, 'identityKeys'), 'identity key');
 
-            await api.poi.addParty(roamingNetworkId, kind.list, {
+            await api.poi.addParty(roamingNetworkId, kind.segment, {
                 '@id':         field(form, 'id'),
                 name:          name ? { en: name } : undefined,
                 // A grid operator not taking part comes without keys: the hub signs in its place.
-                signingKeys:   signingKeys. length > 0 || kind.list !== 'gridOperators' ? signingKeys  : undefined,
-                identityKeys:  identityKeys.length > 0 || kind.list !== 'gridOperators' ? identityKeys : undefined
+                signingKeys:   signingKeys. length > 0 || kind.segment !== 'GOs' ? signingKeys  : undefined,
+                identityKeys:  identityKeys.length > 0 || kind.segment !== 'GOs' ? identityKeys : undefined
             });
 
             form.reset();
@@ -528,7 +528,7 @@ function newPartyCard(navigate: (path: string) => void): TemplateResult | typeof
 
                     <label>Party
                         <select name="kind">
-                            ${partyKinds.map(kind => html`<option value=${kind.list}>${kind.label}</option>`)}
+                            ${partyKinds.map(kind => html`<option value=${kind.segment}>${kind.label}</option>`)}
                         </select>
                     </label>
 

@@ -37,8 +37,9 @@ namespace cloud.charging.open.RoamingHub
     /// </summary>
     /// <remarks>
     /// Only that: reading the roaming networks is the POI API's, below "/poi", public as it is; and what is in them
-    /// changes by change sets their owners sign, submitted there as well. Everything here but reading the operator
-    /// signs with the keys of this hub, and is the permission poi:edit.
+    /// changes by change sets their owners sign, submitted there as well. Its paths are those of the POI API: what
+    /// the POI API serves at /poi/RNs/{id}/CSOs is added at /api/v1/poi/RNs/{id}/CSOs. Everything here but reading
+    /// the operator signs with the keys of this hub, and is the permission poi:edit.
     /// </remarks>
     public partial class RoamingHubHTTPAPI
     {
@@ -55,8 +56,8 @@ namespace cloud.charging.open.RoamingHub
             AddHandler(HTTPPath.Root + "v1/poi/roamingNetworkOperator/signingKey/rotate",   request => PostRotateKey(request, POIKeyKind.Signing),   HTTPMethod.POST);
             AddHandler(HTTPPath.Root + "v1/poi/roamingNetworkOperator/identityKey/rotate",  request => PostRotateKey(request, POIKeyKind.Identity),  HTTPMethod.POST);
             AddHandler(HTTPPath.Root + "v1/poi/roamingNetworkOperator/name",                PutNetworkOperatorName,     HTTPMethod.PUT);
-            AddHandler(HTTPPath.Root + "v1/poi/roamingNetworks",                            PostRoamingNetwork,         HTTPMethod.POST);
-            AddHandler(HTTPPath.Root + "v1/poi/roamingNetworks/{roamingNetworkId}/{parties}", PostParty,                  HTTPMethod.POST);
+            AddHandler(HTTPPath.Root + "v1/poi/RNs",                                        PostRoamingNetwork,         HTTPMethod.POST);
+            AddHandler(HTTPPath.Root + "v1/poi/RNs/{roamingNetworkId}/{parties}",           PostParty,                  HTTPMethod.POST);
 
         }
 
@@ -167,7 +168,7 @@ namespace cloud.charging.open.RoamingHub
         #region (private) PostRoamingNetwork(Request)
 
         /// <summary>
-        /// POST /api/v1/poi/roamingNetworks with {"@id", "name"?, "description"?}: make a new roaming network,
+        /// POST /api/v1/poi/RNs with {"@id", "name"?, "description"?}: make a new roaming network,
         /// operated by this hub.
         /// </summary>
         /// <remarks>
@@ -230,9 +231,9 @@ namespace cloud.charging.open.RoamingHub
         #region (private) PostParty(Request)
 
         /// <summary>
-        /// POST /api/v1/poi/roamingNetworks/{roamingNetworkId}/{chargingStationOperators | eMobilityProviders |
-        /// gridOperators | parkingOperators} with the party as POI 3 writes it, {"@id", "name"?, ..., "signingKeys",
-        /// "identityKeys"}, its public keys: add it to a roaming network this hub operates, signed by this hub.
+        /// POST /api/v1/poi/RNs/{roamingNetworkId}/{CSOs | EMPs | GOs | POs}, the path the POI API lists them at, with
+        /// the party as POI 3 writes it, {"@id", "name"?, ..., "signingKeys", "identityKeys"}, its public keys: add it
+        /// to a roaming network this hub operates, signed by this hub.
         /// </summary>
         /// <remarks>
         /// 201 with the commit that added it; 400 where it is no party this hub adds, 404 where there is no such
@@ -254,7 +255,7 @@ namespace cloud.charging.open.RoamingHub
                 return Task.FromResult(
                            ErrorJSON(Request,
                                      HTTPStatusCode.NotFound,
-                                     $"A party is added at .../roamingNetworks/{{roamingNetworkId}}/{{{String.Join(" | ", RoamingHub.PartyTypes.Keys)}}}.")
+                                     $"A party is added at .../RNs/{{roamingNetworkId}}/{{{String.Join(" | ", RoamingHub.PartyTypes.Keys)}}}.")
                        );
             }
 

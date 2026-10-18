@@ -506,7 +506,7 @@ with its public keys. A fresh hub serves no roaming network.
 
 A new roaming network is made with nothing but a name and a description, and
 this hub as its operator: `CreateRoamingNetwork(id, name)` in C#,
-`POST /api/v1/poi/roamingNetworks` with `{"@id", "name"?, "description"?}`, the
+`POST /api/v1/poi/RNs` with `{"@id", "name"?, "description"?}`, the
 form below the list of the roaming networks, or `roamingNetworks add <id>
 [<name>]` at the command line. The identification is the name of its directory
 as well: letters, digits, `-` and `_`, at most 64 of them. 201 with its genesis
@@ -519,9 +519,9 @@ operates is signed by its signing key, in the role `roamingNetworkOperator`.
 The hub adds the parties of a roaming network it operates - charging station
 operators, e-mobility providers, grid operators and parking operators - with a
 change set it signs: `AddParty(roamingNetworkId, entityType, json)` in C#,
-`POST /api/v1/poi/roamingNetworks/{id}/chargingStationOperators` (or
-`eMobilityProviders`, `gridOperators`, `parkingOperators`) with the party as
-POI writes it, `{"@id", "name"?, …, "signingKeys", "identityKeys"}`, the second
+`POST /api/v1/poi/RNs/{id}/CSOs` (or `EMPs`, `GOs`, `POs`) with the party as
+POI writes it - the path the POI API lists it at, `/poi/RNs/{id}/CSOs`, below
+`/api/v1` - `{"@id", "name"?, …, "signingKeys", "identityKeys"}`, the second
 form below the list, or `roamingNetworks <id> add chargingStationOperator
 <operatorId> signingKey <key> identityKey <key> [<name>]` at the command line.
 The party keeps its private keys: a key is the Base64 of its COSE key or a key

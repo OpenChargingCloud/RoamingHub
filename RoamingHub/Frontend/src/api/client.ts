@@ -291,8 +291,8 @@ export interface RoamingNetworkMade {
     commitId:        string;
 }
 
-/** The lists of the parties of a roaming network the hub adds to: the last segment of where a party is added. */
-export type PartyList = 'chargingStationOperators' | 'eMobilityProviders' | 'gridOperators' | 'parkingOperators';
+/** The parties of a roaming network the hub adds: the segment the POI API lists them at, which is the last one of where a party is added. */
+export type PartySegment = 'CSOs' | 'EMPs' | 'GOs' | 'POs';
 
 /** A party to be added: what names it, and its public keys. A grid operator not taking part comes without keys. */
 export interface PartySpec {
@@ -407,10 +407,10 @@ export const api = {
     /** The points of interest: a new roaming network operated by this hub, and a new party of one. */
     poi: {
 
-        create:    (spec: RoamingNetworkSpec) => request<RoamingNetworkMade>('POST', '/poi/roamingNetworks', spec),
+        create:    (spec: RoamingNetworkSpec) => request<RoamingNetworkMade>('POST', '/poi/RNs', spec),
 
-        addParty:  (roamingNetworkId: string, list: PartyList, spec: PartySpec) =>
-                       request<PartyAdded>('POST', `/poi/roamingNetworks/${encodeURIComponent(roamingNetworkId)}/${list}`, spec)
+        addParty:  (roamingNetworkId: string, segment: PartySegment, spec: PartySpec) =>
+                       request<PartyAdded>('POST', `/poi/RNs/${encodeURIComponent(roamingNetworkId)}/${segment}`, spec)
 
     }
 

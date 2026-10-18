@@ -735,14 +735,15 @@ namespace cloud.charging.open.RoamingHub
         #region Data
 
         /// <summary>
-        /// The parties this hub adds to the roaming networks it operates: their entity type, by the name of their list
-        /// in a roaming network, which is the last segment of the path they are added at as well.
+        /// The parties this hub adds to the roaming networks it operates: their entity type, by the segment the POI API
+        /// lists them at below a roaming network, ~/RNs/{id}/CSOs and the others, which is the last segment of the path
+        /// they are added at below /api/v1/poi as well.
         /// </summary>
-        public static readonly IReadOnlyDictionary<String, String> PartyTypes = new Dictionary<String, String>(StringComparer.OrdinalIgnoreCase) {
-            { "chargingStationOperators",  nameof(ChargingStationOperator) },
-            { "eMobilityProviders",        nameof(EMobilityProvider)       },
-            { "gridOperators",             nameof(GridOperator)            },
-            { "parkingOperators",          nameof(ParkingOperator)         }
+        public static readonly IReadOnlyDictionary<String, String> PartyTypes = new Dictionary<String, String>(StringComparer.Ordinal) {
+            { "CSOs",  nameof(ChargingStationOperator) },
+            { "EMPs",  nameof(EMobilityProvider)       },
+            { "GOs",   nameof(GridOperator)            },
+            { "POs",   nameof(ParkingOperator)         }
         };
 
         /// <summary>

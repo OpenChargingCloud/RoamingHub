@@ -227,7 +227,7 @@ namespace cloud.charging.open.RoamingHub.Tests
 
         #region Data
 
-        private const String NewPath = "api/v1/poi/roamingNetworks";
+        private const String NewPath = "api/v1/poi/RNs";
 
         private readonly ECPrivateKeyParameters  rnoSigningKey   = NewKey(COSECurve.P256);
         private readonly ECPrivateKeyParameters  rnoIdentityKey  = NewKey(COSECurve.P521);
@@ -452,7 +452,7 @@ namespace cloud.charging.open.RoamingHub.Tests
 
             using var admin     = await SignedIn();
 
-            var made            = await admin.PostAsync("api/v1/poi/roamingNetworks",
+            var made            = await admin.PostAsync("api/v1/poi/RNs",
                                                         JSONBody(new JProperty("@id",           "QA")));
 
             Assert.That(made.StatusCode, Is.EqualTo(HttpStatusCode.Created), await made.Content.ReadAsStringAsync());

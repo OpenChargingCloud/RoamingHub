@@ -61,7 +61,7 @@ namespace cloud.charging.open.RoamingHub.Tests
 
         private static readonly HttpMethod  COMMIT     = new ("COMMIT");
 
-        private const           String      NewPath    = "api/v1/poi/roamingNetworks";
+        private const           String      NewPath    = "api/v1/poi/RNs";
 
         private readonly ECPrivateKeyParameters  csoSigningKey   = NewKey(COSECurve.P256);
         private readonly ECPrivateKeyParameters  csoIdentityKey  = NewKey(COSECurve.P521);
@@ -166,7 +166,7 @@ namespace cloud.charging.open.RoamingHub.Tests
             using var admin = await SignedIn();
 
             Assert.That((await Post(admin, QA())).StatusCode,                                           Is.EqualTo(HttpStatusCode.Created));
-            Assert.That((await Post(admin, QAC(), $"{NewPath}/QA/chargingStationOperators")).StatusCode,  Is.EqualTo(HttpStatusCode.Created));
+            Assert.That((await Post(admin, QAC(), $"{NewPath}/QA/CSOs")).StatusCode,  Is.EqualTo(HttpStatusCode.Created));
 
         }
 
@@ -330,7 +330,7 @@ namespace cloud.charging.open.RoamingHub.Tests
             using (var admin = await SignedIn())
                 Assert.That((await Post(admin, QA())).StatusCode,                                     Is.EqualTo(HttpStatusCode.Created));
 
-            var party          = await Post(anybody, QAC(), $"{NewPath}/QA/chargingStationOperators");
+            var party          = await Post(anybody, QAC(), $"{NewPath}/QA/CSOs");
 
             Assert.Multiple(() => {
                 Assert.That(party.StatusCode,                                                         Is.AnyOf(HttpStatusCode.Unauthorized, HttpStatusCode.Forbidden));
@@ -428,7 +428,7 @@ namespace cloud.charging.open.RoamingHub.Tests
             HttpResponseMessage added;
 
             using (var admin = await SignedIn())
-                added            = await Post(admin, QAC(), $"{NewPath}/QA/chargingStationOperators");
+                added            = await Post(admin, QAC(), $"{NewPath}/QA/CSOs");
 
             var addedJSON        = JObject.Parse(await added.Content.ReadAsStringAsync());
 
@@ -487,7 +487,7 @@ namespace cloud.charging.open.RoamingHub.Tests
         /// With why, and nothing committed.
         /// </summary>
         [TestCase("no network",       HttpStatusCode.NotFound,             "serves no roaming network 'XX'")]
-        [TestCase("no party type",    HttpStatusCode.NotFound,             "chargingStationOperators")]
+        [TestCase("no party type",    HttpStatusCode.NotFound,             "CSOs | EMPs | GOs | POs")]
         [TestCase("no signing key",   HttpStatusCode.BadRequest,           "at least one signing key")]
         [TestCase("a private key",    HttpStatusCode.BadRequest,           "this is a private key")]
         [TestCase("its pools",        HttpStatusCode.UnprocessableEntity,  "must be added without its chargingPools")]
@@ -500,17 +500,17 @@ namespace cloud.charging.open.RoamingHub.Tests
             Assert.That((await Post(admin, QA())).StatusCode, Is.EqualTo(HttpStatusCode.Created));
 
             var json         = QAC();
-            var path         = $"{NewPath}/QA/chargingStationOperators";
+            var path         = $"{NewPath}/QA/CSOs";
 
             switch (Case)
             {
 
                 case "no network":
-                    path = $"{NewPath}/XX/chargingStationOperators";
+                    path = $"{NewPath}/XX/CSOs";
                     break;
 
                 case "no party type":
-                    path = $"{NewPath}/QA/chargingPools";
+                    path = $"{NewPath}/QA/CPs";
                     break;
 
                 case "no signing key":

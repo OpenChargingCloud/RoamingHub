@@ -290,7 +290,7 @@ describe('a new roaming network', () => {
 
     /** The stand-in POI API, and the hub making a roaming network as it is asked to - or saying why not. */
     function making(answer: (body: unknown) => unknown) {
-        return (one: Asked): unknown => one.method === 'POST' && one.path === '/poi/roamingNetworks'
+        return (one: Asked): unknown => one.method === 'POST' && one.path === '/poi/RNs'
                                             ? answer(one.body)
                                             : poiAPI(one);
     }
@@ -366,7 +366,7 @@ describe('a new party of a roaming network', () => {
 
     /** The stand-in POI API, and the hub adding a party as it is asked to - or saying why not. */
     function adding(answer: (one: Asked) => unknown) {
-        return (one: Asked): unknown => one.method === 'POST' && one.path.startsWith('/poi/roamingNetworks/')
+        return (one: Asked): unknown => one.method === 'POST' && one.path.startsWith('/poi/RNs/')
                                             ? answer(one)
                                             : poiAPI(one);
     }
@@ -402,7 +402,7 @@ describe('a new party of a roaming network', () => {
 
         const post = asked.find(one => one.method === 'POST')!;
 
-        assert.equal(post.path, '/poi/roamingNetworks/QA/chargingStationOperators');
+        assert.equal(post.path, '/poi/RNs/QA/CSOs');
         assert.deepEqual(post.body, {
                              '@id':         'DE*QAC',
                              name:          { en: 'QA Charging' },
@@ -422,7 +422,7 @@ describe('a new party of a roaming network', () => {
         type(field(root, '#party-form', 'id'),              'DE*NET');
 
         const kind = field<HTMLSelectElement>(root, '#party-form', 'kind');
-        kind.value = 'gridOperators';
+        kind.value = 'GOs';
         kind.dispatchEvent(new Event('change', { bubbles: true }));
 
         submit(root, '#party-form');
@@ -431,7 +431,7 @@ describe('a new party of a roaming network', () => {
 
         const post = asked.find(one => one.method === 'POST')!;
 
-        assert.equal(post.path, '/poi/roamingNetworks/QA/gridOperators');
+        assert.equal(post.path, '/poi/RNs/QA/GOs');
         assert.deepEqual(post.body, { '@id': 'DE*NET' });
 
     });
