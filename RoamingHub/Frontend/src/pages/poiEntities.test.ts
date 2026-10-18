@@ -18,11 +18,14 @@ const gridPage      = poiEntityPages['/poi/RNs/:rn/GOs/:go']!;
 const parkingPage   = poiEntityPages['/poi/RNs/:rn/POs/:po']!;
 const spacePage     = poiEntityPages['/poi/RNs/:rn/POs/:po/PSs/:id']!;
 const poolGroupPage = poiEntityPages['/poi/RNs/:rn/CSOs/:cso/CPGs/:id']!;
+const poolTemplatePage = poiEntityPages['/poi/RNs/:rn/CSOs/:cso/CPTs/:id']!;
+const providerPage  = poiEntityPages['/poi/RNs/:rn/EMPs/:emp']!;
+const offerPage     = poiEntityPages['/poi/RNs/:rn/EMPs/:emp/CTOs/:id']!;
 const poolBrandPage = poiEntityPages['/poi/RNs/:rn/CSOs/:cso/CPs/:cp/Brands/:id']!;
 const evsePageOf    = (path: string) => open(evsePage, path, null, poiAPI, root => root.querySelector('.poi-entity') !== null);
 const evsePage      = poiEntityPages['/poi/RNs/:rn/CSOs/:cso/CPs/:cp/CSs/:cs/EVSEs/:evse']!;
 const pointPage     = poiEntityPages['/poi/RNs/:rn/GOs/:go/GCPs/:gcp']!;
-const meterGroupPage = poiEntityPages['/poi/RNs/:rn/GOs/:go/EMGs/:id']!;
+const meterTemplatePage = poiEntityPages['/poi/RNs/:rn/GOs/:go/EMTs/:id']!;
 
 
 /** An entity, as the POI API answers: with its ETag. */
@@ -62,19 +65,24 @@ const evse = {
     chargingConnectors:  [ { '@id': '1', type: 'IEC62196Type2Outlet', lockable: true } ]
 };
 
-/** The grid meters of a grid operator: of ZAP, hardware version 2.0. */
-const gridMeterGroup = {
+/** The template of the grid meters of a grid operator: of ZAP, hardware version 2.0. */
+const gridMeterTemplate = {
     '@id':            'net-grid-meters',
     name:             { en: 'Grid meters' },
-    energyMeterIds:   [ 'grid-meter' ],
     manufacturerId:   'ZAP',
     hardwareVersion:  '2.0'
 };
 
-/** The EVSE meters of a charging station operator, naming a meter in another spelling: of a model, signing OCMF. */
-const evseMeterGroup = {
+/** The group of all grid meters of a grid operator: a collection. */
+const gridMeterGroup = {
+    '@id':            'net-all-grid-meters',
+    name:             { en: 'All grid meters' },
+    energyMeterIds:   [ 'grid-meter' ]
+};
+
+/** The template of the EVSE meters of a charging station operator: of a model, signing OCMF. */
+const evseMeterTemplate = {
     '@id':             'gef-evse-meters',
-    energyMeterIds:    [ 'EVSE-METER-2' ],
     modelId:           'ACME-3000',
     signatureMethods:  [ 'OCMF' ]
 };
@@ -107,20 +115,36 @@ function poiAPI({ path, query }: Asked): unknown {
     if (path === '/poi/RNs/rn1/CSOs/DE*BIG' && query.get('without')?.startsWith('chargingPools,'))
         return entityOf({ '@id': 'DE*BIG', name: { en: 'Big' } });
 
-    // Its tariffs and groups: one tariff, nothing else.
+    // Its tariffs, templates, groups and offers: one tariff, nothing else.
     if (path === '/poi/RNs/rn1/CSOs/DE*BIG/CTs')
         return listOf([ { '@id': 'DE*BIG*T1', currency: 'EUR', elements: [ {}, {} ] } ], 1);
 
-    if (/^\/poi\/RNs\/rn1\/CSOs\/DE\*BIG\/(CTGs|CPGs|CSGs|EVSEGs|EMGs)$/.test(path))
+    if (/^\/poi\/RNs\/rn1\/CSOs\/DE\*BIG\/(EVSETs|CSTs|CPTs|CTTs|EMTs|CTGs|CPGs|CSGs|EVSEGs|EMGs|CTOs)$/.test(path))
         return listOf([], 0);
 
     // A brand the pool also appears under: its own.
     if (path === '/poi/RNs/rn1/CSOs/DE*GEF/CPs/DE*GEF*P1/Brands/city-charge')
         return entityOf({ '@id': 'city-charge', name: { en: 'City Charge' }, homepage: 'https://city.example' });
 
-    // A group of pools of an operator, naming its pools and its tariff.
+    // A group of pools of an operator, naming its pools; a template of pools, naming a tariff.
     if (path === '/poi/RNs/rn1/CSOs/DE*GEF/CPGs/DE*GEF*PG1')
-        return entityOf({ '@id': 'DE*GEF*PG1', chargingPoolIds: [ 'DE*GEF*P1', 'DE*GEF*P2' ], chargingTariffId: 'DE*GEF*T1' });
+        return entityOf({ '@id': 'DE*GEF*PG1', chargingPoolIds: [ 'DE*GEF*P1', 'DE*GEF*P2' ] });
+
+    if (path === '/poi/RNs/rn1/CSOs/DE*GEF/CPTs/DE*GEF*PT1')
+        return entityOf({ '@id': 'DE*GEF*PT1', chargingTariffId: 'DE*GEF*T1', facilities: [ 'CAFE' ] });
+
+    // An e-mobility provider without its groups and offers, and them from their lists: one offer of operator groups.
+    if (path === '/poi/RNs/rn1/EMPs/DE-GDF' && query.get('without'))
+        return entityOf({ '@id': 'DE-GDF', name: { en: 'GraphDefined Mobility' } });
+
+    if (/^\/poi\/RNs\/rn1\/EMPs\/DE-GDF\/(EVSEGs|CSGs|CPGs)$/.test(path))
+        return listOf([], 0);
+
+    if (path === '/poi/RNs/rn1/EMPs/DE-GDF/CTOs')
+        return listOf([ { '@id': 'gdf-hpc-39', discount: { percent: 20 }, chargingStationOperatorIds: [ 'DE*ION' ], notBefore: '2026-10-01T00:00:00.000Z' } ], 1);
+
+    if (path === '/poi/RNs/rn1/EMPs/DE-GDF/CTOs/gdf-hpc-39')
+        return entityOf({ '@id': 'gdf-hpc-39', discount: { percent: 20 }, chargingStationOperatorIds: [ 'DE*ION' ], notBefore: '2026-10-01T00:00:00.000Z' });
 
     if (path === '/poi/RNs/rn1/CPs' && query.get('operatorId') === 'DE*BIG')
     {
@@ -130,38 +154,42 @@ function poiAPI({ path, query }: Asked): unknown {
                             { status: 200, headers: { 'Content-Type': 'application/json', 'X-Total-Count': '500', 'X-Filtered-Count': '120' } });
     }
 
-    // A grid operator without its grid connection points and energy meter groups, and them from their lists.
-    if (path === '/poi/RNs/rn1/GOs/DE*NET' && query.get('without') === 'gridConnectionPoints,energyMeterGroups')
+    // A grid operator without its grid connection points and energy meter templates and groups, and them from their lists.
+    if (path === '/poi/RNs/rn1/GOs/DE*NET' && query.get('without') === 'gridConnectionPoints,energyMeterTemplates,energyMeterGroups')
         return entityOf({ '@id': 'DE*NET', name: { en: 'Example Netz' } });
 
     if (path === '/poi/RNs/rn1/GOs/DE*NET/GCPs')
         return listOf([ { '@id': 'GCP1', name: { de: 'Netzanschluss 1' }, voltageLevel: 'LowVoltage' } ], 1);
 
+    if (path === '/poi/RNs/rn1/GOs/DE*NET/EMTs')
+        return listOf([ gridMeterTemplate ], 1);
+
+    if (path === '/poi/RNs/rn1/GOs/DE*NET/EMTs/net-grid-meters')
+        return entityOf(gridMeterTemplate);
+
     if (path === '/poi/RNs/rn1/GOs/DE*NET/EMGs')
         return listOf([ gridMeterGroup ], 1);
 
-    if (path === '/poi/RNs/rn1/GOs/DE*NET/EMGs/net-grid-meters')
-        return entityOf(gridMeterGroup);
-
-    // A grid connection point whose energy meter takes the manufacturer and the hardware version of its group.
+    // A grid connection point whose energy meter takes the manufacturer and the hardware version of its template.
     if (path === '/poi/RNs/rn1/GOs/DE*NET/GCPs/GCP1')
         return query.get('view') === 'stored'
-                   ? entityOf({ '@id': 'GCP1', voltageLevel: 'LowVoltage', energyMeter: { '@id': 'grid-meter', role: 'grid' } })
-                   : entityOf({ '@id': 'GCP1', voltageLevel: 'LowVoltage', energyMeter: { '@id': 'grid-meter', role: 'grid', manufacturerId: 'ZAP', hardwareVersion: '2.0' } });
+                   ? entityOf({ '@id': 'GCP1', voltageLevel: 'LowVoltage', energyMeter: { '@id': 'grid-meter', role: 'grid', templateIds: [ 'net-grid-meters' ] } })
+                   : entityOf({ '@id': 'GCP1', voltageLevel: 'LowVoltage', energyMeter: { '@id': 'grid-meter', role: 'grid', templateIds: [ 'net-grid-meters' ], manufacturerId: 'ZAP', hardwareVersion: '2.0' } });
 
-    // An EVSE whose energy meter takes the model and a signature method of its group, but has no groups of its own.
+    // An EVSE whose energy meter takes the model and a signature method of its template, named in another spelling, but
+    // has no templates of its own.
     if (path === '/poi/RNs/rn1/CSOs/DE*GEF/CPs/DE*GEF*P1/CSs/DE*GEF*S1/EVSEs/DE*GEF*E1*2')
         return query.get('view') === 'stored'
-                   ? entityOf({ '@id': 'DE*GEF*E1*2', maxPower: 22000, energyMeter: { '@id': 'evse-meter-2', serialNumber: 'M-2' } })
-                   : entityOf({ '@id': 'DE*GEF*E1*2', maxPower: 22000, energyMeter: { '@id': 'evse-meter-2', serialNumber: 'M-2', modelId: 'ACME-3000', signatureMethods: [ 'OCMF' ] } });
+                   ? entityOf({ '@id': 'DE*GEF*E1*2', maxPower: 22000, energyMeter: { '@id': 'evse-meter-2', serialNumber: 'M-2', templateIds: [ 'GEF-EVSE-METERS' ] } })
+                   : entityOf({ '@id': 'DE*GEF*E1*2', maxPower: 22000, energyMeter: { '@id': 'evse-meter-2', serialNumber: 'M-2', templateIds: [ 'GEF-EVSE-METERS' ], modelId: 'ACME-3000', signatureMethods: [ 'OCMF' ] } });
 
-    if (path === '/poi/RNs/rn1/CSOs/DE*GEF/CPs/DE*GEF*P1/CSs/DE*GEF*S1/EVSEs/DE*GEF*E1*2/EVSEGs' ||
-        path === '/poi/RNs/rn1/CSOs/DE*GEF/CPs/DE*GEF*P1/CSs/DE*GEF*S1/CSGs' ||
-        path === '/poi/RNs/rn1/CSOs/DE*GEF/CPs/DE*GEF*P1/CPGs')
+    if (path === '/poi/RNs/rn1/CSOs/DE*GEF/CPs/DE*GEF*P1/CSs/DE*GEF*S1/EVSEs/DE*GEF*E1*2/EVSETs' ||
+        path === '/poi/RNs/rn1/CSOs/DE*GEF/CPs/DE*GEF*P1/CSs/DE*GEF*S1/CSTs' ||
+        path === '/poi/RNs/rn1/CSOs/DE*GEF/CPs/DE*GEF*P1/CPTs')
         return listOf([], 0);
 
-    if (path === '/poi/RNs/rn1/CSOs/DE*GEF/EMGs')
-        return listOf([ evseMeterGroup ], 1);
+    if (path === '/poi/RNs/rn1/CSOs/DE*GEF/EMTs')
+        return listOf([ evseMeterTemplate ], 1);
 
     // A parking operator without anything it embeds, and that from their lists: one space, nothing else.
     if (path === '/poi/RNs/rn1/POs/DE*PAR' && query.get('without'))
@@ -174,17 +202,17 @@ function poiAPI({ path, query }: Asked): unknown {
     if (path === '/poi/RNs/rn1/POs/DE*PAR/PSs')
         return listOf([ { '@id': 'space-1', parkingGarageId: 'garage-1', parkingSensorIds: [ 'sensor-1' ] } ], 1);
 
-    if (/^\/poi\/RNs\/rn1\/POs\/DE\*PAR\/(PGs|PSGs|PSNs|PPs)$/.test(path))
+    if (/^\/poi\/RNs\/rn1\/POs\/DE\*PAR\/(PGs|PSTs|PSGs|PSNs|PPs)$/.test(path))
         return listOf([], 0);
 
-    // A charging station whose hotline and a feature its group gives it: as it is at runtime, as it is given, its groups.
+    // A charging station whose hotline and a feature its template gives it: as it is at runtime, as it is given, its templates.
     if (path === '/poi/RNs/rn1/CSOs/DE*GEF/CPs/DE*GEF*P1/CSs/DE*GEF*S9')
         return query.get('view') === 'stored'
-                   ? entityOf({ '@id': 'DE*GEF*S9', features: [ 'Reservable' ], EVSEs: [] })
-                   : entityOf({ '@id': 'DE*GEF*S9', hotline: '+49 800 424242', features: [ 'Reservable', 'RFIDReader' ], EVSEs: [] });
+                   ? entityOf({ '@id': 'DE*GEF*S9', features: [ 'Reservable' ], templateIds: [ 'DE*GEF*ST1' ], EVSEs: [] })
+                   : entityOf({ '@id': 'DE*GEF*S9', hotline: '+49 800 424242', features: [ 'Reservable', 'RFIDReader' ], templateIds: [ 'DE*GEF*ST1' ], EVSEs: [] });
 
-    if (path === '/poi/RNs/rn1/CSOs/DE*GEF/CPs/DE*GEF*P1/CSs/DE*GEF*S9/CSGs')
-        return listOf([ { '@id': 'DE*GEF*SG1', chargingStationIds: [ 'DE*GEF*S9' ], hotline: '+49 800 424242', features: [ 'RFIDReader' ] } ], 1);
+    if (path === '/poi/RNs/rn1/CSOs/DE*GEF/CPs/DE*GEF*P1/CSs/DE*GEF*S9/CSTs')
+        return listOf([ { '@id': 'DE*GEF*ST1', hotline: '+49 800 424242', features: [ 'RFIDReader' ] } ], 1);
 
     if (path.startsWith('/poi/RNs/rn2'))
         return new Response(JSON.stringify({ description: "The roaming network 'rn2' is unknown!" }),
@@ -297,7 +325,8 @@ describe('the single things of the points of interest', () => {
 
         // Asked for in short, and for a page of its pools.
         assert.equal(asked.find(one => one.path === '/poi/RNs/rn1/CSOs/DE*BIG')!.query.get('without'),
-                     'chargingPools,chargingTariffs,chargingTariffGroups,chargingPoolGroups,chargingStationGroups,EVSEGroups,energyMeterGroups');
+                     'chargingPools,chargingTariffs,EVSETemplates,chargingStationTemplates,chargingPoolTemplates,chargingTariffTemplates,energyMeterTemplates,' +
+                     'chargingTariffGroups,chargingPoolGroups,chargingStationGroups,EVSEGroups,energyMeterGroups,chargingTariffOffers');
         assert.equal(asked.find(one => one.path === '/poi/RNs/rn1/CPs')!.query.get('limit'),           '100');
 
         const pools = root.querySelector('.poi-children')!;
@@ -311,12 +340,15 @@ describe('the single things of the points of interest', () => {
 
     });
 
-    it('show the tariffs and groups of an operator from their lists, and lead from a group to its pools and tariff', async () => {
+    it('show the tariffs, templates, groups and offers of an operator from their lists, and lead from a group to its pools, from a template to its tariff', async () => {
 
-        const root = await open(operatorPage, '/poi/RNs/rn1/CSOs/DE*BIG', null, poiAPI, root => root.querySelectorAll('.poi-children').length === 7);
+        const root = await open(operatorPage, '/poi/RNs/rn1/CSOs/DE*BIG', null, poiAPI, root => root.querySelectorAll('.poi-children').length === 13);
 
         assert.deepEqual([ ...root.querySelectorAll('.poi-children h2') ].map(heading => heading.textContent!.replace(/\s+/g, ' ').trim()),
-                         [ 'Charging pools 120', 'Charging tariffs 1', 'Charging tariff groups 0', 'Charging pool groups 0', 'Charging station groups 0', 'EVSE groups 0', 'Energy meter groups 0' ]);
+                         [ 'Charging pools 120', 'Charging tariffs 1',
+                           'EVSE templates 0', 'Charging station templates 0', 'Charging pool templates 0', 'Charging tariff templates 0', 'Energy meter templates 0',
+                           'Charging tariff groups 0', 'Charging pool groups 0', 'Charging station groups 0', 'EVSE groups 0', 'Energy meter groups 0',
+                           'Charging tariff offers 0' ]);
 
         const tariffs = root.querySelectorAll('.poi-children')[1]!;
         assert.deepEqual([ ...tariffs.querySelectorAll('tbody td') ].map(cell => cell.textContent!.trim()), [ 'DE*BIG*T1', '', 'EUR', '', '2' ]);
@@ -327,7 +359,29 @@ describe('the single things of the points of interest', () => {
 
         assert.match(group.querySelector('.page-head')!.textContent!, /Charging pool group DE\*GEF\*PG1/);
         assert.deepEqual(links('Charging pool IDs'),  [ '/poi/RNs/rn1/CSOs/DE*GEF/CPs/DE*GEF*P1', '/poi/RNs/rn1/CSOs/DE*GEF/CPs/DE*GEF*P2' ]);
-        assert.deepEqual(links('Charging tariff ID'), [ '/poi/RNs/rn1/CSOs/DE*GEF/CTs/DE*GEF*T1' ]);
+
+        const template = await open(poolTemplatePage, '/poi/RNs/rn1/CSOs/DE*GEF/CPTs/DE*GEF*PT1', null, poiAPI, root => root.querySelector('.poi-entity') !== null);
+
+        assert.match(template.querySelector('.page-head')!.textContent!, /Charging pool template DE\*GEF\*PT1/);
+        assert.deepEqual([ ...value(template, 'Charging tariff ID')!.querySelectorAll<HTMLAnchorElement>('a') ].map(link => link.getAttribute('href')),
+                         [ '/poi/RNs/rn1/CSOs/DE*GEF/CTs/DE*GEF*T1' ]);
+
+    });
+
+    it('show an e-mobility provider without its groups and offers, them from their lists, an offer below it', async () => {
+
+        const root = await open(providerPage, '/poi/RNs/rn1/EMPs/DE-GDF', null, poiAPI, root => root.querySelectorAll('.poi-children').length === 4);
+
+        assert.equal(asked.find(one => one.path === '/poi/RNs/rn1/EMPs/DE-GDF')!.query.get('without'),  'EVSEGroups,chargingStationGroups,chargingPoolGroups,chargingTariffOffers');
+        assert.deepEqual([ ...root.querySelectorAll('.poi-children h2') ].map(heading => heading.textContent!.replace(/\s+/g, ' ').trim()),
+                         [ 'EVSE groups 0', 'Charging station groups 0', 'Charging pool groups 0', 'Charging tariff offers 1' ]);
+
+        const offers = root.querySelectorAll('.poi-children')[3]!;
+        assert.deepEqual([ ...offers.querySelectorAll('tbody td') ].map(cell => cell.textContent!.trim()), [ 'gdf-hpc-39', '', '20 % less', '2026-10-01T00:00:00.000Z', '' ]);
+        assert.equal(offers.querySelector<HTMLAnchorElement>('tbody a')!.getAttribute('href'), '/poi/RNs/rn1/EMPs/DE-GDF/CTOs/gdf-hpc-39');
+
+        const offer = await open(offerPage, '/poi/RNs/rn1/EMPs/DE-GDF/CTOs/gdf-hpc-39', null, poiAPI, root => root.querySelector('.poi-entity') !== null);
+        assert.match(offer.querySelector('.page-head')!.textContent!, /Charging tariff offer gdf-hpc-39/);
 
     });
 
@@ -345,21 +399,25 @@ describe('the single things of the points of interest', () => {
 
     });
 
-    it('show what the groups of a charging station give it, each value leading to its group', async () => {
+    it('show what the templates of a charging station give it, each value leading to its template', async () => {
 
         const root = await open(stationPage, '/poi/RNs/rn1/CSOs/DE*GEF/CPs/DE*GEF*P1/CSs/DE*GEF*S9', null, poiAPI, root => root.querySelector('.poi-origin') !== null);
 
-        assert.match(root.querySelector('.poi-origins')!.textContent!, /2 values come from its groups/);
+        assert.match(root.querySelector('.poi-origins')!.textContent!, /2 values come from its templates/);
 
-        assert.match(value(root, 'Hotline')!.querySelector('.poi-origin')!.textContent!,          /from group DE\*GEF\*SG1/);
-        assert.equal(value(root, 'Hotline')!.querySelector('.poi-origin a')!.getAttribute('href'), '/poi/RNs/rn1/CSOs/DE*GEF/CSGs/DE*GEF*SG1');
+        assert.match(value(root, 'Hotline')!.querySelector('.poi-origin')!.textContent!,          /from template DE\*GEF\*ST1/);
+        assert.equal(value(root, 'Hotline')!.querySelector('.poi-origin a')!.getAttribute('href'), '/poi/RNs/rn1/CSOs/DE*GEF/CSTs/DE*GEF*ST1');
 
-        // Of an array, the elements its group gives it; its own ones from nowhere.
-        assert.match(value(root, 'Features')!.querySelector('.poi-origin')!.textContent!,         /RFIDReader from group DE\*GEF\*SG1/);
+        // The templates it names lead to their pages below its operator.
+        assert.deepEqual([ ...value(root, 'Template IDs')!.querySelectorAll<HTMLAnchorElement>('a') ].map(link => link.getAttribute('href')),
+                         [ '/poi/RNs/rn1/CSOs/DE*GEF/CSTs/DE*GEF*ST1' ]);
+
+        // Of an array, the elements its template gives it; its own ones from nowhere.
+        assert.match(value(root, 'Features')!.querySelector('.poi-origin')!.textContent!,         /RFIDReader from template DE\*GEF\*ST1/);
         assert.doesNotMatch(value(root, 'Features')!.querySelector('.poi-origin')!.textContent!,  /Reservable/);
         assert.equal(value(root, 'Identification')!.querySelector('.poi-origin'),                  null);
 
-        // Asked as it is given, and for its groups.
+        // Asked as it is given, and for its templates.
         assert.ok(asked.some(one => one.path === '/poi/RNs/rn1/CSOs/DE*GEF/CPs/DE*GEF*P1/CSs/DE*GEF*S9' && one.query.get('view') === 'stored'));
 
     });
@@ -373,36 +431,40 @@ describe('the single things of the points of interest', () => {
 
     });
 
-    it('show a grid operator without its grid connection points and energy meter groups, them from their lists', async () => {
+    it('show a grid operator without its grid connection points and energy meter templates and groups, them from their lists', async () => {
 
-        const root = await open(gridPage, '/poi/RNs/rn1/GOs/DE*NET', null, poiAPI, root => root.querySelectorAll('.poi-children').length === 2);
+        const root = await open(gridPage, '/poi/RNs/rn1/GOs/DE*NET', null, poiAPI, root => root.querySelectorAll('.poi-children').length === 3);
 
-        assert.equal(asked.find(one => one.path === '/poi/RNs/rn1/GOs/DE*NET')!.query.get('without'),  'gridConnectionPoints,energyMeterGroups');
+        assert.equal(asked.find(one => one.path === '/poi/RNs/rn1/GOs/DE*NET')!.query.get('without'),  'gridConnectionPoints,energyMeterTemplates,energyMeterGroups');
         assert.equal(asked.find(one => one.path === '/poi/RNs/rn1/GOs/DE*NET/GCPs')!.query.get('limit'), '100');
+        assert.equal(asked.find(one => one.path === '/poi/RNs/rn1/GOs/DE*NET/EMTs')!.query.get('limit'), '100');
         assert.equal(asked.find(one => one.path === '/poi/RNs/rn1/GOs/DE*NET/EMGs')!.query.get('limit'), '100');
 
-        const [ points, groups ] = [ ...root.querySelectorAll('.poi-children') ];
+        const [ points, templates, groups ] = [ ...root.querySelectorAll('.poi-children') ];
 
         assert.deepEqual([ ...points!.querySelectorAll('tbody tr:first-child td') ].map(cell => cell.textContent!.trim()),
                          [ 'GCP1', 'Netzanschluss 1', 'LowVoltage', '' ]);
         assert.equal(points!.querySelector<HTMLAnchorElement>('tbody a')!.getAttribute('href'), '/poi/RNs/rn1/GOs/DE*NET/GCPs/GCP1');
         assert.equal(points!.querySelector('.chip')!.textContent!.trim(), '1');
 
-        // Its energy meter groups: how many meters, of which manufacturer and model.
+        // Its energy meter templates: of which manufacturer and model; its groups: how many meters.
+        assert.match(templates!.querySelector('h2')!.textContent!, /Energy meter templates\s+1/);
+        assert.deepEqual([ ...templates!.querySelectorAll('tbody tr:first-child td') ].map(cell => cell.textContent!.trim()),
+                         [ 'net-grid-meters', 'Grid meters', 'ZAP', '' ]);
+        assert.equal(templates!.querySelector<HTMLAnchorElement>('tbody a')!.getAttribute('href'), '/poi/RNs/rn1/GOs/DE*NET/EMTs/net-grid-meters');
+
         assert.match(groups!.querySelector('h2')!.textContent!, /Energy meter groups\s+1/);
         assert.deepEqual([ ...groups!.querySelectorAll('tbody tr:first-child td') ].map(cell => cell.textContent!.trim()),
-                         [ 'net-grid-meters', 'Grid meters', '1', 'ZAP', '' ]);
-        assert.equal(groups!.querySelector<HTMLAnchorElement>('tbody a')!.getAttribute('href'), '/poi/RNs/rn1/GOs/DE*NET/EMGs/net-grid-meters');
+                         [ 'net-all-grid-meters', 'All grid meters', '1' ]);
 
     });
 
-    it('show an energy meter group below its grid operator, its manufacturer leading to no charging station manufacturer', async () => {
+    it('show an energy meter template below its grid operator, its manufacturer leading to no charging station manufacturer', async () => {
 
-        const root = await open(meterGroupPage, '/poi/RNs/rn1/GOs/DE*NET/EMGs/net-grid-meters', null, poiAPI, root => root.querySelector('.poi-entity') !== null);
+        const root = await open(meterTemplatePage, '/poi/RNs/rn1/GOs/DE*NET/EMTs/net-grid-meters', null, poiAPI, root => root.querySelector('.poi-entity') !== null);
 
         assert.equal(root.querySelector('h1')!.textContent!.trim(), 'Grid meters');
-        assert.match(root.querySelector('.page-head')!.textContent!, /Energy meter group net-grid-meters/);
-        assert.equal(value(root, 'Energy meter IDs')!.textContent!.trim(),       'grid-meter');
+        assert.match(root.querySelector('.page-head')!.textContent!, /Energy meter template net-grid-meters/);
         assert.equal(value(root, 'Manufacturer ID')!.textContent!.trim(),        'ZAP');
         assert.equal(value(root, 'Manufacturer ID')!.querySelector('a'),         null);
 
@@ -411,38 +473,40 @@ describe('the single things of the points of interest', () => {
 
     });
 
-    it('show what the energy meter group of a grid operator gives the meter of a grid connection point', async () => {
+    it('show what the energy meter template of a grid operator gives the meter of a grid connection point', async () => {
 
         const root = await open(pointPage, '/poi/RNs/rn1/GOs/DE*NET/GCPs/GCP1', null, poiAPI, root => root.querySelector('.poi-origin') !== null);
 
-        assert.match(root.querySelector('.poi-origins')!.textContent!, /2 values come from its groups/);
+        assert.match(root.querySelector('.poi-origins')!.textContent!, /2 values come from its templates/);
 
-        assert.match(nestedValue(root, 'Energy meter', 'Manufacturer ID')!.querySelector('.poi-origin')!.textContent!,   /from group net-grid-meters/);
+        assert.match(nestedValue(root, 'Energy meter', 'Manufacturer ID')!.querySelector('.poi-origin')!.textContent!,   /from template net-grid-meters/);
         assert.equal(nestedValue(root, 'Energy meter', 'Manufacturer ID')!.querySelector('.poi-origin a')!.getAttribute('href'),
-                     '/poi/RNs/rn1/GOs/DE*NET/EMGs/net-grid-meters');
-        assert.match(nestedValue(root, 'Energy meter', 'Hardware version')!.querySelector('.poi-origin')!.textContent!,  /from group net-grid-meters/);
+                     '/poi/RNs/rn1/GOs/DE*NET/EMTs/net-grid-meters');
+        assert.match(nestedValue(root, 'Energy meter', 'Hardware version')!.querySelector('.poi-origin')!.textContent!,  /from template net-grid-meters/);
+        assert.deepEqual([ ...nestedValue(root, 'Energy meter', 'Template IDs')!.querySelectorAll<HTMLAnchorElement>('a') ].map(link => link.getAttribute('href')),
+                         [ '/poi/RNs/rn1/GOs/DE*NET/EMTs/net-grid-meters' ]);
         assert.equal(nestedValue(root, 'Energy meter', 'Role')!.querySelector('.poi-origin'),                              null);
 
         // The manufacturer of an energy meter is no charging station manufacturer.
         assert.equal(nestedValue(root, 'Energy meter', 'Manufacturer ID')!.querySelector('code')!.closest('a'),           null);
 
-        // Asked as it is given, and for the energy meter groups of its grid operator.
+        // Asked as it is given, and for the energy meter templates of its grid operator.
         assert.ok(asked.some(one => one.path === '/poi/RNs/rn1/GOs/DE*NET/GCPs/GCP1' && one.query.get('view') === 'stored'));
 
     });
 
-    it('show what the energy meter group of an operator gives the meter of an EVSE', async () => {
+    it('show what the energy meter template of an operator gives the meter of an EVSE', async () => {
 
         const root = await open(evsePage, '/poi/RNs/rn1/CSOs/DE*GEF/CPs/DE*GEF*P1/CSs/DE*GEF*S1/EVSEs/DE*GEF*E1*2', null, poiAPI,
                                 root => root.querySelector('.poi-origin') !== null);
 
-        assert.match(root.querySelector('.poi-origins')!.textContent!, /2 values come from its groups/);
+        assert.match(root.querySelector('.poi-origins')!.textContent!, /2 values come from its templates/);
 
-        assert.match(nestedValue(root, 'Energy meter', 'Model ID')!.querySelector('.poi-origin')!.textContent!,           /from group gef-evse-meters/);
+        assert.match(nestedValue(root, 'Energy meter', 'Model ID')!.querySelector('.poi-origin')!.textContent!,           /from template gef-evse-meters/);
         assert.equal(nestedValue(root, 'Energy meter', 'Model ID')!.querySelector('.poi-origin a')!.getAttribute('href'),
-                     '/poi/RNs/rn1/CSOs/DE*GEF/EMGs/gef-evse-meters');
-        // All of an array it has none of its own of: from its group, as a whole.
-        assert.match(nestedValue(root, 'Energy meter', 'Signature methods')!.querySelector('.poi-origin')!.textContent!,  /^\s*from group gef-evse-meters\s*$/);
+                     '/poi/RNs/rn1/CSOs/DE*GEF/EMTs/gef-evse-meters');
+        // All of an array it has none of its own of: from its template, as a whole.
+        assert.match(nestedValue(root, 'Energy meter', 'Signature methods')!.querySelector('.poi-origin')!.textContent!,  /^\s*from template gef-evse-meters\s*$/);
         assert.equal(nestedValue(root, 'Energy meter', 'Serial number')!.querySelector('.poi-origin'),                     null);
         assert.equal(value(root, 'Max power')!.querySelector('.poi-origin'),                                                null);
 
@@ -450,13 +514,13 @@ describe('the single things of the points of interest', () => {
 
     it('show a parking operator without what it embeds, each from its list, each leading to its page', async () => {
 
-        const root = await open(parkingPage, '/poi/RNs/rn1/POs/DE*PAR', null, poiAPI, root => root.querySelectorAll('.poi-children').length === 5);
+        const root = await open(parkingPage, '/poi/RNs/rn1/POs/DE*PAR', null, poiAPI, root => root.querySelectorAll('.poi-children').length === 6);
 
         assert.equal(asked.find(one => one.path === '/poi/RNs/rn1/POs/DE*PAR')!.query.get('without'),
-                     'parkingGarages,parkingSpaces,parkingSpaceGroups,parkingSensors,parkingProducts');
+                     'parkingGarages,parkingSpaces,parkingSpaceTemplates,parkingSpaceGroups,parkingSensors,parkingProducts');
 
         assert.deepEqual([ ...root.querySelectorAll('.poi-children h2') ].map(heading => heading.textContent!.replace(/\s+/g, ' ').trim()),
-                         [ 'Parking garages 0', 'Parking spaces 1', 'Parking space groups 0', 'Parking sensors 0', 'Parking products 0' ]);
+                         [ 'Parking garages 0', 'Parking spaces 1', 'Parking space templates 0', 'Parking space groups 0', 'Parking sensors 0', 'Parking products 0' ]);
 
         const spaces = root.querySelectorAll('.poi-children')[1]!;
         assert.deepEqual([ ...spaces.querySelectorAll('tbody td') ].map(cell => cell.textContent!.trim()),

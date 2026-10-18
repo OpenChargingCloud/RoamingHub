@@ -2,41 +2,43 @@ import { poiEntity, poiList, type Entity } from '../api/poi';
 
 /**
  * Where the values of a charging pool, a charging station, an EVSE or a parking space come from that it does not have
- * as it is given: from its groups, which give their members properties at runtime. The POI API serves a member as it
- * is at runtime, ?view=stored as it is given, and lists its groups below it, e.g. ~/…/CSs/{id}/CSGs: what the first
- * has and the second has not, a group gave it - of its groups the one with the highest priority giving it, as the POI
- * API decides it.
+ * as it is given: from its templates, which it names in its templateIds and whose properties it takes at runtime. The
+ * POI API serves a member as it is at runtime, ?view=stored as it is given, and lists its templates below it, in its
+ * order, e.g. ~/…/CSs/{id}/CSTs: what the first has and the second has not, a template gave it - the first of its
+ * templates giving it, as the POI API decides it.
  *
- * - A single value is the member's own, else the one of its group with the highest priority.
- * - An array is its own united with those of its groups, its own winning an element of the same key: an authentication
- *   mode by its type, a brand, a connector or a data license by its identification, an image by its URL, anything
- *   else by what it is.
- * - The charging tariffs of an EVSE are its own, else the charging tariff of its EVSE groups, else of the groups of its
- *   charging station, else of the groups of its charging pool.
+ * - A single value is the member's own, else the one of the first of its templates giving one.
+ * - An array is its own united with those of its templates, its own winning an element of the same key, else the first
+ *   template giving it: an authentication mode by its type, a brand, a connector or a data license by its
+ *   identification, an image by its URL, anything else by what it is.
+ * - The charging tariffs of an EVSE are its own, else the charging tariff of the first of its EVSE templates naming one,
+ *   else of the first template of its charging station naming one, else of the first template of its charging pool.
  *
  * The energy meters a charging pool, a charging station, an EVSE or a grid connection point embeds take what their
- * energy meter groups give them by the same rules: the groups of its owner, a charging station operator or a grid
- * operator, listed below it, ~/…/{CSOs|GOs}/{id}/EMGs, naming the meter among their energyMeterIds.
+ * energy meter templates give them by the same rules: the templates a meter names in its templateIds, of its owner, a
+ * charging station operator or a grid operator, listed below it, ~/…/{CSOs|GOs}/{id}/EMTs.
+ *
+ * Groups give nothing: a member is in groups, which collect members, but takes nothing from them.
  */
 
 
-/** A group, and the path of its page below /poi: below its operator. */
-export interface GroupOf {
-    group:  Entity;
-    path:   string;
+/** A template, and the path of its page below /poi: below its owner. */
+export interface TemplateOf {
+    template:  Entity;
+    path:      string;
 }
 
-/** Where a value comes from: the groups giving it, with the elements each gives of an array, and whether all of it. */
+/** Where a value comes from: the templates giving it, with the elements each gives of an array, and whether all of it. */
 export interface Origin {
     from:   { id: string; path: string; elements?: string[] }[];
     whole:  boolean;
 }
 
-/** What the groups of a member give it: its groups, and of an EVSE the groups giving it a charging tariff. */
-export interface Groups {
-    groups:   GroupOf[];
-    /** Of an EVSE: its own groups, those of its charging station and those of its charging pool, the most specific first. */
-    tariffs?: GroupOf[][];
+/** What the templates of a member give it: its templates, in its order, and of an EVSE the templates giving it a charging tariff. */
+export interface Templates {
+    templates:  TemplateOf[];
+    /** Of an EVSE: its own templates, those of its charging station and those of its charging pool, the most specific first. */
+    tariffs?:   TemplateOf[][];
 }
 
 /** Where the values of an entity come from, by their keys; and those of the energy meters in it, by their identifications. */
@@ -45,7 +47,7 @@ export interface Origins {
     meters:  Map<string, Map<string, Origin>>;
 }
 
-/** The keys of the elements of the arrays a member unites with those of its groups. */
+/** The keys of the elements of the arrays a member unites with those of its templates. */
 const elementKeys: Record<string, string> = {
     authenticationModes:         'type',
     brands:                      '@id',
@@ -55,25 +57,18 @@ const elementKeys: Record<string, string> = {
     transparencySoftwareStatus:  'transparencySoftwareId'
 };
 
-/** The arrays a member takes whole, its own, else the one of its groups: written as arrays, they are single values. */
-const takenWhole = new Set([ 'currentTypes', 'chargingModes' ]);
+/**
+ * The arrays a member takes whole, its own, else the one of its templates: written as arrays, they are single values,
+ * e.g. the elements of a charging tariff.
+ */
+const takenWhole = new Set([ 'currentTypes', 'chargingModes', 'elements' ]);
 
-/** What is never given by groups, or other at runtime for another reason. */
-const notGiven = new Set([ '@context', '@id', 'name', 'description', 'dataSource', 'customData', 'created', 'lastChange' ]);
+/** What is never given by templates, or other at runtime for another reason. */
+const notGiven = new Set([ '@context', '@id', 'name', 'description', 'dataSource', 'customData', 'created', 'lastChange', 'templateIds' ]);
 
 /** What the API embeds where a member names it, by the property naming it: the grid connection point of a pool. */
 const expanded: Record<string, string> = { gridConnectionPoint: 'gridConnectionPointId' };
 
-
-/** The groups by their priority, the highest first, of the same one in the order of their identifications. */
-function byPriority(groups: GroupOf[]): GroupOf[] {
-
-    const priority = (group: GroupOf) => typeof group.group.priority === 'number' ? group.group.priority : 0;
-    const id       = (group: GroupOf) => group.group['@id'];
-
-    return [ ...groups ].sort((a, b) => priority(b) - priority(a) || (id(a) < id(b) ? -1 : id(a) > id(b) ? 1 : 0));
-
-}
 
 /** The key of an element of the given array, by which the member's own one wins. */
 function keyOf(key: string, element: unknown): string {
@@ -94,22 +89,22 @@ function keyOf(key: string, element: unknown): string {
 /** Whether two values are the same, as the API writes them. */
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 
-/** Of the groups the first having the given property, as the one deciding it. */
-const deciding = (groups: GroupOf[], key: string) => groups.find(group => group.group[key] !== undefined && group.group[key] !== null);
+/** Of the templates the first having the given property, as the one deciding it. */
+const deciding = (templates: TemplateOf[], key: string) => templates.find(template => template.template[key] !== undefined && template.template[key] !== null);
 
 
 /**
  * Where the values of a member come from that it has at runtime, the effective one, but not as it is given, stored, by
- * their keys. Values of its own, and those no group gives, have none. What it embeds of its own, e.g. the charging
+ * their keys. Values of its own, and those no template gives, have none. What it embeds of its own, e.g. the charging
  * stations of a pool, is left out.
  */
 export function originsOf(effective:  Entity,
                           stored:     Entity,
-                          given:      Groups,
+                          given:      Templates,
                           embedded:   string[] = []): Map<string, Origin> {
 
-    const origins  = new Map<string, Origin>();
-    const groups   = byPriority(given.groups);
+    const origins    = new Map<string, Origin>();
+    const templates  = given.templates;
 
     for (const [ key, value ] of Object.entries(effective))
     {
@@ -117,16 +112,16 @@ export function originsOf(effective:  Entity,
         if (notGiven.has(key) || embedded.includes(key) || same(value, stored[key]))
             continue;
 
-        // The charging tariffs of an EVSE: those of its most specific groups giving one.
+        // The charging tariffs of an EVSE: those of its most specific templates naming one.
         if (key === 'chargingTariffIds' && given.tariffs)
         {
 
             for (const level of given.tariffs)
             {
-                const group = deciding(byPriority(level), 'chargingTariffId');
-                if (group)
+                const template = deciding(level, 'chargingTariffId');
+                if (template)
                 {
-                    origins.set(key, { from: [ { id: group.group['@id'], path: group.path } ], whole: true });
+                    origins.set(key, { from: [ { id: template.template['@id'], path: template.path } ], whole: true });
                     break;
                 }
             }
@@ -135,12 +130,12 @@ export function originsOf(effective:  Entity,
 
         }
 
-        // An array united with those of its groups: the elements it has not of its own, each of the first group giving it.
+        // An array united with those of its templates: the elements it has not of its own, each of the first template giving it.
         if (Array.isArray(value) && !takenWhole.has(key))
         {
 
             const own   = new Set((Array.isArray(stored[key]) ? stored[key] as unknown[] : []).map(element => keyOf(key, element)));
-            const from  = new Map<GroupOf, string[]>();
+            const from  = new Map<TemplateOf, string[]>();
 
             for (const element of value)
             {
@@ -150,17 +145,17 @@ export function originsOf(effective:  Entity,
                 if (own.has(elementKey))
                     continue;
 
-                const group = groups.find(group => Array.isArray(group.group[key]) &&
-                                                   (group.group[key] as unknown[]).some(other => keyOf(key, other) === elementKey));
+                const template = templates.find(template => Array.isArray(template.template[key]) &&
+                                                            (template.template[key] as unknown[]).some(other => keyOf(key, other) === elementKey));
 
-                if (group)
-                    from.set(group, [ ...(from.get(group) ?? []), elementKey ]);
+                if (template)
+                    from.set(template, [ ...(from.get(template) ?? []), elementKey ]);
 
             }
 
             if (from.size > 0)
                 origins.set(key, {
-                    from:   [ ...from ].map(([ group, elements ]) => ({ id: group.group['@id'], path: group.path, elements })),
+                    from:   [ ...from ].map(([ template, elements ]) => ({ id: template.template['@id'], path: template.path, elements })),
                     whole:  own.size === 0
                 });
 
@@ -168,12 +163,12 @@ export function originsOf(effective:  Entity,
 
         }
 
-        // A single value it has not of its own: the one of its group with the highest priority giving one.
+        // A single value it has not of its own: the one of the first of its templates giving one.
         if (stored[key] === undefined)
         {
-            const group = deciding(groups, expanded[key] ?? key);
-            if (group)
-                origins.set(key, { from: [ { id: group.group['@id'], path: group.path } ], whole: true });
+            const template = deciding(templates, expanded[key] ?? key);
+            if (template)
+                origins.set(key, { from: [ { id: template.template['@id'], path: template.path } ], whole: true });
         }
 
     }
@@ -195,11 +190,12 @@ export function metersOf(entity: Entity): Entity[] {
 
 /**
  * Where the values of the energy meters an entity embeds come from that they have at runtime, but not as they are
- * given: from the energy meter groups naming them, by the identifications of the meters. Meters taking nothing have none.
+ * given: from the energy meter templates each names, in its order, by the identifications of the meters. Meters taking
+ * nothing have none.
  */
 export function meterOriginsOf(effective:  Entity,
                                stored:     Entity,
-                               groups:     GroupOf[]): Map<string, Map<string, Origin>> {
+                               templates:  TemplateOf[]): Map<string, Map<string, Origin>> {
 
     const origins       = new Map<string, Map<string, Origin>>();
     const storedMeters  = new Map(metersOf(stored).map(meter => [ meter['@id'].toLowerCase(), meter ]));
@@ -209,14 +205,15 @@ export function meterOriginsOf(effective:  Entity,
 
         const own = storedMeters.get(meter['@id'].toLowerCase());
 
-        // Identifications of energy meters compare without case.
-        const ofMeter = groups.filter(group => Array.isArray(group.group.energyMeterIds) &&
-                                               (group.group.energyMeterIds as unknown[]).some(id => typeof id === 'string' && id.toLowerCase() === meter['@id'].toLowerCase()));
+        // The templates it names, in its order; identifications of energy meter templates compare without case.
+        const named   = Array.isArray(meter.templateIds) ? (meter.templateIds as unknown[]).filter((id): id is string => typeof id === 'string') : [];
+        const ofMeter = named.map(id => templates.find(template => template.template['@id'].toLowerCase() === id.toLowerCase())).
+                              filter((template): template is TemplateOf => template !== undefined);
 
         if (own === undefined || ofMeter.length === 0)
             continue;
 
-        const given = originsOf(meter, own, { groups: ofMeter });
+        const given = originsOf(meter, own, { templates: ofMeter });
 
         if (given.size > 0)
             origins.set(meter['@id'], given);
@@ -228,29 +225,40 @@ export function meterOriginsOf(effective:  Entity,
 }
 
 
-/** The groups of a member below its page, each with the path of its page below its operator. */
-async function groupsOf(member:    string,
-                        segment:   string,
-                        operator:  string,
-                        signal:    AbortSignal): Promise<GroupOf[]> {
+/** The templates of a member below its page, in its order, each with the path of its page below its owner. */
+async function templatesOf(member:   string,
+                           segment:  string,
+                           owner:    string,
+                           signal:   AbortSignal): Promise<TemplateOf[]> {
 
     const part = await poiList<Entity>(`${member}/${segment}`, { limit: 100 }, signal);
 
-    return part.entries.map(group => ({ group, path: `${operator}/${segment}/${encodeURIComponent(group['@id'])}` }));
+    return part.entries.map(template => ({ template, path: `${owner}/${segment}/${encodeURIComponent(template['@id'])}` }));
 
 }
 
-/** The segments of the groups of a member, by the segment of the member. */
-export const groupSegments: Record<string, string> = { CPs: 'CPGs', CSs: 'CSGs', EVSEs: 'EVSEGs', PSs: 'PSGs' };
+/** The templates of an owner below its page, each with the path of its page below it. */
+async function templatesOfOwner(owner:    string,
+                                segment:  string,
+                                signal:   AbortSignal): Promise<TemplateOf[]> {
 
-/** The segment of the owner of the energy meter groups, by the segment of what embeds energy meters. */
+    const part = await poiList<Entity>(`${owner}/${segment}`, { limit: 100 }, signal);
+
+    return part.entries.map(template => ({ template, path: `${owner}/${segment}/${encodeURIComponent(template['@id'])}` }));
+
+}
+
+/** The segments of the templates of a member, by the segment of the member. */
+export const templateSegments: Record<string, string> = { CPs: 'CPTs', CSs: 'CSTs', EVSEs: 'EVSETs', PSs: 'PSTs', CTs: 'CTTs' };
+
+/** The segment of the owner of the energy meter templates, by the segment of what embeds energy meters. */
 const meterOwners: Record<string, string> = { CPs: 'CSOs', CSs: 'CSOs', EVSEs: 'CSOs', GCPs: 'GOs' };
 
 /**
- * Where the values of the entity at the given path come from: it as it is given, and its groups, asked for; and of the
- * energy meters it embeds, the energy meter groups of its owner. The paths below /poi of its roaming network, its
- * operator, and, of an EVSE, its charging pool and station; the parameters it was asked with. Null for what has no
- * groups, nor energy meters with groups.
+ * Where the values of the entity at the given path come from: it as it is given, and its templates, asked for; and of
+ * the energy meters it embeds, the energy meter templates of its owner. The paths below /poi of its roaming network, its
+ * owner, and, of an EVSE, its charging pool and station; the parameters it was asked with. Null for what has no
+ * templates, nor energy meters with templates.
  */
 export async function loadOrigins(steps:       { segment: string; path: string }[],
                                   effective:   Entity,
@@ -259,36 +267,37 @@ export async function loadOrigins(steps:       { segment: string; path: string }
                                   signal:      AbortSignal): Promise<Origins | null> {
 
     const self      = steps.at(-1)!;
-    const operator  = steps[1];
-    const segment   = groupSegments[self.segment];
+    const owner     = steps[1];
+    const segment   = templateSegments[self.segment];
 
-    // Groups are of charging station operators and of parking operators: the parking spaces of a charging station
+    // Templates are of charging station operators and of parking operators: the parking spaces of a charging station
     // operator have none.
-    const ofMember  = segment !== undefined && operator !== undefined &&
-                      (self.segment === 'PSs' ? operator.segment === 'POs' : operator.segment === 'CSOs');
+    const ofMember  = segment !== undefined && owner !== undefined &&
+                      (self.segment === 'PSs' ? owner.segment === 'POs' : owner.segment === 'CSOs');
 
-    // Energy meter groups are of charging station operators and of grid operators.
-    const ofMeters  = operator !== undefined && meterOwners[self.segment] === operator.segment && metersOf(effective).length > 0;
+    // Energy meter templates are of charging station operators and of grid operators.
+    const ofMeters  = owner !== undefined && meterOwners[self.segment] === owner.segment &&
+                      metersOf(effective).some(meter => Array.isArray(meter.templateIds) && meter.templateIds.length > 0);
 
     if (!ofMember && !ofMeters)
         return null;
 
     const isEVSE    = ofMember && self.segment === 'EVSEs' && steps.length >= 5;
 
-    // Without its groups, or the energy meter groups, where they can not be asked: what the others give still shows.
-    const [ stored, groups, stationGroups, poolGroups, meterGroups ] = await Promise.all([
+    // Without its templates, or the energy meter templates, where they can not be asked: what the others give still shows.
+    const [ stored, templates, stationTemplates, poolTemplates, meterTemplates ] = await Promise.all([
         poiEntity(self.path, { ...parameters, view: 'stored' }, signal),
-        ofMember ? groupsOf(self.path, segment!, operator!.path, signal).catch(() => null) : Promise.resolve(null),
-        isEVSE   ? groupsOf(steps[3]!.path, 'CSGs', operator!.path, signal).catch(() => []) : Promise.resolve([]),
-        isEVSE   ? groupsOf(steps[2]!.path, 'CPGs', operator!.path, signal).catch(() => []) : Promise.resolve([]),
-        ofMeters ? groupsOf(operator!.path, 'EMGs', operator!.path, signal).catch(() => []) : Promise.resolve([])
+        ofMember ? templatesOf(self.path, segment!, owner!.path, signal).catch(() => null) : Promise.resolve(null),
+        isEVSE   ? templatesOf(steps[3]!.path, 'CSTs', owner!.path, signal).catch(() => []) : Promise.resolve([]),
+        isEVSE   ? templatesOf(steps[2]!.path, 'CPTs', owner!.path, signal).catch(() => []) : Promise.resolve([]),
+        ofMeters ? templatesOfOwner(owner!.path, 'EMTs', signal).catch(() => []) : Promise.resolve([])
     ]);
 
     return {
-        values:  groups === null
+        values:  templates === null
                      ? new Map()
-                     : originsOf(effective, stored.entity, { groups, tariffs: isEVSE ? [ groups, stationGroups, poolGroups ] : undefined }, embedded),
-        meters:  meterOriginsOf(effective, stored.entity, meterGroups)
+                     : originsOf(effective, stored.entity, { templates, tariffs: isEVSE ? [ templates, stationTemplates, poolTemplates ] : undefined }, embedded),
+        meters:  meterOriginsOf(effective, stored.entity, meterTemplates)
     };
 
 }

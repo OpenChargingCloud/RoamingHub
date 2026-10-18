@@ -4,8 +4,8 @@ import type { Page } from '@node/router';
 import { reloadButton, shell } from '@node/shell';
 import { errorMessage, formatValue, humanizeKey } from '@node/ui';
 import { html, nothing, render, type TemplateResult } from '@node/view';
-import { addressLine, entityURL, evseCountOf, gridCollections, networkPath, operatorCollections, parkingCollections, poiHome, roamingNetworkOf, sections, sectionsView, type EmbeddedCollection } from './poi';
-import { loadOrigins, type Origin, type Origins } from './poiOrigins';
+import { addressLine, entityURL, evseCountOf, gridCollections, networkPath, operatorCollections, parkingCollections, providerCollections, poiHome, roamingNetworkOf, sections, sectionsView, type EmbeddedCollection } from './poi';
+import { loadOrigins, templateSegments, type Origin, type Origins } from './poiOrigins';
 
 /**
  * The single things of the points of interest: a roaming network with what it holds, and every entity below it -
@@ -19,12 +19,13 @@ import { loadOrigins, type Origin, type Origins } from './poiOrigins';
  *
  * A charging station operator is asked for without its charging pools, which may be thousands, each with its
  * stations and EVSEs: its table holds the first of them, from the charging pools of the roaming network. So is a
- * grid operator without its grid connection points and its energy meter groups, and a parking operator without its
- * garages, spaces, groups of spaces, sensors and products, the first of each from their lists. Each of what a parking
- * operator embeds has a page of its own, below its parking operator, and a parking space leads to its garage, sensors and
- * products, as a group to its spaces. So has every charging tariff and every group of a charging station operator,
- * below it, and what names a tariff or pools of it leads there; and every energy meter group, below the charging
- * station operator or the grid operator it is of.
+ * grid operator without its grid connection points and its energy meter templates and groups, a parking operator without
+ * its garages, spaces, templates and groups of spaces, sensors and products, and an e-mobility provider without its groups
+ * and offers, the first of each from their lists. Each of what a parking operator embeds has a page of its own, below its
+ * parking operator, and a parking space leads to its garage, sensors, products and templates, as a group to its spaces.
+ * So has every charging tariff, template, group and offer of a charging station operator, below it, and what names a
+ * tariff, templates, groups or pools of it leads there; every energy meter template and group, below the charging
+ * station operator or the grid operator it is of; and every group and offer of an e-mobility provider, below it.
  *
  * Brands are embedded in what they are a brand of, every level its own, each meaning something of its own: an operator
  * is a white-label solution for its brands, a pool, station or EVSE also appears under its brands. A table of them
@@ -34,10 +35,11 @@ import { loadOrigins, type Origin, type Origins } from './poiOrigins';
  * parking space - leads to it through the roaming network, ~/RNs/rn1/CSs/{id}: the API redirects there to where it
  * is, below its operator and pool, and a browser follows.
  *
- * A charging pool, a charging station, an EVSE and a parking space of a parking operator are drawn as they are at
- * runtime, with the properties their groups give them: what of it a group gives says so, and leads to the group -
- * found by asking the member as it is given, and its groups (see poiOrigins). So are the energy meters a pool,
- * station, EVSE or grid connection point embeds, with what their energy meter groups give them.
+ * A charging pool, a charging station, an EVSE, a charging tariff and a parking space of a parking operator are drawn as
+ * they are at runtime, with the properties their templates give them: what of it a template gives says so, and leads to
+ * the template - found by asking the member as it is given, and its templates (see poiOrigins). So are the energy meters
+ * a pool, station, EVSE or grid connection point embeds, with what their energy meter templates give them. Groups give
+ * nothing: they collect members.
  */
 
 
@@ -146,7 +148,9 @@ const kinds: Record<string, Kind> = {
               parameters: { without: gridCollections.map(collection => collection.field).join(',') } },
 
     GCPs:   { label: 'Grid connection point',          icon: 'fa-plug-circle-bolt' },
-    EMPs:   { label: 'E-mobility provider',            icon: 'fa-id-card'          },
+    EMPs:   { label: 'E-mobility provider',            icon: 'fa-id-card',
+              children:   providerCollections.map(collection => listedChildren(collection)),
+              parameters: { without: providerCollections.map(collection => collection.field).join(',') } },
     CSMs:   { label: 'Charging station manufacturer',  icon: 'fa-industry'         },
     POs:    { label: 'Parking operator',               icon: 'fa-square-parking',
               children:   parkingCollections.map(collection => listedChildren(collection)),
@@ -155,8 +159,8 @@ const kinds: Record<string, Kind> = {
     // What a parking operator embeds, each below it.
     ...Object.fromEntries(parkingCollections.map(collection => [ collection.segment, { label: collection.one, icon: collection.icon } ])),
 
-    // The charging tariffs and the groups of a charging station operator, each below it; an energy meter group below
-    // a grid operator as well.
+    // The charging tariffs, templates, groups and offers of a charging station operator, each below it; an energy meter
+    // template and group below a grid operator as well, a group and an offer below an e-mobility provider.
     ...Object.fromEntries(operatorCollections.map(collection => [ collection.segment, { label: collection.one, icon: collection.icon } ]))
 
 };
@@ -166,9 +170,12 @@ const kinds: Record<string, Kind> = {
  * a tariff or pools of a charging station operator, a garage, spaces, sensors or products of a parking operator.
  */
 const references: Record<string, Record<string, string>> = {
-    CSOs:  { chargingTariffId:   'CTs',
-             chargingTariffIds:  'CTs',
-             chargingPoolIds:    'CPs' },
+    CSOs:  { chargingTariffId:         'CTs',
+             chargingTariffIds:        'CTs',
+             chargingPoolIds:          'CPs',
+             EVSEGroupIds:             'EVSEGs',
+             chargingStationGroupIds:  'CSGs',
+             chargingPoolGroupIds:     'CPGs' },
     POs:   { parkingGarageId:    'PGs',
              parkingSpaceIds:    'PSs',
              parkingSensorIds:   'PSNs',
@@ -303,14 +310,18 @@ function valueView(key: string, value: unknown, steps: Step[], within?: string):
                         <span class="muted"><code>${point['@id']}</code> of <code>${point.gridOperatorId}</code></span>`;
     }
 
-    // The manufacturer of a charging station; the one of an energy meter, also as its group gives it, has no page.
-    const ofMeter = (within !== undefined && meterFields.has(within)) || steps.at(-1)?.segment === 'EMGs';
+    // The manufacturer of a charging station; the one of an energy meter, also as its template gives it, has no page.
+    const ofMeter = (within !== undefined && meterFields.has(within)) || steps.at(-1)?.segment === 'EMTs';
 
     if (key === 'manufacturerId' && typeof value === 'string' && !ofMeter)
         return html`<a href=${entityURL(`${network}/CSMs/${encodeURIComponent(value)}`)}><code>${value}</code></a>`;
 
-    // What a thing of an operator names of it: a tariff, pools, a garage, sensors, products, spaces.
-    const referenced = steps[1] ? references[steps[1].segment]?.[key] : undefined;
+    // What a thing of an operator names of it: a tariff, pools, groups, a garage, sensors, products, spaces; and the
+    // templates a member names, of its kind, or of an energy meter in it.
+    const templates  = key === 'templateIds'
+                           ? within !== undefined && meterFields.has(within) ? 'EMTs' : templateSegments[steps.at(-1)?.segment ?? '']
+                           : undefined;
+    const referenced = templates ?? (steps[1] ? references[steps[1].segment]?.[key] : undefined);
 
     if (referenced !== undefined &&
         (typeof value === 'string' || (Array.isArray(value) && value.every(item => typeof item === 'string'))))
@@ -373,24 +384,24 @@ function labelOf(key: string): string {
     return key === '@id' ? 'Identification' : key === 'eTags' ? 'ETags' : humanizeKey(key);
 }
 
-/** Where a value comes from: the groups giving it, all of it or the elements named, each leading to its page. */
+/** Where a value comes from: the templates giving it, all of it or the elements named, each leading to its page. */
 function originView(origin: Origin): TemplateResult {
 
     const link = (from: Origin['from'][number]) => html`<a href=${entityURL(from.path)}><code>${from.id}</code></a>`;
 
     return html`
         <div class="poi-origin muted small">
-            <i class="fa-solid fa-layer-group"></i>
+            <i class="fa-solid fa-clone"></i>
             ${origin.whole && origin.from.length === 1
-                  ? html`from group ${link(origin.from[0]!)}`
-                  : origin.from.map((from, index) => html`${index > 0 ? '; ' : ''}${from.elements?.join(', ') ?? ''} from group ${link(from)}`)}
+                  ? html`from template ${link(origin.from[0]!)}`
+                  : origin.from.map((from, index) => html`${index > 0 ? '; ' : ''}${from.elements?.join(', ') ?? ''} from template ${link(from)}`)}
         </div>`;
 
 }
 
 /**
  * The fields of an entity, or of a thing in it, a line each, and a thing of its own as a block below its name; of an
- * entity, where its groups give a value, which ones, and of an energy meter in it, which its energy meter groups give.
+ * entity, where its templates give a value, which ones, and of an energy meter in it, which its energy meter templates give.
  * Within, the field of the entity holding the thing.
  */
 function fieldsView(fields:    [ string, unknown ][],
@@ -549,7 +560,7 @@ function entityPage(segment: string): Page {
                                      ? []
                                      : Object.entries(loaded.entity).filter(([ key ]) => !notAField.has(key) && !kind.children?.some(children => children.field === key));
 
-                // What its groups give it, and the energy meters in it their energy meter groups.
+                // What its templates give it, and the energy meters in it their energy meter templates.
                 const given    = origins === null
                                      ? 0
                                      : origins.values.size + [ ...origins.meters.values() ].reduce((sum, meter) => sum + meter.size, 0);
@@ -568,8 +579,8 @@ function entityPage(segment: string): Page {
                                       <section class="card poi-entity">
                                           <h2><i class="fa-solid ${kind.icon}"></i> ${kind.label}</h2>
                                           ${given > 0
-                                                ? html`<p class="muted small poi-origins"><i class="fa-solid fa-layer-group"></i>
-                                                           As it is at runtime: ${given === 1 ? 'one value comes' : `${given} values come`} from its groups.</p>`
+                                                ? html`<p class="muted small poi-origins"><i class="fa-solid fa-clone"></i>
+                                                           As it is at runtime: ${given === 1 ? 'one value comes' : `${given} values come`} from its templates.</p>`
                                                 : nothing}
                                           <div class="kv-list">
                                               ${fieldsView(fields, steps, origins?.values, origins?.meters)}
@@ -615,7 +626,7 @@ function entityPage(segment: string): Page {
 
                     draw();
 
-                    // Which of its values its groups give it, once it is drawn: without, where they cannot be asked.
+                    // Which of its values its templates give it, once it is drawn: without, where they cannot be asked.
                     origins = await loadOrigins(steps, entity.entity, kind.parameters, (kind.children ?? []).map(children => children.field), ask.signal).
                                         catch(() => null);
 
@@ -792,8 +803,10 @@ export const poiEntityPages: Record<string, Page> = {
     [`${station}/EVSEs/:evse/Brands/:id`]:        entityPage('Brands'),
     [gridOperator]:                  entityPage('GOs'),
     [`${gridOperator}/GCPs/:gcp`]:   entityPage('GCPs'),
+    [`${gridOperator}/EMTs/:id`]:    entityPage('EMTs'),
     [`${gridOperator}/EMGs/:id`]:    entityPage('EMGs'),
     [`${network}/EMPs/:emp`]:        entityPage('EMPs'),
+    ...Object.fromEntries(providerCollections.map(collection => [ `${network}/EMPs/:emp/${collection.segment}/:id`, entityPage(collection.segment) ])),
     [`${network}/CSMs/:csm`]:        entityPage('CSMs'),
     ...Object.fromEntries(operatorCollections.map(collection => [ `${operator}/${collection.segment}/:id`, entityPage(collection.segment) ])),
     [parkingOperator]:               entityPage('POs'),

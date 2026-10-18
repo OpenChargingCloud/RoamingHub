@@ -664,17 +664,24 @@ export const gridConnectionPoints: EmbeddedCollection = {
 };
 
 /**
- * The groups of the energy meters of a charging station operator, of its pools, stations and EVSEs, or of a grid
- * operator, of its grid connection points: giving them what a series of meters has in common.
+ * The templates of the energy meters of a charging station operator, of its pools, stations and EVSEs, or of a grid
+ * operator, of its grid connection points: giving the meters naming them what a series of meters has in common.
  */
+export const energyMeterTemplates: EmbeddedCollection = {
+    segment: 'EMTs',  field: 'energyMeterTemplates',  label: 'Energy meter templates',  one: 'Energy meter template',  icon: 'fa-gauge',
+    head:    [ 'Manufacturer', 'Model' ],
+    cells:   template => [ String(template.manufacturerId ?? ''), String(template.modelId ?? '') ]
+};
+
+/** The groups of energy meters of a charging station operator or of a grid operator: collections, with a status of their own. */
 export const energyMeterGroups: EmbeddedCollection = {
-    segment: 'EMGs',  field: 'energyMeterGroups',  label: 'Energy meter groups',  one: 'Energy meter group',  icon: 'fa-gauge',
-    head:    [ 'Meters', 'Manufacturer', 'Model' ],
-    cells:   group => [ idCount(group.energyMeterIds), String(group.manufacturerId ?? ''), String(group.modelId ?? '') ]
+    segment: 'EMGs',  field: 'energyMeterGroups',  label: 'Energy meter groups',  one: 'Energy meter group',  icon: 'fa-layer-group',
+    head:    [ 'Meters' ],
+    cells:   group => [ idCount(group.energyMeterIds) ]
 };
 
 /** What a grid operator embeds, each in a list of its own. */
-export const gridCollections: EmbeddedCollection[] = [ gridConnectionPoints, energyMeterGroups ];
+export const gridCollections: EmbeddedCollection[] = [ gridConnectionPoints, energyMeterTemplates, energyMeterGroups ];
 
 /** What a parking operator embeds, each in a list of its own. */
 export const parkingCollections: EmbeddedCollection[] = [
@@ -684,6 +691,9 @@ export const parkingCollections: EmbeddedCollection[] = [
     { segment: 'PSs',   field: 'parkingSpaces',       label: 'Parking spaces',        one: 'Parking space',        icon: 'fa-square-parking',
       head:    [ 'Garage', 'Sensors', 'Charging stations' ],
       cells:   space => [ String(space.parkingGarageId ?? ''), idCount(space.parkingSensorIds), idCount(space.chargingStationIds) ] },
+    { segment: 'PSTs',  field: 'parkingSpaceTemplates',  label: 'Parking space templates',  one: 'Parking space template',  icon: 'fa-clone',
+      head:    [ 'Garage', 'Sensors' ],
+      cells:   template => [ String(template.parkingGarageId ?? ''), idCount(template.parkingSensorIds) ] },
     { segment: 'PSGs',  field: 'parkingSpaceGroups',  label: 'Parking space groups',  one: 'Parking space group',  icon: 'fa-layer-group',
       head:    [ 'Spaces' ],
       cells:   group => [ idCount(group.parkingSpaceIds) ] },
@@ -695,28 +705,72 @@ export const parkingCollections: EmbeddedCollection[] = [
       cells:   product => [ textOf(product.description as Summary['description']) ] }
 ];
 
-/** The charging tariffs and the groups of a charging station operator, each in a list of its own. */
+/** The groups of EVSEs, charging stations and charging pools, of a charging station operator or an e-mobility provider: collections. */
+export const evseGroups: EmbeddedCollection = {
+    segment: 'EVSEGs',  field: 'EVSEGroups',             label: 'EVSE groups',              one: 'EVSE group',              icon: 'fa-object-group',
+    head:    [ 'EVSEs' ],
+    cells:   group => [ idCount(group.EVSEIds) ]
+};
+
+export const chargingStationGroups: EmbeddedCollection = {
+    segment: 'CSGs',    field: 'chargingStationGroups',  label: 'Charging station groups',  one: 'Charging station group',  icon: 'fa-object-group',
+    head:    [ 'Stations' ],
+    cells:   group => [ idCount(group.chargingStationIds) ]
+};
+
+export const chargingPoolGroups: EmbeddedCollection = {
+    segment: 'CPGs',    field: 'chargingPoolGroups',     label: 'Charging pool groups',     one: 'Charging pool group',     icon: 'fa-object-group',
+    head:    [ 'Pools' ],
+    cells:   group => [ idCount(group.chargingPoolIds) ]
+};
+
+/** What a charging tariff offer gives: a price of its own, or a discount. */
+function offered(offer: Entity): string {
+    const discount = offer.discount as { percent?: number } | undefined;
+    const price    = offer.chargingTariff as { currency?: string } | undefined;
+    return discount?.percent !== undefined ? `${discount.percent} % less` : price?.currency !== undefined ? `a price in ${price.currency}` : '';
+}
+
+/** The charging tariff offers of a charging station operator or an e-mobility provider: another price for a time. */
+export const chargingTariffOffers: EmbeddedCollection = {
+    segment: 'CTOs',    field: 'chargingTariffOffers',   label: 'Charging tariff offers',   one: 'Charging tariff offer',   icon: 'fa-percent',
+    head:    [ 'Offer', 'Not before', 'Not after' ],
+    cells:   offer => [ offered(offer), String(offer.notBefore ?? ''), String(offer.notAfter ?? '') ]
+};
+
+/** The charging tariffs, the templates, the groups and the offers of a charging station operator, each in a list of its own. */
 export const operatorCollections: EmbeddedCollection[] = [
-    { segment: 'CTs',     field: 'chargingTariffs',        label: 'Charging tariffs',         one: 'Charging tariff',         icon: 'fa-tag',
+    { segment: 'CTs',     field: 'chargingTariffs',          label: 'Charging tariffs',           one: 'Charging tariff',           icon: 'fa-tag',
       head:    [ 'Currency', 'Type', 'Elements' ],
       cells:   tariff => [ String(tariff.currency ?? ''), String(tariff.tariffType ?? ''), idCount(tariff.elements) ] },
-    { segment: 'CTGs',    field: 'chargingTariffGroups',   label: 'Charging tariff groups',   one: 'Charging tariff group',   icon: 'fa-tags',
+    { segment: 'EVSETs',  field: 'EVSETemplates',            label: 'EVSE templates',             one: 'EVSE template',             icon: 'fa-clone',
+      head:    [ 'Max power', 'Tariff' ],
+      cells:   template => [ String(template.maxPower ?? ''), String(template.chargingTariffId ?? '') ] },
+    { segment: 'CSTs',    field: 'chargingStationTemplates', label: 'Charging station templates', one: 'Charging station template', icon: 'fa-clone',
+      head:    [ 'Tariff' ],
+      cells:   template => [ String(template.chargingTariffId ?? '') ] },
+    { segment: 'CPTs',    field: 'chargingPoolTemplates',    label: 'Charging pool templates',    one: 'Charging pool template',    icon: 'fa-clone',
+      head:    [ 'Tariff' ],
+      cells:   template => [ String(template.chargingTariffId ?? '') ] },
+    { segment: 'CTTs',    field: 'chargingTariffTemplates',  label: 'Charging tariff templates',  one: 'Charging tariff template',  icon: 'fa-clone',
+      head:    [ 'Currency', 'Elements' ],
+      cells:   template => [ String(template.currency ?? ''), idCount(template.elements) ] },
+    energyMeterTemplates,
+    { segment: 'CTGs',    field: 'chargingTariffGroups',     label: 'Charging tariff groups',     one: 'Charging tariff group',     icon: 'fa-tags',
       head:    [ 'Tariffs' ],
       cells:   group => [ idCount(group.chargingTariffIds) ] },
-    { segment: 'CPGs',    field: 'chargingPoolGroups',     label: 'Charging pool groups',     one: 'Charging pool group',     icon: 'fa-object-group',
-      head:    [ 'Pools', 'Tariff' ],
-      cells:   group => [ idCount(group.chargingPoolIds), String(group.chargingTariffId ?? '') ] },
-    { segment: 'CSGs',    field: 'chargingStationGroups',  label: 'Charging station groups',  one: 'Charging station group',  icon: 'fa-object-group',
-      head:    [ 'Stations', 'Tariff' ],
-      cells:   group => [ idCount(group.chargingStationIds), String(group.chargingTariffId ?? '') ] },
-    { segment: 'EVSEGs',  field: 'EVSEGroups',             label: 'EVSE groups',              one: 'EVSE group',              icon: 'fa-object-group',
-      head:    [ 'EVSEs', 'Tariff' ],
-      cells:   group => [ idCount(group.EVSEIds), String(group.chargingTariffId ?? '') ] },
-    energyMeterGroups
+    chargingPoolGroups,
+    chargingStationGroups,
+    evseGroups,
+    energyMeterGroups,
+    chargingTariffOffers
 ];
 
-/** The operator a page below it is of, from its URL: /poi/RNs/{RN_Id}/{CSOs|GOs|POs}/{Id}/... */
-function operatorOf(url: URL, segment: 'CSOs' | 'GOs' | 'POs'): string {
+/** The groups and the offers of an e-mobility provider, each in a list of its own: of members of any operator. */
+export const providerCollections: EmbeddedCollection[] = [ evseGroups, chargingStationGroups, chargingPoolGroups, chargingTariffOffers ];
+
+/** The operator or provider a page below it is of, from its URL: /poi/RNs/{RN_Id}/{CSOs|GOs|POs|EMPs}/{Id}/... */
+function operatorOf(url: URL, segment: 'CSOs' | 'GOs' | 'POs' | 'EMPs'): string {
     const found = new RegExp(`^/poi/RNs/[^/]+/${segment}/([^/]+)`).exec(fromURL(url.pathname));
     return found ? decodeURIComponent(found[1]!) : '';
 }
@@ -727,7 +781,7 @@ export function gridOperatorOf(url: URL): string {
 }
 
 /** All of what an operator embeds, beyond the first its page shows, searched and paged: each leading to its page. */
-function embeddedListPage(parent:      'CSOs' | 'GOs' | 'POs',
+function embeddedListPage(parent:      'CSOs' | 'GOs' | 'POs' | 'EMPs',
                           collection:  EmbeddedCollection,
                           subtitle:    string): Page {
 
@@ -752,10 +806,19 @@ function embeddedListPage(parent:      'CSOs' | 'GOs' | 'POs',
 /** The grid connection points of a grid operator, as they are at runtime: all of them, beyond the first its page shows. */
 export const poiGridConnectionPointsPage: Page = embeddedListPage('GOs', gridConnectionPoints, 'Where the charging pools are connected to the grid of a grid operator.');
 
+/** The templates of the energy meters of the grid connection points of a grid operator. */
+export const poiGridEnergyMeterTemplatesPage: Page = embeddedListPage('GOs', energyMeterTemplates, 'The templates of the energy meters of the grid connection points of a grid operator.');
+
 /** The groups of the energy meters of the grid connection points of a grid operator. */
 export const poiGridEnergyMeterGroupsPage: Page = embeddedListPage('GOs', energyMeterGroups, 'The groups of the energy meters of the grid connection points of a grid operator.');
 
-/** The charging tariffs and the groups of a charging station operator, a list each. */
+/** The groups and the offers of an e-mobility provider, a list each. */
+export const poiProviderListPages: Record<string, Page> = Object.fromEntries(
+    providerCollections.map(collection => [ `${poiHome}/:rn/EMPs/:emp/${collection.segment}`,
+                                            embeddedListPage('EMPs', collection, `The ${collection.label.toLowerCase()} of an e-mobility provider.`) ])
+);
+
+/** The charging tariffs, the templates, the groups and the offers of a charging station operator, a list each. */
 export const poiOperatorListPages: Record<string, Page> = Object.fromEntries(
     operatorCollections.map(collection => [ `${poiHome}/:rn/CSOs/:cso/${collection.segment}`,
                                             embeddedListPage('CSOs', collection, `The ${collection.label.toLowerCase()} of a charging station operator.`) ])
@@ -777,7 +840,9 @@ export const poiListPages: Record<string, Page> = {
     [`${poiHome}/:rn/CSMs`]:            poiManufacturersPage,
     [`${poiHome}/:rn/POs`]:             poiParkingPage,
     [`${poiHome}/:rn/GOs/:go/GCPs`]:    poiGridConnectionPointsPage,
+    [`${poiHome}/:rn/GOs/:go/EMTs`]:    poiGridEnergyMeterTemplatesPage,
     [`${poiHome}/:rn/GOs/:go/EMGs`]:    poiGridEnergyMeterGroupsPage,
     ...poiOperatorListPages,
+    ...poiProviderListPages,
     ...poiParkingListPages
 };

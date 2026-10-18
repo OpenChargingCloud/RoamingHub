@@ -9,7 +9,7 @@ import { asked, field, open, refused, submit, type, until, type Asked } from '..
 import { strict as assert }  from 'node:assert';
 import { describe, it }      from 'node:test';
 
-const { addressLine, gridOperatorOf, keysOf, poiChargingPoolsPage, poiGridConnectionPointsPage, poiGridEnergyMeterGroupsPage, poiListPages, poiNetworksPage, poiOperatorListPages, poiOperatorsPage, poiParkingListPages, queryOf, roamingNetworkOf } = await import('./poi.ts');
+const { addressLine, gridOperatorOf, keysOf, poiChargingPoolsPage, poiGridConnectionPointsPage, poiGridEnergyMeterGroupsPage, poiGridEnergyMeterTemplatesPage, poiListPages, poiNetworksPage, poiOperatorListPages, poiOperatorsPage, poiParkingListPages, poiProviderListPages, queryOf, roamingNetworkOf } = await import('./poi.ts');
 
 
 /** A part of a list, as the POI API answers: the entries, with the counts in the headers. */
@@ -60,11 +60,17 @@ function poiAPI({ path, query }: Asked): unknown {
         return listOf([ { '@id': 'GCP1', name: { de: 'Netzanschluss 1' }, voltageLevel: 'LowVoltage',
                           address: { street: 'Netzweg', houseNumber: '1', postalCode: '07743', city: { de: 'Jena' }, country: 'DEU' } } ], 1);
 
+    if (path === '/poi/RNs/rn1/GOs/DE*NET/EMTs')
+        return listOf([ { '@id': 'net-grid-meters', name: { en: 'Grid meters' }, manufacturerId: 'ZAP', modelId: 'ZAP-1' } ], 1);
+
     if (path === '/poi/RNs/rn1/GOs/DE*NET/EMGs')
-        return listOf([ { '@id': 'net-grid-meters', name: { en: 'Grid meters' }, energyMeterIds: [ 'grid-meter-1', 'grid-meter-2' ], manufacturerId: 'ZAP', modelId: 'ZAP-1' } ], 1);
+        return listOf([ { '@id': 'net-all-grid-meters', name: { en: 'All grid meters' }, energyMeterIds: [ 'grid-meter-1', 'grid-meter-2' ] } ], 1);
 
     if (path === '/poi/RNs/rn1/CSOs/DE*GEF/EVSEGs')
-        return listOf([ { '@id': 'DE*GEF*EG1', EVSEIds: [ 'DE*GEF*E1*1', 'DE*GEF*E1*2' ], chargingTariffId: 'DE*GEF*T1' } ], 1);
+        return listOf([ { '@id': 'DE*GEF*EG1', EVSEIds: [ 'DE*GEF*E1*1', 'DE*GEF*E1*2' ] } ], 1);
+
+    if (path === '/poi/RNs/rn1/EMPs/DE-GDF/CTOs')
+        return listOf([ { '@id': 'gdf-hpc-39', name: { de: 'HPC für 39 ct/kWh' }, chargingTariff: { currency: 'EUR' }, notBefore: '2026-10-01T00:00:00.000Z' } ], 1);
 
     if (path === '/poi/RNs/rn1/POs/DE*PAR/PSs')
         return listOf([ { '@id': 'space-1', name: { en: 'By the door' }, parkingGarageId: 'garage-1', chargingStationIds: [ 'S1', 'S2' ] } ], 1);
@@ -208,18 +214,27 @@ describe('the points of interest', () => {
 
     });
 
-    it('list the energy meter groups of a grid operator and of a charging station operator, each leading to its page', async () => {
+    it('list the energy meter templates and groups of a grid operator and of a charging station operator, each leading to its page', async () => {
 
+        assert.equal(poiListPages['/poi/RNs/:rn/GOs/:go/EMTs'],   poiGridEnergyMeterTemplatesPage);
         assert.equal(poiListPages['/poi/RNs/:rn/GOs/:go/EMGs'],   poiGridEnergyMeterGroupsPage);
+        assert.ok   (poiOperatorListPages['/poi/RNs/:rn/CSOs/:cso/EMTs'] !== undefined);
         assert.ok   (poiOperatorListPages['/poi/RNs/:rn/CSOs/:cso/EMGs'] !== undefined);
 
-        const root = await open(poiGridEnergyMeterGroupsPage, '/poi/RNs/rn1/GOs/DE*NET/EMGs', null, poiAPI, root => root.querySelector('tbody') !== null);
+        const templates = await open(poiGridEnergyMeterTemplatesPage, '/poi/RNs/rn1/GOs/DE*NET/EMTs', null, poiAPI, root => root.querySelector('tbody') !== null);
 
-        assert.equal(root.querySelector('h1')!.textContent!.trim(), 'Energy meter groups of DE*NET');
-        assert.deepEqual([ ...root.querySelectorAll('tbody tr td') ].map(cell => cell.textContent!.trim()),
-                         [ 'net-grid-meters', 'Grid meters', '2', 'ZAP', 'ZAP-1' ]);
-        assert.equal(root.querySelector<HTMLAnchorElement>('tbody a')!.getAttribute('href'), '/poi/RNs/rn1/GOs/DE*NET/EMGs/net-grid-meters');
-        assert.equal(root.querySelector('.poi-sections a.active')!.textContent!.trim(), 'Grid operators');
+        assert.equal(templates.querySelector('h1')!.textContent!.trim(), 'Energy meter templates of DE*NET');
+        assert.deepEqual([ ...templates.querySelectorAll('tbody tr td') ].map(cell => cell.textContent!.trim()),
+                         [ 'net-grid-meters', 'Grid meters', 'ZAP', 'ZAP-1' ]);
+        assert.equal(templates.querySelector<HTMLAnchorElement>('tbody a')!.getAttribute('href'), '/poi/RNs/rn1/GOs/DE*NET/EMTs/net-grid-meters');
+        assert.equal(templates.querySelector('.poi-sections a.active')!.textContent!.trim(), 'Grid operators');
+
+        // A group collects meters, and gives them nothing.
+        const groups = await open(poiGridEnergyMeterGroupsPage, '/poi/RNs/rn1/GOs/DE*NET/EMGs', null, poiAPI, root => root.querySelector('tbody') !== null);
+
+        assert.equal(groups.querySelector('h1')!.textContent!.trim(), 'Energy meter groups of DE*NET');
+        assert.deepEqual([ ...groups.querySelectorAll('tbody tr td') ].map(cell => cell.textContent!.trim()),
+                         [ 'net-all-grid-meters', 'All grid meters', '2' ]);
 
     });
 
@@ -229,9 +244,21 @@ describe('the points of interest', () => {
 
         assert.equal(root.querySelector('h1')!.textContent!.trim(), 'EVSE groups of DE*GEF');
         assert.deepEqual([ ...root.querySelectorAll('tbody tr td') ].map(cell => cell.textContent!.trim()),
-                         [ 'DE*GEF*EG1', '', '2', 'DE*GEF*T1' ]);
+                         [ 'DE*GEF*EG1', '', '2' ]);
         assert.equal(root.querySelector<HTMLAnchorElement>('tbody a')!.getAttribute('href'), '/poi/RNs/rn1/CSOs/DE*GEF/EVSEGs/DE*GEF*EG1');
         assert.equal(root.querySelector('.poi-sections a.active')!.textContent!.trim(), 'Charging station operators');
+
+    });
+
+    it('list the charging tariff offers of an e-mobility provider, each leading to its page', async () => {
+
+        const root = await open(poiProviderListPages['/poi/RNs/:rn/EMPs/:emp/CTOs']!, '/poi/RNs/rn1/EMPs/DE-GDF/CTOs', null, poiAPI, root => root.querySelector('tbody') !== null);
+
+        assert.equal(poiListPages['/poi/RNs/:rn/EMPs/:emp/CTOs'], poiProviderListPages['/poi/RNs/:rn/EMPs/:emp/CTOs']);
+        assert.equal(root.querySelector('h1')!.textContent!.trim(), 'Charging tariff offers of DE-GDF');
+        assert.deepEqual([ ...root.querySelectorAll('tbody tr td') ].map(cell => cell.textContent!.trim()),
+                         [ 'gdf-hpc-39', 'HPC für 39 ct/kWh', 'a price in EUR', '2026-10-01T00:00:00.000Z', '' ]);
+        assert.equal(root.querySelector<HTMLAnchorElement>('tbody a')!.getAttribute('href'), '/poi/RNs/rn1/EMPs/DE-GDF/CTOs/gdf-hpc-39');
 
     });
 
