@@ -99,6 +99,18 @@ namespace cloud.charging.open.RoamingHub
         public String?                   TrafficDirectory
             => trafficFile?.Directory;
 
+        /// <summary>
+        /// What the traffic file is doing, or null where there is none.
+        /// </summary>
+        /// <remarks>
+        /// For the JSON API, so that the pages of the traffic and of OCPI do
+        /// not have to guess whether a restart forgets what they are showing
+        /// - which they did, and got wrong, for as long as the file existed
+        /// and nothing told them about it.
+        /// </remarks>
+        public JObject?                  TrafficFileJSON
+            => trafficFile?.ToJSON();
+
         private CommonHTTPAPI            ocpiAPI       = default!;
         private OCPIConfiguration        ocpiSettings  = new ();
 
@@ -425,7 +437,8 @@ namespace cloud.charging.open.RoamingHub
                        new JProperty("tariffsAsOpenData",    ocpiAPI.TariffsAsOpenData),
                        new JProperty("allowDowngrades",      ocpiAPI.AllowDowngrades ?? false),
                        new JProperty("logRequests",          ocpiSettings.Logging?.Requests != false),
-                       new JProperty("logPayloads",          ocpiSettings.Logging?.Payloads == true)
+                       new JProperty("logPayloads",          ocpiSettings.Logging?.Payloads == true),
+                       new JProperty("logFile",              ocpiSettings.Logging?.ToFile   == true)
                    )),
 
                    new JProperty("counts",       new JObject(
@@ -435,6 +448,7 @@ namespace cloud.charging.open.RoamingHub
                    )),
 
                    new JProperty("directory",    OCPIDirectory),
+                   new JProperty("appendedTo",   TrafficFileJSON),
                    new JProperty("file",         ConfigFile.Path)
 
                );

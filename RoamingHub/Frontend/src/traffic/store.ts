@@ -1,4 +1,4 @@
-import { api, ApiError, type Call } from '../api/client';
+import { api, ApiError, type Call, type TrafficFile } from '../api/client';
 
 // The browser's copy of what went between the peers, fed by the same two
 // things as the event log beside it: a snapshot from the JSON API and a
@@ -68,6 +68,12 @@ export class TrafficStore {
 
     /** Whether the hub is keeping the bodies at all. */
     payloads = false;
+
+    /**
+     * Where the calls are appended as well, or null where this ring is all
+     * there is - which is what lets the page be honest about a restart.
+     */
+    appendedTo: TrafficFile | null = null;
 
     /**
      * Whether the hub stopped sending the traffic to this account, because
@@ -300,8 +306,11 @@ export class TrafficStore {
             this.calls.push(...page.calls);
 
             this.lastId    = Math.max(page.lastId, ...page.calls.map(call => call.id), 0);
-            this.capacity  = page.capacity;
-            this.payloads  = page.payloads;
+            this.capacity    = page.capacity;
+            this.payloads    = page.payloads;
+            // ?? null rather than the value: a hub too old to send it at all
+            // is one whose traffic really is gone with the process.
+            this.appendedTo  = page.appendedTo ?? null;
 
             for (const peer of page.peers)
                 this.peers.add(peer);

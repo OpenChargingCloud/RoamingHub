@@ -111,14 +111,17 @@ export interface OCPIConfiguration {
         allowDowngrades:      boolean;
         logRequests:          boolean;
         logPayloads:          boolean;
+        logFile:              boolean;
     };
     counts: {
         partners:    number;
         registered:  number;
         calls:       number;
     };
-    directory:  string;
-    file:       string;
+    directory:   string;
+    /** Where the calls are appended as well, or null where they are not kept beyond this run. */
+    appendedTo:  TrafficFile | null;
+    file:        string;
 }
 
 /**
@@ -256,17 +259,31 @@ export interface Call {
     responseBody:    string | null;
 }
 
+/**
+ * Where the hub appends every call as well, where it was asked to keep them
+ * beyond this run. Null where it was not, which is how it starts.
+ */
+export interface TrafficFile {
+    directory:  string;
+    /** The file being appended to, or null before the first call of this run. */
+    current:    string | null;
+    /** How many calls have been written since the hub started. */
+    written:    number;
+}
+
 /** What a page of the traffic brings back. */
 export interface CallPage {
-    calls:     Call[];
+    calls:       Call[];
     /** The newest id of the whole log, whatever this page was filtered by. */
-    lastId:    number;
-    count:     number;
-    capacity:  number;
+    lastId:      number;
+    count:       number;
+    capacity:    number;
     /** Whether the bodies are being kept at all. */
-    payloads:  boolean;
+    payloads:    boolean;
+    /** Where the calls are appended as well, or null where the ring is all there is. */
+    appendedTo:  TrafficFile | null;
     /** Every party seen at either end of a call, for the filter. */
-    peers:     string[];
+    peers:       string[];
 }
 
 

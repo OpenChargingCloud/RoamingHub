@@ -14,7 +14,7 @@ import { asked, change, leave, open, refused, settled, until } from '../../test/
 import { strict as assert }       from 'node:assert';
 import { after, describe, it }    from 'node:test';
 
-import type { Call, CallPage } from '../api/client.ts';
+import type { Call, CallPage, TrafficFile } from '../api/client.ts';
 
 
 /** A stream that does what a test tells it to. */
@@ -89,15 +89,16 @@ function aCall(id: number, more: Partial<Call> = {}): Call {
 }
 
 /** The traffic page opened, its stream open, and the snapshot of these calls drawn. */
-async function opened(calls: Call[], payloads = true): Promise<HTMLElement> {
+async function opened(calls: Call[], payloads = true, appendedTo: TrafficFile | null = null): Promise<HTMLElement> {
 
     const page: CallPage = {
         calls,
-        lastId:    Math.max(0, ...calls.map(call => call.id)),
-        count:     calls.length,
-        capacity:  5000,
+        lastId:      Math.max(0, ...calls.map(call => call.id)),
+        count:       calls.length,
+        capacity:    5000,
         payloads,
-        peers:     [...new Set(calls.flatMap(call => [call.peer, call.from, call.to]).filter((party): party is string => party !== null))]
+        appendedTo,
+        peers:       [...new Set(calls.flatMap(call => [call.peer, call.from, call.to]).filter((party): party is string => party !== null))]
     };
 
     const root = await open(trafficPage, '/traffic', [ 'traffic:read' ],
@@ -206,6 +207,28 @@ describe('the traffic', () => {
 
         assert.equal(note.textContent, 'The bodies are not kept. Set ocpi.logging.payloads to keep them.');
         assert.equal(note.querySelector('code')?.textContent, 'ocpi.logging.payloads');
+
+    });
+
+    it('says the calls are in memory only, where nothing is appending them', async () => {
+
+        const root = await opened([ aCall(1) ]);
+
+        assert.match(root.querySelector('#counts')!.textContent!, /the hub keeps the last 5000, in memory only/);
+
+    });
+
+    it('says where the calls are appended as well, where they are', async () => {
+
+        const root = await opened([ aCall(1) ], true,
+                                  { directory: '/srv/hub/traffic', current: null, written: 1 });
+
+        const counts = root.querySelector('#counts')!.textContent!;
+
+        assert.match(counts, /the hub keeps the last 5000 in memory, and appends every one of them to \/srv\/hub\/traffic/);
+
+        // What it used to say unconditionally, and which was wrong here.
+        assert.doesNotMatch(counts, /in memory only/);
 
     });
 

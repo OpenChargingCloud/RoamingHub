@@ -32,12 +32,15 @@ namespace cloud.charging.open.RoamingHub.Logging
     /// ring again.
     /// </para>
     /// <para>
-    /// In memory and nowhere else. A hub that wrote every call to disk would
-    /// be a hub that keeps its peers' business for them, and how long that
-    /// may be kept is a question with a different answer in every
-    /// jurisdiction. What is here is what a person watching can see; a
-    /// deployment that has to keep more should read the stream and put it
-    /// where it has decided to keep it.
+    /// In memory and nowhere else: this ring is what a person watching can
+    /// see, and a restart starts it again at one. Whether the calls are also
+    /// kept beyond this run is a separate decision, and a separate class -
+    /// <see cref="OCPITrafficFile"/>, which subscribes to
+    /// <see cref="OnCall"/> where the configuration asks for it, and needs
+    /// nothing of this one to do it. It is off unless the configuration does
+    /// ask, because how long a hub may keep its peers' business has a
+    /// different answer in every jurisdiction, and that answer is the
+    /// operator's to give rather than an upgrade's.
     /// </para>
     /// </remarks>
     public sealed class OCPITrafficLog

@@ -144,12 +144,13 @@ namespace cloud.charging.open.RoamingHub
                            Request,
                            HTTPStatusCode.OK,
                            new JObject(
-                               new JProperty("calls",     new JArray(calls.Select(call => call.ToJSON()))),
-                               new JProperty("lastId",    RoamingHub.Traffic.LastId),
-                               new JProperty("count",     RoamingHub.Traffic.Count),
-                               new JProperty("capacity",  RoamingHub.Traffic.Capacity),
-                               new JProperty("payloads",  RoamingHub.OCPI.Logging?.Payloads == true),
-                               new JProperty("peers",     new JArray(RoamingHub.Traffic.KnownParties))
+                               new JProperty("calls",       new JArray(calls.Select(call => call.ToJSON()))),
+                               new JProperty("lastId",      RoamingHub.Traffic.LastId),
+                               new JProperty("count",       RoamingHub.Traffic.Count),
+                               new JProperty("capacity",    RoamingHub.Traffic.Capacity),
+                               new JProperty("payloads",    RoamingHub.OCPI.Logging?.Payloads == true),
+                               new JProperty("appendedTo",  RoamingHub.TrafficFileJSON),
+                               new JProperty("peers",       new JArray(RoamingHub.Traffic.KnownParties))
                            )
                        )
                    );

@@ -579,6 +579,7 @@ namespace cloud.charging.open.RoamingHub
                          new JProperty("calls",            Traffic.Count),
                          new JProperty("lastId",           Traffic.LastId),
                          new JProperty("payloads",         OCPI.Logging?.Payloads == true),
+                         new JProperty("appendedTo",       TrafficFileJSON),
                          new JProperty("parties",          new JArray(Traffic.KnownParties))
                      )));
 

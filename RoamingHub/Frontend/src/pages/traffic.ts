@@ -353,7 +353,11 @@ export const trafficPage: Page = {
             const shown = list.querySelectorAll('.line').length;
 
             counts.textContent = `${shown} of ${traffic.calls.length} calls` +
-                                 (traffic.capacity > 0 ? ` (the hub keeps the last ${traffic.capacity}, in memory only)` : '');
+                                 (traffic.capacity === 0
+                                      ? ''
+                                      : traffic.appendedTo
+                                            ? ` (the hub keeps the last ${traffic.capacity} in memory, and appends every one of them to ${traffic.appendedTo.directory})`
+                                            : ` (the hub keeps the last ${traffic.capacity}, in memory only)`);
 
             bodiesHint.hidden      = traffic.payloads;
             bodiesHint.textContent = traffic.payloads

@@ -17,6 +17,8 @@
 
 #region Usings
 
+using Newtonsoft.Json.Linq;
+
 using System.Text;
 
 #endregion
@@ -62,6 +64,16 @@ namespace cloud.charging.open.RoamingHub.Logging
     /// twice. That is not a defect to be repaired by counting on across
     /// restarts: it would give a cursor a second job it was never meant to do,
     /// and make the log read the file it writes.
+    /// </para>
+    /// <para>
+    /// <b>Reading the open file needs FileShare.ReadWrite.</b> The handle
+    /// here permits readers, but a reader must permit this writer in return,
+    /// and the usual ways of reading a file do not: <c>File.ReadAllLines</c>,
+    /// PowerShell's <c>Get-Content</c> and <c>type</c> all ask for
+    /// <c>FileShare.Read</c> and are refused while a hub is running. Nothing
+    /// is wrong with the file when that happens - the day's file is readable
+    /// by anything once the day turns or the hub stops, and a reader that
+    /// says <c>FileShare.ReadWrite</c> can read it at any time.
     /// </para>
     /// <para>
     /// A line is identified by when it was written and where it sits. Across
@@ -238,6 +250,14 @@ namespace cloud.charging.open.RoamingHub.Logging
             // middle of a file that is appended to every day would be a
             // stray three bytes on whatever line happened to follow a
             // restart.
+            //
+            // FileShare.Read lets the file be read while this handle is
+            // open - but only by a reader that in turn allows this writer,
+            // which on Windows means FileShare.ReadWrite. A reader asking
+            // for the default FileShare.Read is refused, because its own
+            // sharing would have to permit the write already in progress
+            // and does not. That is most tools: File.ReadAllLines,
+            // Get-Content, type. See the remarks on this class.
             writer       = new StreamWriter(
                                new FileStream(path, FileMode.Append, FileAccess.Write, FileShare.Read),
                                new UTF8Encoding(encoderShouldEmitUTF8Identifier: false)
@@ -245,6 +265,35 @@ namespace cloud.charging.open.RoamingHub.Logging
 
             openDay      = Day;
             CurrentFile  = path;
+
+        }
+
+        #endregion
+
+        #region ToJSON()
+
+        /// <summary>
+        /// Where the calls are being appended, which file is open, and how
+        /// many have been written since this hub started.
+        /// </summary>
+        /// <remarks>
+        /// So that a page which says what is kept can say it truthfully. The
+        /// ring buffer alone would have every page tell its reader that a
+        /// restart forgets the traffic, which stopped being true the moment
+        /// the operator asked for the file.
+        /// </remarks>
+        public JObject ToJSON()
+        {
+
+            // Under the lock, because the three belong together: a reader
+            // that caught "written" of one call and the file of the next
+            // would be handed a state that never existed.
+            lock (padlock)
+                return new JObject(
+                           new JProperty("directory",  Directory),
+                           new JProperty("current",    CurrentFile),
+                           new JProperty("written",    Written)
+                       );
 
         }
 

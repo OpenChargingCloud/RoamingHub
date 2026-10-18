@@ -209,6 +209,13 @@ buffer and starts again at one after a restart; a line is found by when it was
 written, and across systems by the OCPI `X-Request-ID` and `X-Correlation-ID`
 that are on the record already.
 
+The day's file is held open while the hub runs, and reading it then needs a
+reader that allows a writer: `Get-Content`, `type` and most of what is at hand
+ask for exclusive-enough sharing and are refused, which looks like a broken
+file and is not one. `tail -f` and anything else that opens it read-write can
+follow it live, and once the day turns or the hub stops, the file is an
+ordinary one that anything will open.
+
 Reading it is its own permission - `traffic:read` - and not part of
 `configuration:read`: the configuration is what this hub is, and the traffic is
 what its peers did through it. The `hub` role may read it and the `viewer` may
@@ -773,10 +780,10 @@ pushed to a Mobilithek on this machine over mutual TLS - its server
 certificate of a certification authority only the section makes trusted, the
 machine certificate a PKCS #12 file beside the configuration whose password
 is in an environment variable - the table to the static publication and the
-full status as a snapshot to the dynamic one. None of
-them asks a name server or a time server anything. And the hub's
-own code is held to what the kit holds every kind's to, SourceRules: nothing
-it says puts "a" or "an" in front of a name it is handed.
+full status as a snapshot to the dynamic one. None of them asks a name server
+or a time server anything. And the hub's own code is held to what the kit
+holds every kind's to, SourceRules: nothing it says puts "a" or "an" in front
+of a name it is handed.
 
 What the node below does on its own - the configuration file and its
 sections, the log and the console, the time servers and what they are held

@@ -304,6 +304,32 @@ namespace cloud.charging.open.RoamingHub.Tests
 
         #endregion
 
+        #region TheTrafficSaysItIsNotAppendedAnywhere()
+
+        /// <summary>
+        /// Where nothing asked for the file, the traffic says so rather
+        /// than leaving it out: a page that cannot tell "off" from "this
+        /// hub is too old to say" would have to guess, and guessed wrong
+        /// for as long as the file existed and nothing reported it.
+        /// </summary>
+        [Test]
+        public async Task TheTrafficSaysItIsNotAppendedAnywhere()
+        {
+
+            using var admin = await SignedIn();
+
+            var answer = await GetJSON(admin, "/api/v1/traffic");
+
+            Assert.That(answer.ContainsKey("appendedTo"),         Is.True,
+                        "The traffic does not say whether it is being appended at all.");
+
+            Assert.That(answer["appendedTo"]?.Type,               Is.EqualTo(JTokenType.Null),
+                        "Nothing asked for the file and the traffic claims one.");
+
+        }
+
+        #endregion
+
         #region TheTrafficNeedsItsOwnPermission()
 
         /// <summary>

@@ -95,8 +95,13 @@ export const ocpiPage: Page = {
                         </div>
                         <p class="hint">
                             The peers are kept by the OCPI library in append-only files below that directory, one set
-                            per version, and read back at every start. The calls are not: they are in memory and
-                            nowhere else, and a restart forgets them.
+                            per version, and read back at every start. ${ocpi.appendedTo
+                                ? html`The calls are kept as well: each one is appended to
+                                       <code>${ocpi.appendedTo.directory}</code>, one file per day,
+                                       ${ocpi.appendedTo.written} of them since this hub started.`
+                                : html`The calls are not: they are in memory and nowhere else, and a restart forgets
+                                       them. Set <code>ocpi.logging.file</code> in the configuration file to append
+                                       them to a file as well.`}
                         </p>
                     </section>
 
