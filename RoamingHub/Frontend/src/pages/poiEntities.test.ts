@@ -4,7 +4,7 @@
  * children leading to theirs.
  */
 
-import { asked, open, type Asked } from '../../test/hub.ts';
+import { asked, change, open, until, type Asked } from '../../test/hub.ts';
 
 import { strict as assert }  from 'node:assert';
 import { describe, it }      from 'node:test';
@@ -87,6 +87,16 @@ const evseMeterTemplate = {
     signatureMethods:  [ 'OCMF' ]
 };
 
+/** The charging tariff offers covering the EVSE: of its operator, then of a provider. */
+const night   = { '@id': 'gef-night',       discount: { percent: 20 }, chargingStationGroupIds: [ 'DE*GEF*SG1' ] };
+const summer  = { '@id': 'gef-summer-2026', discount: { percent: 30 }, chargingPoolGroupIds: [ 'DE*GEF*PGA9' ],
+                  notBefore: '2026-06-01T00:00:00.000Z', notAfter: '2026-08-31T23:59:59.999Z' };
+const hpc     = { '@id': 'gdf-hpc-39',      chargingTariff: { currency: 'EUR', elements: [] }, chargingStationOperatorIds: [ 'DE*ION' ],
+                  notBefore: '2026-10-01T00:00:00.000Z' };
+
+/** The time the offers applying at a time are asked for: noon of 12 October, in the time zone of the browser. */
+const noon    = new Date(2026, 9, 12, 12, 0).toISOString();
+
 /** The stand-in POI API. */
 function poiAPI({ path, query }: Asked): unknown {
 
@@ -110,6 +120,23 @@ function poiAPI({ path, query }: Asked): unknown {
 
     if (path === '/poi/RNs/rn1/CSOs/DE*GEF/CPs/DE*GEF*P1/CSs/DE*GEF*S1/EVSEs/DE*GEF*E1*1')
         return entityOf(evse);
+
+    // The offers covering the EVSE: by their status now, those applying now - the night offer in the evening - or at
+    // noon, and every one.
+    if (path === '/poi/RNs/rn1/CSOs/DE*GEF/CPs/DE*GEF*P1/CSs/DE*GEF*S1/EVSEs/DE*GEF*E1*1/CTOs')
+    {
+
+        const status = query.get('status');
+
+        if (status !== null)
+            return status === 'active' ? listOf([ night, hpc ], 2) : listOf([], 0);
+
+        if (query.get('applicable') === 'true')
+            return query.get('at') === noon ? listOf([ hpc ], 1) : listOf([ night, hpc ], 2);
+
+        return listOf([ night, summer, hpc ], 3);
+
+    }
 
     // An operator without its pools, and its pools from the pools of the roaming network.
     if (path === '/poi/RNs/rn1/CSOs/DE*BIG' && query.get('without')?.startsWith('chargingPools,'))
@@ -419,6 +446,44 @@ describe('the single things of the points of interest', () => {
 
         // Asked as it is given, and for its templates.
         assert.ok(asked.some(one => one.path === '/poi/RNs/rn1/CSOs/DE*GEF/CPs/DE*GEF*P1/CSs/DE*GEF*S9' && one.query.get('view') === 'stored'));
+
+    });
+
+    it('show the charging tariff offers covering an EVSE with their status now, those applying now or at a time, each leading to its page', async () => {
+
+        const root  = await evsePageOf('/poi/RNs/rn1/CSOs/DE*GEF/CPs/DE*GEF*P1/CSs/DE*GEF*S1/EVSEs/DE*GEF*E1*1');
+        const rows  = () => [ ...root.querySelectorAll('.poi-offers tbody tr') ].map(row => [ ...row.querySelectorAll('td') ].map(cell => cell.textContent!.trim()));
+
+        await until(() => rows().length === 3, 'the offers covering the EVSE were not shown');
+
+        // Every one, of the operator first; the summer is over.
+        assert.deepEqual(rows(), [ [ 'gef-night',       '', '20 % less',      'active',  '',                         '' ],
+                                   [ 'gef-summer-2026', '', '30 % less',      'expired', '2026-06-01T00:00:00.000Z', '2026-08-31T23:59:59.999Z' ],
+                                   [ 'gdf-hpc-39',      '', 'a price in EUR', 'active',  '2026-10-01T00:00:00.000Z', '' ] ]);
+        assert.match(root.querySelector('.poi-offers h2')!.textContent!, /Charging tariff offers\s+3/);
+        assert.equal(root.querySelectorAll('.poi-offers .chip.ok').length, 2);
+
+        // Each leads to its page below its owner, through the roaming network.
+        assert.deepEqual([ ...root.querySelectorAll<HTMLAnchorElement>('.poi-offers tbody a') ].map(link => link.getAttribute('href')),
+                         [ '/poi/RNs/rn1/CTOs/gef-night', '/poi/RNs/rn1/CTOs/gef-summer-2026', '/poi/RNs/rn1/CTOs/gdf-hpc-39' ]);
+
+        // Those applying now: active, without asking for their status.
+        asked.length = 0;
+        change(root.querySelector<HTMLSelectElement>('#poi-offers-shown')!, 'now');
+        await until(() => rows().length === 2, 'those applying now were not shown');
+
+        assert.deepEqual(rows().map(row => [ row[0], row[3] ]), [ [ 'gef-night', 'active' ], [ 'gdf-hpc-39', 'active' ] ]);
+        assert.deepEqual(asked.map(one => [ one.query.get('applicable'), one.query.get('at'), one.query.get('status') ]), [ [ 'true', null, null ] ]);
+
+        // Those applying at a time: at noon, asked in UTC.
+        change(root.querySelector<HTMLSelectElement>('#poi-offers-shown')!, 'at');
+        await until(() => root.querySelector('#poi-offers-at') !== null, 'no time can be chosen');
+
+        change(root.querySelector<HTMLInputElement>('#poi-offers-at')!, '2026-10-12T12:00');
+        await until(() => rows().length === 1, 'those applying at noon were not shown');
+
+        assert.deepEqual(rows().map(row => [ row[0], row[3] ]), [ [ 'gdf-hpc-39', 'active' ] ]);
+        assert.ok(asked.some(one => one.query.get('applicable') === 'true' && one.query.get('at') === noon));
 
     });
 

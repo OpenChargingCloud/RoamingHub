@@ -5,6 +5,7 @@ import { reloadButton, shell } from '@node/shell';
 import { errorMessage, formatValue, humanizeKey } from '@node/ui';
 import { html, nothing, render, type TemplateResult } from '@node/view';
 import { addressLine, entityURL, evseCountOf, gridCollections, networkPath, operatorCollections, parkingCollections, providerCollections, poiHome, roamingNetworkOf, sections, sectionsView, type EmbeddedCollection } from './poi';
+import { loadOffers, localTimeOf, nextRefresh, offersView, timeOf, type Offers, type OffersShown } from './poiOffers';
 import { loadOrigins, templateSegments, type Origin, type Origins } from './poiOrigins';
 
 /**
@@ -40,6 +41,10 @@ import { loadOrigins, templateSegments, type Origin, type Origins } from './poiO
  * the template - found by asking the member as it is given, and its templates (see poiOrigins). So are the energy meters
  * a pool, station, EVSE or grid connection point embeds, with what their energy meter templates give them. Groups give
  * nothing: they collect members.
+ *
+ * A charging pool, a charging station and an EVSE show the charging tariff offers covering them, of their operator and
+ * of e-mobility providers: every one, or those applying now or at a time, with the status of each now, the list asked
+ * again when a status changes by the times of an offer (see poiOffers).
  */
 
 
@@ -97,6 +102,8 @@ interface Kind {
     children?:    Children[];
     /** What the API is asked beyond the path, e.g. to embed what the entity only names. */
     parameters?:  Record<string, string>;
+    /** Whether it shows the charging tariff offers covering it: a charging pool, a charging station, an EVSE. */
+    offers?:      boolean;
 }
 
 /** The brands of an operator, pool, station or EVSE: its own, embedded, each leading to its page below it. */
@@ -123,21 +130,21 @@ const kinds: Record<string, Kind> = {
                           brandsOf('Brands it is a white label for') ],
               parameters: { without: [ 'chargingPools', ...operatorCollections.map(collection => collection.field) ].join(',') } },
 
-    CPs:    { label: 'Charging pool',  icon: 'fa-charging-station',
+    CPs:    { label: 'Charging pool',  icon: 'fa-charging-station',  offers: true,
               parameters: { expand: 'gridConnectionPoint' },
               children: [ { field: 'chargingStations',  label: 'Charging stations',  segment: 'CSs',
                             head:  [ 'EVSEs', 'Max power' ],
                             cells: station => [ (station.EVSEs as unknown[] | undefined)?.length ?? 0, withUnit('maxPower', station.maxPower) ] },
                           brandsOf('Brands it also appears under') ] },
 
-    CSs:    { label: 'Charging station',  icon: 'fa-charging-station',
+    CSs:    { label: 'Charging station',  icon: 'fa-charging-station',  offers: true,
               children: [ { field: 'EVSEs',  label: 'EVSEs',  segment: 'EVSEs',
                             head:  [ 'Max power', 'Connectors' ],
                             cells: evse => [ withUnit('maxPower', evse.maxPower),
                                              ((evse.chargingConnectors as { type?: string }[] | undefined) ?? []).map(connector => connector.type ?? '?').join(', ') ] },
                           brandsOf('Brands it also appears under') ] },
 
-    EVSEs:  { label: 'EVSE',  icon: 'fa-plug',
+    EVSEs:  { label: 'EVSE',  icon: 'fa-plug',  offers: true,
               children: [ brandsOf('Brands it also appears under') ] },
 
     // A brand of an operator, pool, station or EVSE, below it.
@@ -547,6 +554,14 @@ function entityPage(segment: string): Page {
             let asking:     AbortController | null   = null;
             let cancelled                            = false;
 
+            // The charging tariff offers covering it, those shown, and when they are asked again.
+            let offers:         Offers | null                       = null;
+            let offersProblem:  unknown                             = null;
+            let offersShown:    OffersShown                         = 'all';
+            let offersAt                                            = '';
+            let offersAsking:   AbortController | null              = null;
+            let offersTimer:    ReturnType<typeof setTimeout> | undefined;
+
             function draw(): void {
 
                 const content  = shell(root, {
@@ -592,6 +607,22 @@ function entityPage(segment: string): Page {
                                             return children.hideEmpty && part.count === 0 ? nothing : childrenView(children, part, steps);
                                         })}
 
+                                      ${kind.offers
+                                            ? offersView(offers, offersProblem, offersShown, offersAt, steps[0]!.path, {
+                                                  show: shown => {
+                                                      offersShown  = shown;
+                                                      offersAt   ||= shown === 'at' ? localTimeOf(new Date()) : '';
+                                                      offers       = null;
+                                                      void loadCoveringOffers();
+                                                  },
+                                                  at:   value => {
+                                                      offersAt  = value;
+                                                      offers    = null;
+                                                      void loadCoveringOffers();
+                                                  }
+                                              })
+                                            : nothing}
+
                                       ${jsonView(loaded)}
 
                                   </div>`}
@@ -626,6 +657,10 @@ function entityPage(segment: string): Page {
 
                     draw();
 
+                    // The offers covering it, once it is drawn.
+                    if (kind.offers)
+                        void loadCoveringOffers();
+
                     // Which of its values its templates give it, once it is drawn: without, where they cannot be asked.
                     origins = await loadOrigins(steps, entity.entity, kind.parameters, (kind.children ?? []).map(children => children.field), ask.signal).
                                         catch(() => null);
@@ -649,11 +684,62 @@ function entityPage(segment: string): Page {
 
             }
 
+            /** The offers covering it, those shown; asked again when the status of one of them changes by its times. */
+            async function loadCoveringOffers(): Promise<void> {
+
+                clearTimeout(offersTimer);
+                offersAsking?.abort();
+                const ask = offersAsking = new AbortController();
+
+                offersProblem = null;
+
+                // Those applying at a time, once there is one.
+                if (offersShown === 'at' && timeOf(offersAt) === null)
+                {
+                    offers = null;
+                    draw();
+                    return;
+                }
+
+                try
+                {
+
+                    const found = await loadOffers(self.path, offersShown, timeOf(offersAt), ask.signal);
+
+                    if (cancelled || ask !== offersAsking)
+                        return;
+
+                    offers = found;
+
+                    // A second late rather than early: the clock of the hub may be behind the one of the browser.
+                    const next = nextRefresh(found.entries, offersShown, Date.now());
+
+                    if (next !== null)
+                        offersTimer = setTimeout(() => void loadCoveringOffers(), next - Date.now() + 1000);
+
+                }
+                catch (failure)
+                {
+
+                    if (cancelled || ask !== offersAsking)
+                        return;
+
+                    offers         = null;
+                    offersProblem  = failure;
+
+                }
+
+                draw();
+
+            }
+
             void load();
 
             return () => {
                 cancelled = true;
                 asking?.abort();
+                offersAsking?.abort();
+                clearTimeout(offersTimer);
             };
 
         }

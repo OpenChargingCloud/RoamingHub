@@ -467,16 +467,26 @@ read back at every start; one that cannot be read is said in the log and left
 alone.
 
 A charging pool, a charging station, an EVSE and a parking space of a parking
-operator are shown as they are at runtime, with the properties their groups
-give them, and every value a group gives says so, leading to the group: "from
-group DE*GEF*SG1", or of an array the elements each group gives. The page asks
-the member as it is given (`?view=stored`) and its groups, listed below it
-(`…/CSGs` and the like), and decides as the POI API does: a single value of the
-group with the highest priority, the charging tariffs of an EVSE of its most
-specific groups (`poiOrigins.ts`). So are the energy meters a pool, station,
-EVSE or grid connection point embeds, with what the energy meter groups of
-their charging station operator or grid operator give them (`…/EMGs`); each
-energy meter group has a page below its owner.
+operator are shown as they are at runtime, with the properties their templates
+give them, and every value a template gives says so, leading to the template:
+"from template DE*GEF*ST1", or of an array the elements each template gives.
+The page asks the member as it is given (`?view=stored`) and its templates,
+listed below it in its order (`…/CSTs` and the like), and decides as the POI
+API does: a single value of the first template giving one, the charging tariffs
+of an EVSE of its most specific templates (`poiOrigins.ts`). So are the energy
+meters a pool, station, EVSE or grid connection point embeds, with what the
+energy meter templates of their charging station operator or grid operator give
+them (`…/EMTs`). Groups give nothing, they collect members; each template and
+each group has a page below its owner.
+
+A charging pool, a charging station and an EVSE show the charging tariff offers
+covering them, of their operator and of e-mobility providers (`…/CTOs`): every
+one, or those applying now or at a time chosen (`?applicable=true`, `&at=`),
+with the status of each now - planned, active, exhausted or expired - as the
+POI API tells it (`?status=`). The list is asked again when a status changes by
+the times of an offer, at its `notBefore` and right after its `notAfter`, and
+while those applying now are shown, at every minute; each offer leads to its
+page below its owner, through `/poi/RNs/{RN_Id}/CTOs/{CTO_Id}` (`poiOffers.ts`).
 
 The hub is a **roaming network operator** (`RoamingHub.RoamingNetworkOperator.cs`).
 At its first start it makes a signing key (P-256) and an identity key (P-521)

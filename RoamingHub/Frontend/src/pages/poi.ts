@@ -725,7 +725,7 @@ export const chargingPoolGroups: EmbeddedCollection = {
 };
 
 /** What a charging tariff offer gives: a price of its own, or a discount. */
-function offered(offer: Entity): string {
+export function offered(offer: Entity): string {
     const discount = offer.discount as { percent?: number } | undefined;
     const price    = offer.chargingTariff as { currency?: string } | undefined;
     return discount?.percent !== undefined ? `${discount.percent} % less` : price?.currency !== undefined ? `a price in ${price.currency}` : '';

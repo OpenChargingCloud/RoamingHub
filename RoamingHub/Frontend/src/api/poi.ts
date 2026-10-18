@@ -38,12 +38,13 @@ export interface ChargingPool extends Summary {
     chargingStationOperator:   Summary;
 }
 
-/** What a list query asks for: words to search, and the part of the list. */
+/** What a list query asks for: words to search, and the part of the list; and what else narrows it, e.g. status=active. */
 export interface Query {
     match?:       string;
     offset?:      number;
     limit?:       number;
     operatorId?:  string;
+    filters?:     Record<string, string>;
 }
 
 /** One part of a list: its entries, how many there are at all, and how many match. */
@@ -63,6 +64,9 @@ export function poiURL(path: string, query: Query = {}): string {
 
     if (query.operatorId)
         parameters.set('operatorId', query.operatorId);
+
+    for (const [ name, value ] of Object.entries(query.filters ?? {}))
+        parameters.set(name, value);
 
     if (query.offset)
         parameters.set('offset', String(query.offset));
