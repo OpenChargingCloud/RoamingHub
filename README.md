@@ -271,9 +271,11 @@ OCPI 3000 with HTTP 500, its token as it was.
 ```json
 {
   "dns": { "enabled": true, "servers": [ { "address": "9.9.9.9" } ], "useCache": true },
-  "nts": { "enabled": true, "servers": [ "ptbtime1.ptb.de", "ptbtime2.ptb.de",
-                                         "ptbtime3.ptb.de", "ptbtime4.ptb.de" ],
-           "minServers": 2 }
+  "nts": { "groups": {
+    "legal": { "enabled": true, "servers": [ "ptbtime1.ptb.de", "ptbtime2.ptb.de",
+                                             "ptbtime3.ptb.de", "ptbtime4.ptb.de" ],
+               "minServers": 2 }
+  } }
 }
 ```
 
@@ -313,18 +315,17 @@ what was made of its certificate last and what it was last believed with.
 
 ### NTS
 
-**It asks a group, not a server.** `nts.servers` is a list, and by default it
-is the PTB's four, of which `nts.minServers` - two - have to answer before the
-group has a time at all. One host being rebooted does not leave this hub
-without a check, and two servers that agree catch what one server cannot: one
-that is wrong rather than absent. What the check reports is what the servers
+**It asks a group, not a server.** `nts.groups.legal.servers` is a list, and
+by default it is the PTB's four, of which `minServers` - two - have to answer
+before the group has a time at all. One host being rebooted does not leave
+this hub without a check, and two servers that agree catch what one server
+cannot: one that is wrong rather than absent. What the check reports is what the servers
 that answered and authenticated agree on, with a line for each of them, so a
 failure says which of the four failed and how. The time is measured against
 this hub's clock and never set from it.
 
-Every key of one group of time servers, and what it is when absent. Written
-flat, as below, they are the legal group; a section naming several groups
-carries the same keys under each of them:
+Every key of one group of time servers, and what it is when absent - the same
+under each group the section names, `nts.groups.legal` among them:
 
 | Key | Default | |
 |---|---|---|
@@ -336,6 +337,9 @@ carries the same keys under each of them:
 | `ntsKEPort`, `ntpPort` | `4460`, `123` | for that one server |
 | `timeoutSeconds` | `10` | per request of a server's test |
 | `checkEverySeconds` | `900` | how often the clock is checked |
+| `errorLogging` | `5` | failed checks in a row before that is written down |
+| `maxErrors` | `10`, `50` for "local" | failed checks in a row before what rests on the group is limited |
+| `displayName` | - | what a page calls the group, see below |
 | `legalTimeAuthority` | - | who the operator says stands behind it |
 | `legalTimeToleranceSeconds` | `1` | how far off the clock may be |
 | `legalTimeMaxAgeSeconds` | `3600` | how old the last check may be |
@@ -366,14 +370,12 @@ has no default: it is off while it names nobody, and refused switched on
 without one. `groups` with keys beside it is refused at the start, since
 those keys would belong to no group.
 
-**A file written flat keeps working, and is left alone until it is not.** The
-flat section is the legal group, and a hub that only reads its file never
-rewrites it - so every path in this section, `nts.servers` and the rest, is
-still what such a file says. The first save moves it into `groups.legal`
-whole, which is the moment somebody meant the file to be written; from then on
-a key is named by its place, `nts.groups.local.ntpPort`. Worth knowing before
-somebody greps a file for `nts.servers` after saving something on the NTS
-page and finds nothing.
+**A file written flat is refused.** The section of the files from before
+there were groups - `nts.servers` and the rest directly under `nts` - is not
+read any more: the hub does not start with it, and says which keys to move
+into `nts.groups.legal`. A key is named by its place,
+`nts.groups.local.ntpPort`. `"nts": { }`, like no section at all, is the
+legal group as the hub makes it, the PTB's four.
 
 Servers sharing a priority are **one band** and are asked together; a lower
 priority is asked first. The four it asks by default share one, because they
@@ -441,9 +443,9 @@ found and how old its last check may be - on a card of its own, after whose
 Save the clock is read again. "Sync now" asks the group the way the clock
 check does. Neither steps the clock.
 
-The check runs by itself every `nts.checkEverySeconds`, the first one a minute
-after starting. A new interval, and switching NTS off or on, reach a running
-check at once. What the clock is worth - the time, against which group it was
+The check runs by itself every `checkEverySeconds` of its group, the first
+one a minute after starting. A new interval, and switching NTS off or on,
+reach a running check at once. What the clock is worth - the time, against which group it was
 checked and how many of it had to answer, how long ago and how far off, and
 whether all of that adds up to legal time and why not - is served at
 `GET /api/v1/clock`, and is the first card of the NTS page.

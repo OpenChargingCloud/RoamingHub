@@ -240,7 +240,11 @@ namespace cloud.charging.open.RoamingHub.Tests
 
             => new (
                    new JProperty("nts",     new JObject(
-                       new JProperty("enabled",  false)
+                       new JProperty("groups", new JObject(
+                           new JProperty("legal", new JObject(
+                               new JProperty("enabled",  false)
+                           ))
+                       ))
                    )),
                    new JProperty("datex2",  new JObject(
                        new JProperty("publications",  new JArray(
@@ -427,7 +431,11 @@ namespace cloud.charging.open.RoamingHub.Tests
 
             => new (
                    new JProperty("nts",     new JObject(
-                       new JProperty("enabled",  false)
+                       new JProperty("groups", new JObject(
+                           new JProperty("legal", new JObject(
+                               new JProperty("enabled",  false)
+                           ))
+                       ))
                    )),
                    new JProperty("datex2",  new JObject(
                        new JProperty("pull",          false),
@@ -604,7 +612,7 @@ namespace cloud.charging.open.RoamingHub.Tests
             #endregion
 
             var configuration = new JObject(
-                                    new JProperty("nts",     new JObject(new JProperty("enabled", false))),
+                                    new JProperty("nts",     new JObject(new JProperty("groups", new JObject(new JProperty("legal", new JObject(new JProperty("enabled", false))))))),
                                     new JProperty("datex2",  new JObject(
                                         new JProperty("publications", new JArray(
                                             new JObject(

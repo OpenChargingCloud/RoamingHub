@@ -54,7 +54,7 @@ namespace cloud.charging.open.RoamingHub.Tests
 
         #region Data
 
-        private const String  NoTimeServers  = """{ "nts": { "enabled": false } }""";
+        private const String  NoTimeServers  = """{ "nts": { "groups": { "legal": { "enabled": false } } } }""";
 
         private String       directory  = "";
         private RoamingHub?  hub;
@@ -383,7 +383,7 @@ namespace cloud.charging.open.RoamingHub.Tests
 
             await StartedHub("""
                              {
-                               "nts":   { "enabled": false },
+                               "nts":   { "groups": { "legal": { "enabled": false } } },
                                "roles": { "support": [ "dns:read", "traffic:read" ] }
                              }
                              """);
@@ -456,7 +456,7 @@ namespace cloud.charging.open.RoamingHub.Tests
 
             await StartedHub("""
                              {
-                               "nts":   { "enabled": false },
+                               "nts":   { "groups": { "legal": { "enabled": false } } },
                                "roles": { "support": [ "dns:read", "traffic:read" ] }
                              }
                              """);
