@@ -224,6 +224,9 @@ namespace cloud.charging.open.RoamingHub
                     if (NetworkOperator.CommitSigner(history.Head.RoamingNetwork) is RoamingNetworkCommitSigner signer)
                         history.Signers = [ signer ];
 
+                    // Its heads attested by that key as well, the current one now: see RoamingHub.Attestations.cs.
+                    Attest(history, TimeProvider.GetUtcNow());
+
                     Watch(history);
 
                     Log.Info($"The roaming network '{history.RoamingNetworkId}' from '{directory}', at revision {history.Head.Commit.Revision}.", "poi");
@@ -292,7 +295,8 @@ namespace cloud.charging.open.RoamingHub
                 network = new RoamingNetwork(Id,
                                              Name:         Name        is not null && !Name.       IsNullOrEmpty() ? new ImmutableI18NString(Name)        : null,
                                              Description:  Description is not null && !Description.IsNullOrEmpty() ? new ImmutableI18NString(Description) : null,
-                                             Operator:     NetworkOperator.Operator);
+                                             // Stating its keys from the genesis on: see RoamingHub.Attestations.cs.
+                                             Operator:     OperatorStatingItsKeys(Id, TimeProvider.GetUtcNow()));
             }
             catch (Exception e)
             {
@@ -333,6 +337,8 @@ namespace cloud.charging.open.RoamingHub
                     store        = new RoamingNetworkHistoryFileStore(directory);
 
                     var history  = RoamingNetworkHistory.Start(network, Signers: [ NetworkOperator.CommitSigner(network)! ], Store: store);
+
+                    Attest(history, TimeProvider.GetUtcNow());
 
                     if (!POI.AddRoamingNetworkHistory(history))
                         throw new InvalidOperationException($"The roaming network '{Id}' could not be served.");

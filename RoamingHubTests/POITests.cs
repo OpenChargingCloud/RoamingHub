@@ -481,6 +481,67 @@ namespace cloud.charging.open.RoamingHub.Tests
 
         #endregion
 
+        #region AnAppScansTheTrustAnchorAndChecksAStationProof()
+
+        /// <summary>
+        /// The roaming network made here states the keys of its operator from its genesis on, and every head is attested
+        /// by its signing key: an app that scanned the trust anchor - the identity key of the operator this hub is - gets
+        /// the proof of a charging station and checks it offline.
+        /// </summary>
+        [Test]
+        public async Task AnAppScansTheTrustAnchorAndChecksAStationProof()
+        {
+
+            await MadeWithQAC();
+
+            using var anybody  = Anonymous();
+
+            var pool           = new ChargingPool(
+                                     ChargingPool_Id.Parse("DE*QAC*P1"),
+                                     ChargingStations:  [
+                                         new ChargingStation(
+                                             ChargingStation_Id.Parse("DE*QAC*S1"),
+                                             EVSEs: [ new EVSE(EVSE_Id.Parse("DE*QAC*E1*1"), MaxPower: Watt.FromW(11000)) ]
+                                         )
+                                     ]
+                                 );
+
+            var addPool        = await Commit(anybody, Head().CreateChangeSet([ RoamingNetworkChange.Add(pool) ]).
+                                                                 Sign(csoSigningKey, POIPublicKey.From(csoSigningKey).Id, COSEAlgorithm.ES256));
+
+            // The operator shows the QR code of its trust anchor; the app scans it.
+            var trustAnchor    = JObject.Parse(await anybody.GetStringAsync("poi/RNs/QA/trustAnchor"));
+
+            Assert.That(RoamingNetworkTrustAnchor.TryParse(trustAnchor["uri"]!.Value<String>()!, out var anchor, out var error), Is.True, error);
+
+            // Below the roaming network the anchor names, the proof of the charging station.
+            var proofText      = await anybody.GetStringAsync($"{anchor!.RoamingNetworkURI}/CSs/DE*QAC*S1/proof");
+
+            Assert.That(RoamingNetworkProof.TryParse(proofText, out var proof, out error), Is.True, error);
+
+            Assert.Multiple(() => {
+
+                Assert.That(addPool.StatusCode,                                                                     Is.EqualTo(HttpStatusCode.Created), addPool.Text);
+
+                Assert.That(anchor.IdentityKeyIds,                                                                  Is.EqualTo(new[] { RoamingHub.NetworkOperator.IdentityKey.Id }));
+                Assert.That(Head().Operator!.KeyStatement!.SigningKeys.Select(key => key.Id),                       Is.EqualTo(new[] { RoamingHub.NetworkOperator.SigningKey.Id }));
+                Assert.That(Head().Operator!.KeyStatement!.KeyId,                                                   Is.EqualTo(RoamingHub.NetworkOperator.IdentityKey.Id));
+
+                Assert.That(proof!.Verify(anchor.IdentityKeyIds, out var attestation, out var verifyError),         Is.True, verifyError);
+                Assert.That(attestation!.CommitId,                                                                  Is.EqualTo(proof.CommitId));
+                Assert.That(attestation.KeyId,                                                                      Is.EqualTo(RoamingHub.NetworkOperator.SigningKey.Id));
+                Assert.That(proof.Given("chargingStationOperators", "chargingPools", "chargingStations").Single()["@id"]!.Value<String>(),
+                            Is.EqualTo("DE*QAC*S1"));
+
+                // A key nobody scanned proves nothing.
+                Assert.That(proof.Verify([ RoamingHub.NetworkOperator.SigningKey.Id ], out _, out _),               Is.False);
+
+            });
+
+        }
+
+        #endregion
+
         #region WhatIsNoPartyThisHubAddsIsRefused(Case, Status, Said)
 
         /// <summary>

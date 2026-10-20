@@ -109,20 +109,37 @@ namespace cloud.charging.open.RoamingHub
                     {
 
                         // The new key in the place of the one held here; a key of the operator held elsewhere, e.g. offline, stays.
-                        var keys       = (Kind == POIKeyKind.Signing ? network.Operator!.SigningKeys : network.Operator!.IdentityKeys).
-                                             Where  (key => key.Id != heldKeyId).
-                                             Append (newKey).
-                                             OrderBy(key => key.Id, StringComparer.Ordinal);
+                        var keys          = (Kind == POIKeyKind.Signing ? network.Operator!.SigningKeys : network.Operator!.IdentityKeys).
+                                                Where  (key => key.Id != heldKeyId).
+                                                Append (newKey).
+                                                OrderBy(key => key.Id, StringComparer.Ordinal).
+                                                ToArray();
 
-                        var changeSet  = NetworkOperator.Sign(
-                                             network,
-                                             network.CreateChangeSet(
-                                                 [ RoamingNetworkChange.UpdateProperty(network.Operator!, property, null, new JArray(keys.Select(key => key.ToJSON()))) ],
-                                                 Description: new ImmutableI18NString(I18NString.Create(Languages.en, $"The {kind} key {heldKeyId[..16]}… of the roaming network operator " +
-                                                                                                                      $"'{NetworkOperator.Id}' replaced by {newKey.Id[..16]}…."))
-                                             ),
-                                             Kind
-                                         );
+                        // Its keys stated anew in the same change set: a version naming other keys than its key statement is refused.
+                        var keyStatement  = NetworkOperator.StateKeys(network.Id,
+                                                                      Kind == POIKeyKind.Signing  ? keys : network.Operator.SigningKeys,
+                                                                      Kind == POIKeyKind.Identity ? keys : network.Operator.IdentityKeys,
+                                                                      now,
+                                                                      KeyStatementValidity);
+
+                        List<RoamingNetworkChange> changes = [ RoamingNetworkChange.UpdateProperty(network.Operator, property, null, new JArray(keys.Select(key => key.ToJSON()))) ];
+
+                        if (keyStatement is not null)
+                            changes.Add(RoamingNetworkChange.UpdateProperty(network.Operator, RoamingNetworkKeyStatement.JSONProperty, null, keyStatement.ToJSON()));
+
+                        var changeSet     = NetworkOperator.Sign(
+                                                network,
+                                                network.CreateChangeSet(
+                                                    changes,
+                                                    Description: new ImmutableI18NString(I18NString.Create(Languages.en, $"The {kind} key {heldKeyId[..16]}… of the roaming network operator " +
+                                                                                                                         $"'{NetworkOperator.Id}' replaced by {newKey.Id[..16]}…."))
+                                                ),
+                                                Kind
+                                            );
+
+                        // The key statement is data, signed by the signing key as well.
+                        if (keyStatement is not null && Kind == POIKeyKind.Identity)
+                            changeSet = NetworkOperator.Sign(network, changeSet, POIKeyKind.Signing);
 
                         var result     = history.Commit(changeSet);
 
@@ -138,6 +155,9 @@ namespace cloud.charging.open.RoamingHub
                         {
                             history.Signers = [ signer ];
                         }
+
+                        // And its heads attested by it, the current one now.
+                        Attest(history, now);
 
                         changed.Add(network.Id);
 

@@ -330,6 +330,57 @@ namespace cloud.charging.open.RoamingHub
         #endregion
 
 
+        #region StateKeys(RoamingNetworkId, SigningKeys, IdentityKeys, Now, Validity)
+
+        /// <summary>
+        /// The key statement of this operator in the given roaming network (SPECIFICATION.md of WWCP POI, section 8.6):
+        /// the given signing keys and identity keys, as the network names them or will, signed with one of these identity
+        /// keys held here, the current one where they name it, valid from now for the given time. Null where they name
+        /// none held here.
+        /// </summary>
+        /// <param name="RoamingNetworkId">The roaming network.</param>
+        /// <param name="SigningKeys">The signing keys of this operator the network names.</param>
+        /// <param name="IdentityKeys">The identity keys of this operator the network names.</param>
+        /// <param name="Now">When it is signed.</param>
+        /// <param name="Validity">How long it is valid.</param>
+        public RoamingNetworkKeyStatement? StateKeys(RoamingNetwork_Id          RoamingNetworkId,
+                                                     IEnumerable<POIPublicKey>  SigningKeys,
+                                                     IEnumerable<POIPublicKey>  IdentityKeys,
+                                                     DateTimeOffset             Now,
+                                                     TimeSpan                   Validity)
+        {
+
+            var identityKeys = IdentityKeys.ToArray();
+
+            ECPrivateKeyParameters key;
+
+            lock (keysLock)
+            {
+
+                var held   = HeldKeys(POIKeyKind.Identity);
+                var named  = identityKeys.Select(identityKey => identityKey.Id).Where(held.ContainsKey).ToArray();
+
+                if (named.Length == 0)
+                    return null;
+
+                key = held[named.Contains(CurrentKeyIdOrNull(POIKeyKind.Identity)) ? CurrentKeyIdOrNull(POIKeyKind.Identity)! : named[0]].Key;
+
+            }
+
+            return RoamingNetworkKeyStatement.Create(key,
+                                                     COSEAlgorithm.ES512,
+                                                     RoamingNetworkId,
+                                                     Id,
+                                                     SigningKeys,
+                                                     identityKeys,
+                                                     Now,
+                                                     Now + Validity);
+
+        }
+
+        #endregion
+
+
         #region (internal) MakeKey(Kind)
 
         /// <summary>

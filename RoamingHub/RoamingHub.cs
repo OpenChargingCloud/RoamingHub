@@ -420,6 +420,9 @@ namespace cloud.charging.open.RoamingHub
             // from them - see RoamingHub.HubClientInfo.cs.
             StartWatchingThePeers();
 
+            // Attest the heads of the roaming networks this hub operates, and state its keys anew in time: see RoamingHub.Attestations.cs.
+            StartAttesting();
+
             Log.Info   ($"The JSON API is at {APIURL}v1/status", "web", "http");
             Log.Notice ($"Peers find this hub at {OCPIVersionsURL} " +
                         $"(OCPI {String.Join(", ", OCPIVersions.Select(version => version.Label))}, " +
@@ -454,6 +457,8 @@ namespace cloud.charging.open.RoamingHub
 
             presenceTimer?.Dispose();
             presenceTimer = null;
+
+            StopAttesting();
 
             // The last line written is already flushed - see OCPITrafficFile -
             // so this only releases the handle.

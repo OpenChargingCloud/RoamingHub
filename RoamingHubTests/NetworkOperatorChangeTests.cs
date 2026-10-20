@@ -139,6 +139,14 @@ namespace cloud.charging.open.RoamingHub.Tests
                 foreach (var history in new[] { qa, prod })
                     Assert.That(history.Head.RoamingNetwork.Operator!.SigningKeys.Select(key => key.Id),  Is.EqualTo(new[] { current.Id }), history.RoamingNetworkId.ToString());
 
+                // Stated anew with it, and its heads attested by it.
+                foreach (var history in new[] { qa, prod })
+                {
+                    Assert.That(history.Head.RoamingNetwork.Operator!.KeyStatement?.SigningKeys.Select(key => key.Id),  Is.EqualTo(new[] { current.Id }), history.RoamingNetworkId.ToString());
+                    Assert.That(history.CurrentAttestations().Select(attestation => attestation.KeyId),                Does.Contain(current.Id),           history.RoamingNetworkId.ToString());
+                }
+
+
                 Assert.That(prod.Head.Commit.Revision,                                                Is.EqualTo(1));
                 Assert.That(rotation.Revision,                                                        Is.EqualTo(2));
 
@@ -192,12 +200,65 @@ namespace cloud.charging.open.RoamingHub.Tests
                 Assert.That(current.Id,                                                               Is.Not.EqualTo(old.Id));
                 Assert.That(current.Key.Curve,                                                        Is.EqualTo(COSECurve.P521));
                 Assert.That(HistoryOf(RoamingHub, "QA").Head.RoamingNetwork.Operator!.IdentityKeys.Select(key => key.Id),  Is.EqualTo(new[] { current.Id }));
-                Assert.That(rotation.ChangeSet!.Signatures.Select(signature => signature.KeyId),      Is.EqualTo(new[] { old.Id }));
+
+                // Signed by the identity key it replaces, and by the signing key for the key statement made anew, which the
+                // new identity key signs.
+                Assert.That(rotation.ChangeSet!.Signatures.Select(signature => signature.KeyId),      Is.EqualTo(new[] { old.Id, signingKey.Id }));
+                Assert.That(HistoryOf(RoamingHub, "QA").Head.RoamingNetwork.Operator!.KeyStatement?.KeyId,                    Is.EqualTo(current.Id));
+                Assert.That(HistoryOf(RoamingHub, "QA").Head.RoamingNetwork.Operator!.KeyStatement?.IdentityKeys.Select(key => key.Id),  Is.EqualTo(new[] { current.Id }));
+
 
                 Assert.That(RoamingHub.NetworkOperator.Id,                                            Is.EqualTo(id));
                 Assert.That(RoamingHub.NetworkOperator.SigningKey.Id,                                 Is.EqualTo(signingKey.Id));
                 Assert.That(KeyFiles("identity-key"),                                                 Is.EqualTo(new[] { HubRoamingNetworkOperator.IdentityKeyFileName }));
                 Assert.That(Stored().IdentityKey.Id,                                                  Is.EqualTo(current.Id));
+
+            });
+
+        }
+
+        #endregion
+
+        #region TheKeysAreStatedAnewBeforeTheirStatementEnds()
+
+        /// <summary>
+        /// A roaming network made here states the keys of its operator from its genesis on; a week before the statement
+        /// ends, it is stated anew by a commit, and the head is attested again once its attestation is older than its
+        /// interval.
+        /// </summary>
+        [Test]
+        public void TheKeysAreStatedAnewBeforeTheirStatementEnds()
+        {
+
+            Made(RoamingHub, "QA");
+
+            var history   = HistoryOf(RoamingHub, "QA");
+            var first     = history.Head.RoamingNetwork.Operator!.KeyStatement;
+            var revision  = history.Head.Commit.Revision;
+
+            Assert.That(first, Is.Not.Null, "no key statement in the genesis");
+
+            var soon      = first!.SignedAt.AddDays(1);
+            var late      = first.ValidUntil - RoamingHub.KeyStatementRenewal + TimeSpan.FromMinutes(1);
+
+            var atFirst   = RoamingHub.KeepAttesting(soon);
+            var atLast    = RoamingHub.KeepAttesting(late);
+            var second    = history.Head.RoamingNetwork.Operator!.KeyStatement!;
+
+            Assert.Multiple(() => {
+
+                Assert.That(revision,                                                                Is.Zero);
+                Assert.That(first.ValidUntil - first.SignedAt,                                       Is.EqualTo(RoamingHub.KeyStatementValidity));
+                Assert.That(first.KeyId,                                                             Is.EqualTo(RoamingHub.NetworkOperator.IdentityKey.Id));
+
+                Assert.That(atFirst,                                                                 Is.Empty);
+                Assert.That(atLast.Select(id => id.ToString()),                                      Is.EqualTo(new[] { "QA" }));
+                Assert.That(history.Head.Commit.Revision,                                            Is.EqualTo(1));
+                Assert.That(second.ValidUntil,                                                       Is.GreaterThan(first.ValidUntil));
+
+                // Attested again at that time, by the signing key it states.
+                Assert.That(history.CurrentAttestations(late).Select(attestation => attestation.KeyId),
+                            Has.Some.EqualTo(RoamingHub.NetworkOperator.SigningKey.Id));
 
             });
 

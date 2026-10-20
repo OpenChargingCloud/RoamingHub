@@ -7,6 +7,8 @@ import { html, nothing, render, type TemplateResult } from '@node/view';
 import { addressLine, entityURL, evseCountOf, gridCollections, networkPath, operatorCollections, parkingCollections, providerCollections, poiHome, roamingNetworkOf, sections, sectionsView, type EmbeddedCollection } from './poi';
 import { loadOffers, localTimeOf, nextRefresh, offersView, timeOf, type Offers, type OffersShown } from './poiOffers';
 import { loadOrigins, templateSegments, type Origin, type Origins } from './poiOrigins';
+import { loadTrustAnchor, trustAnchorCard, type TrustAnchor } from './poiTrustAnchor';
+import { copyText } from '@node/ui';
 
 /**
  * The single things of the points of interest: a roaming network with what it holds, and every entity below it -
@@ -769,6 +771,10 @@ export const poiNetworkPage: Page = {
         let asking:     AbortController | null   = null;
         let cancelled                            = false;
 
+        // What a driver's app scans, asked on its own: a roaming network without one is shown as well.
+        let anchor:     TrustAnchor | null       = null;
+        let copied:     string | null            = null;
+
         function draw(): void {
 
             const content = shell(root, {
@@ -809,6 +815,8 @@ export const poiNetworkPage: Page = {
                                       </div>
                                   </section>
 
+                                  ${anchor ? trustAnchorCard(anchor, copied, () => void copyText(anchor!.uri).then(said => { copied = said; draw(); })) : nothing}
+
                                   ${network ? jsonView(network) : nothing}
 
                               </div>`}
@@ -824,6 +832,13 @@ export const poiNetworkPage: Page = {
 
             problem = null;
             draw();
+
+            void loadTrustAnchor(path, ask.signal).then(found => {
+                if (!cancelled && ask === asking) {
+                    anchor = found;
+                    draw();
+                }
+            });
 
             try
             {

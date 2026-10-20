@@ -549,7 +549,7 @@ operates (`RoamingHub.RoamingNetworkOperator.Changes.cs`):
 `…/identityKey/rotate`, or `roamingNetworkOperator rotate signingKey` (or
 `identityKey`) at the command line. Each roaming network gets a change set the
 key replaced signs - a signing key by the old signing key, an identity key by
-the old identity key - and its commits are signed by the new signing key from
+the old identity key and, for the key statement made anew, the signing key - and its commits are signed by the new signing key from
 then on; `operator.json` names the new key, so every roaming network made
 afterwards does. The old key is forgotten, its file deleted, once no roaming
 network the hub serves names it any more. A roaming network whose history
@@ -568,6 +568,20 @@ from everybody, over HTTP and over the WebSocket of its history: what a change
 set may change is decided by the signatures of its owners, which every commit
 checks against the keys in the network, not by who sent it. Every commit the
 history takes, a merge as well, is in the log, tagged `poi` and `commit`.
+
+A driver's app checks a charging station offline (`RoamingHub.Attestations.cs`,
+SPECIFICATION.md of WWCP POI, sections 8.4 to 8.6). A roaming network made here
+states the keys of its operator from its genesis on: a key statement of the
+signing keys, signed by the identity key, valid for 30 days and stated anew by a
+commit a week before it ends, and in the same change set that replaces a key.
+Every head is attested by the signing key, again every minute once its
+attestation is older than five minutes. The page of a roaming network in the web
+interface shows its **trust anchor** as a QR code,
+`https://…/poi/RNs/<id>?identityKeys=<thumbprint>`, also at
+`GET /poi/RNs/<id>/trustAnchor`: an app that scanned it gets
+`/poi/RNs/<id>/CSs/<CS_Id>/proof` and trusts the proof by the identity key alone.
+Show it where it cannot be swapped for another one, on a website or in documents,
+not stuck on a charging station.
 
 
 ## DATEX II and the Mobilithek

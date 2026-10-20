@@ -98,6 +98,9 @@ const hpc     = { '@id': 'gdf-hpc-39',      chargingTariff: { currency: 'EUR', e
 const noon    = new Date(2026, 9, 12, 12, 0).toISOString();
 
 /** The stand-in POI API. */
+/** The identity key of the operator of rn1, by its thumbprint. */
+const identityKeyId = 'ab'.repeat(32);
+
 function poiAPI({ path, query }: Asked): unknown {
 
     if (path === '/poi/RNs')
@@ -111,6 +114,10 @@ function poiAPI({ path, query }: Asked): unknown {
 
     const counts: Record<string, number> = { CPs: 42, CSOs: 3, GOs: 1, EMPs: 2, CSMs: 0, POs: 0 };
     const list = /^\/poi\/RNs\/rn1\/([A-Za-z]+)$/.exec(path);
+
+    // What a driver's app scans: the identity key of the operator of rn1.
+    if (path === '/poi/RNs/rn1/trustAnchor')
+        return entityOf({ roamingNetworkId: 'rn1', identityKeyIds: [ identityKeyId ], uri: `https://hub.example/poi/RNs/rn1?identityKeys=${identityKeyId}` });
 
     if (list && query.get('limit') === '1')
         return listOf([], counts[list[1]!] ?? 0);
@@ -287,7 +294,7 @@ describe('the single things of the points of interest', () => {
         assert.match(root.querySelector('.poi-entity')!.textContent!, /The first one\./);
 
         assert.equal(root.querySelector<HTMLAnchorElement>('.poi-holds a')!.getAttribute('href'), '/poi/RNs/rn1/CPs');
-        assert.ok(asked.filter(one => one.path.startsWith('/poi/RNs/rn1/')).every(one => one.query.get('limit') === '1'),
+        assert.ok(asked.filter(one => one.path.startsWith('/poi/RNs/rn1/') && !one.path.endsWith('/trustAnchor')).every(one => one.query.get('limit') === '1'),
                   'a list is asked for more than the one entry the POI API answers at least');
 
         // What it says of itself, without what it holds, field by field, and as JSON with its ETag.
@@ -296,6 +303,18 @@ describe('the single things of the points of interest', () => {
         assert.deepEqual([ ...value(root, 'ETags')!.querySelectorAll('code') ].map(code => code.textContent), [ 'json:sha256:hex:abc', 'cbor:sha256:hex:def' ]);
         assert.equal([ ...root.querySelectorAll('.poi-entity .k') ].find(key => key.textContent!.trim() === 'Context'), undefined);
         assert.match(root.querySelector('.poi-json summary')!.textContent!, /json:sha256:hex:slim/);
+
+    });
+
+    it('show the trust anchor of a roaming network as a QR code to scan, its URI to copy', async () => {
+
+        const root   = await open(poiNetworkPage, '/poi/RNs/rn1', null, poiAPI, root => root.querySelector('.poi-trust-anchor svg') !== null);
+        const card   = root.querySelector('.poi-trust-anchor')!;
+
+        assert.match(card.querySelector('h2')!.textContent!, /Trust anchor/);
+        assert.ok(card.querySelector('.poi-qr svg')!.getAttribute('viewBox'), 'a QR code scaling with its box');
+        assert.equal(card.querySelector('code')!.textContent, `https://hub.example/poi/RNs/rn1?identityKeys=${identityKeyId}`);
+        assert.deepEqual([ ...card.querySelectorAll('code') ].slice(1).map(code => code.textContent), [ identityKeyId ]);
 
     });
 

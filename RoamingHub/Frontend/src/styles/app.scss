@@ -367,3 +367,18 @@ table.poi-table td.poi-number {
     }
 
 }
+
+// The QR code of the trust anchor of a roaming network: dark on light, with its quiet zone, in any theme.
+.poi-trust-anchor .poi-qr {
+    width: 14rem;
+    max-width: 100%;
+    margin: 0.5rem 0 1rem;
+    background: #fff;
+    border-radius: 0.25rem;
+
+    svg {
+        display: block;
+        width: 100%;
+        height: auto;
+    }
+}
