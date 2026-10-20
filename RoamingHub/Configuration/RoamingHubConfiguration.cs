@@ -28,7 +28,8 @@ namespace cloud.charging.open.RoamingHub.Configuration
 
     /// <summary>
     /// The sections of the configuration file that are this hub's own, rather
-    /// than every node's: who it is when it speaks OCPI.
+    /// than every node's: who it is when it speaks OCPI, what it publishes as DATEX II, and what the histories of its
+    /// roaming networks keep.
     /// </summary>
     /// <remarks>
     /// One file for everything a hub can be told in writing, as for every WWCP
@@ -45,8 +46,10 @@ namespace cloud.charging.open.RoamingHub.Configuration
     /// </remarks>
     /// <param name="OCPI">Who this hub is when it speaks OCPI, and which versions of it it speaks.</param>
     /// <param name="DatexII">Which roaming networks this hub publishes as DATEX II, to be pulled and pushed to the Mobilithek.</param>
+    /// <param name="POI">What the histories of the roaming networks keep in their stores, and whether the commits they drop are archived.</param>
     public sealed record RoamingHubConfiguration(OCPIConfiguration?     OCPI      = null,
-                                                 DatexIIConfiguration?  DatexII   = null)
+                                                 DatexIIConfiguration?  DatexII   = null,
+                                                 POIConfiguration?      POI       = null)
     {
 
         #region Properties
@@ -55,7 +58,7 @@ namespace cloud.charging.open.RoamingHub.Configuration
         /// Whether the document says anything this hub reads itself.
         /// </summary>
         public Boolean IsEmpty
-            => OCPI is null && DatexII is null;
+            => OCPI is null && DatexII is null && POI is null;
 
         #endregion
 
@@ -117,7 +120,27 @@ namespace cloud.charging.open.RoamingHub.Configuration
 
             #endregion
 
-            Configuration = new RoamingHubConfiguration(ocpi, datexII);
+            #region Points of interest
+
+            POIConfiguration? poi = null;
+
+            if (JSON[POIConfiguration.SectionName] is JToken poiToken && poiToken.Type != JTokenType.Null)
+            {
+
+                if (poiToken is not JObject poiJSON)
+                {
+                    Error = $"'{POIConfiguration.SectionName}' must be a JSON object.";
+                    return false;
+                }
+
+                if (!POIConfiguration.TryParse(poiJSON, out poi, out Error))
+                    return false;
+
+            }
+
+            #endregion
+
+            Configuration = new RoamingHubConfiguration(ocpi, datexII, poi);
             return true;
 
         }
@@ -140,6 +163,9 @@ namespace cloud.charging.open.RoamingHub.Configuration
             if (DatexII is not null)
                 json.Add(DatexIIConfiguration.SectionName, DatexII.ToJSON());
 
+            if (POI is not null)
+                json.Add(POIConfiguration.SectionName, POI.ToJSON());
+
             return json;
 
         }
@@ -152,7 +178,7 @@ namespace cloud.charging.open.RoamingHub.Configuration
 
             => IsEmpty
                    ? "nothing configured"
-                   : String.Join("; ", new Object?[] { OCPI, DatexII }.OfType<Object>());
+                   : String.Join("; ", new Object?[] { OCPI, DatexII, POI }.OfType<Object>());
 
         #endregion
 

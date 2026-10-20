@@ -243,10 +243,11 @@ The `configuration.json` beside it, in the same shape as the EMSP's:
 | `roles` | roles beyond the three a hub brings, or what one of them may do |
 | `ocpi` | who this hub is - country code, party identification, name - and which versions it offers |
 | `datex2` | which roaming networks are published as DATEX II, to be pulled and pushed to the Mobilithek |
+| `poi` | what the histories of the roaming networks keep, and whether the commits they drop are archived |
 
 The node below reads the sections every one of these programs has - `dns`,
-`nts`, `certificates` and `roles` - and the hub reads its own, `ocpi` and
-`datex2`, from the same document; each passes over what is the other's.
+`nts`, `certificates` and `roles` - and the hub reads its own, `ocpi`,
+`datex2` and `poi`, from the same document; each passes over what is the other's.
 
 Everything in `dns` and `nts` takes effect the moment it is saved. The `ocpi`
 section is read once at the start and deliberately not changeable while
@@ -621,6 +622,26 @@ interface shows its **trust anchor** as a QR code,
 `/poi/RNs/<id>/CSs/<CS_Id>/proof` and trusts the proof by the identity key alone.
 Show it where it cannot be swapped for another one, on a website or in documents,
 not stuck on a charging station.
+
+Every roaming network is kept in its directory below `poi/`: a log of every
+commit and status update, compacted once it has `compactAfterLogEntries`
+entries (100 000 by default) - the status goes into a new base, and the commits
+more than `retainCommits` revisions behind the head (1000) are dropped from it,
+into `poi/<id>/archive/`, one segment per compaction. From there they are served
+and proved as before, `GET /poi/RNs/<id>/history/commits/<commitId>` and
+`GET /poi/RNs/<id>/history/archive`, also after a restart. `"archive": false`
+drops them for good. What a store could not do, e.g. compact, is in the log,
+tagged `poi` and `store`.
+
+```json
+"poi": {
+  "retainCommits":              1000,
+  "compactAfterLogEntries":     100000,
+  "versionCheckpointInterval":  100,
+  "recentVersions":             100,
+  "archive":                    true
+}
+```
 
 
 ## DATEX II and the Mobilithek

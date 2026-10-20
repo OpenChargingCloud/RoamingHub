@@ -26,6 +26,7 @@ using org.GraphDefined.Vanaheimr.Illias;
 using org.GraphDefined.Vanaheimr.Hermod.HTTP;
 
 using cloud.charging.open.protocols.WWCP.POI;
+using cloud.charging.open.RoamingHub.Configuration;
 
 #endregion
 
@@ -137,6 +138,13 @@ namespace cloud.charging.open.RoamingHub
 
         private readonly List<RoamingNetworkHistoryFileStore> poiStores = [];
 
+        private readonly List<RoamingNetworkHistoryFileArchive> poiArchives = [];
+
+        /// <summary>
+        /// What the histories keep, and whether the commits they drop are archived: the "poi" section.
+        /// </summary>
+        private POIConfiguration poiConfiguration = new ();
+
         private readonly Lock poiLock = new ();
 
         /// <summary>
@@ -165,11 +173,14 @@ namespace cloud.charging.open.RoamingHub
         #region (private) BuildPOI()
 
         /// <summary>
-        /// The POI API below "/poi", with the roaming networks of every store below the POI directory.
+        /// The POI API below "/poi", with the roaming networks of every store below the POI directory, keeping what the
+        /// given "poi" section says, and archiving the commits they drop beside their stores, in "archive/".
         /// A store that can not be read is said in the log and left alone, and the others are served.
         /// </summary>
-        private void BuildPOI()
+        private void BuildPOI(POIConfiguration? Configuration)
         {
+
+            poiConfiguration = Configuration ?? new ();
 
             // Who signs what this hub makes of them: see RoamingHub.RoamingNetworkOperator.cs.
             BuildNetworkOperator();
@@ -193,17 +204,20 @@ namespace cloud.charging.open.RoamingHub
             foreach (var directory in Directory.GetDirectories(POIDirectory).Order(StringComparer.Ordinal))
             {
 
-                RoamingNetworkHistoryFileStore? store = null;
+                RoamingNetworkHistoryFileStore?    store    = null;
+                RoamingNetworkHistoryFileArchive?  archive  = null;
 
                 try
                 {
 
-                    store = new RoamingNetworkHistoryFileStore(directory);
+                    store    = new RoamingNetworkHistoryFileStore(directory);
+                    archive  = NewPOIArchive(directory);
 
-                    if (!RoamingNetworkHistory.TryLoad(store, out var history, out var error))
+                    if (!RoamingNetworkHistory.TryLoad(store, out var history, out var error, poiConfiguration.EffectiveRetention, Archive: archive))
                     {
                         Log.Error($"The roaming network stored in '{directory}' can not be read: {error}", "poi");
                         store.Dispose();
+                        archive?.Dispose();
                         unreadPOIStores++;
                         continue;
                     }
@@ -212,12 +226,20 @@ namespace cloud.charging.open.RoamingHub
                     {
                         Log.Error($"The roaming network '{history.RoamingNetworkId}' stored in '{directory}' is served already.", "poi");
                         store.Dispose();
+                        archive?.Dispose();
                         unreadPOIStores++;
                         continue;
                     }
 
                     lock (poiLock)
+                    {
                         poiStores.Add(store);
+
+                        if (archive is not null)
+                            poiArchives.Add(archive);
+                    }
+
+                    WatchStore(history);
 
                     // The commits made here of a roaming network this hub operates are signed by its operator,
                     // with the signing key the network names.
@@ -235,6 +257,7 @@ namespace cloud.charging.open.RoamingHub
                 catch (Exception e)
                 {
                     store?.Dispose();
+                    archive?.Dispose();
                     unreadPOIStores++;
                     Log.Exception(e, $"The roaming network stored in '{directory}' can not be read.", "poi");
                 }
@@ -262,6 +285,46 @@ namespace cloud.charging.open.RoamingHub
                 (announcement.Description.FirstText() is { Length: > 0 } description ? $": {description}" : "."),
                 "poi", "commit"
             );
+
+        }
+
+        #endregion
+
+
+        #region (private) NewPOIArchive(Directory)
+
+        /// <summary>
+        /// The archive of the commits a history drops when compacting, in "archive/" beside its store in the given
+        /// directory, unless the "poi" section says not to archive them.
+        /// </summary>
+        private RoamingNetworkHistoryFileArchive? NewPOIArchive(String Directory)
+
+            => poiConfiguration.EffectiveArchive
+                   ? new RoamingNetworkHistoryFileArchive(Path.Combine(Directory, POIConfiguration.ArchiveDirectoryName))
+                   : null;
+
+        #endregion
+
+        #region (private) WatchStore(History)
+
+        /// <summary>
+        /// Say in the log what the store of the given history could not do, e.g. keep a status update or compact the
+        /// log: the history goes on, in memory.
+        /// </summary>
+        private void WatchStore(RoamingNetworkHistory History)
+        {
+
+            var roamingNetworkId = History.RoamingNetworkId;
+
+            History.OnStoreError += (history, description, exception) => {
+
+                if (exception is not null)
+                    Log.Exception(exception, $"The store of the roaming network '{roamingNetworkId}': {description}", "poi", "store");
+
+                else
+                    Log.Error($"The store of the roaming network '{roamingNetworkId}': {description}", "poi", "store");
+
+            };
 
         }
 
@@ -329,14 +392,20 @@ namespace cloud.charging.open.RoamingHub
 
                 #endregion
 
-                RoamingNetworkHistoryFileStore? store = null;
+                RoamingNetworkHistoryFileStore?    store    = null;
+                RoamingNetworkHistoryFileArchive?  archive  = null;
 
                 try
                 {
 
                     store        = new RoamingNetworkHistoryFileStore(directory);
+                    archive      = NewPOIArchive(directory);
 
-                    var history  = RoamingNetworkHistory.Start(network, Signers: [ NetworkOperator.CommitSigner(network)! ], Store: store);
+                    var history  = RoamingNetworkHistory.Start(network,
+                                                               Signers:    [ NetworkOperator.CommitSigner(network)! ],
+                                                               Store:      store,
+                                                               Retention:  poiConfiguration.EffectiveRetention,
+                                                               Archive:    archive);
 
                     Attest(history, TimeProvider.GetUtcNow());
 
@@ -345,6 +414,10 @@ namespace cloud.charging.open.RoamingHub
 
                     poiStores.Add(store);
 
+                    if (archive is not null)
+                        poiArchives.Add(archive);
+
+                    WatchStore(history);
                     Watch(history);
 
                     // Published as DATEX II, when the configuration names it.
@@ -360,6 +433,7 @@ namespace cloud.charging.open.RoamingHub
                 {
 
                     store?.Dispose();
+                    archive?.Dispose();
 
                     try
                     {
@@ -555,6 +629,11 @@ namespace cloud.charging.open.RoamingHub
                     store.Dispose();
 
                 poiStores.Clear();
+
+                foreach (var archive in poiArchives)
+                    archive.Dispose();
+
+                poiArchives.Clear();
 
             }
 

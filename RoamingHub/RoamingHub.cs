@@ -392,7 +392,7 @@ namespace cloud.charging.open.RoamingHub
             #region The points of interest, below "/poi"
 
             // Public, beside the web interface: see RoamingHub.POI.cs.
-            BuildPOI();
+            BuildPOI(configuration.POI);
 
             #endregion
 
