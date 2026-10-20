@@ -8,6 +8,8 @@ import { addressLine, entityURL, evseCountOf, gridCollections, networkPath, oper
 import { loadOffers, localTimeOf, nextRefresh, offersView, timeOf, type Offers, type OffersShown } from './poiOffers';
 import { loadOrigins, templateSegments, type Origin, type Origins } from './poiOrigins';
 import { loadTrustAnchor, trustAnchorCard, type TrustAnchor } from './poiTrustAnchor';
+import { epochCard, loadEpochs, type Epochs } from './poiEpochs';
+import { loadPriceStatements, priceStatementsCard, signedPricesCard, type PriceStatement } from './poiPrices';
 import { copyText } from '@node/ui';
 
 /**
@@ -106,6 +108,8 @@ interface Kind {
     parameters?:  Record<string, string>;
     /** Whether it shows the charging tariff offers covering it: a charging pool, a charging station, an EVSE. */
     offers?:      boolean;
+    /** Whether it shows the price statements of it, its pool and its EVSEs: a charging station, an EVSE. */
+    prices?:      boolean;
 }
 
 /** The brands of an operator, pool, station or EVSE: its own, embedded, each leading to its page below it. */
@@ -139,14 +143,14 @@ const kinds: Record<string, Kind> = {
                             cells: station => [ (station.EVSEs as unknown[] | undefined)?.length ?? 0, withUnit('maxPower', station.maxPower) ] },
                           brandsOf('Brands it also appears under') ] },
 
-    CSs:    { label: 'Charging station',  icon: 'fa-charging-station',  offers: true,
+    CSs:    { label: 'Charging station',  icon: 'fa-charging-station',  offers: true,  prices: true,
               children: [ { field: 'EVSEs',  label: 'EVSEs',  segment: 'EVSEs',
                             head:  [ 'Max power', 'Connectors' ],
                             cells: evse => [ withUnit('maxPower', evse.maxPower),
                                              ((evse.chargingConnectors as { type?: string }[] | undefined) ?? []).map(connector => connector.type ?? '?').join(', ') ] },
                           brandsOf('Brands it also appears under') ] },
 
-    EVSEs:  { label: 'EVSE',  icon: 'fa-plug',  offers: true,
+    EVSEs:  { label: 'EVSE',  icon: 'fa-plug',  offers: true,  prices: true,
               children: [ brandsOf('Brands it also appears under') ] },
 
     // A brand of an operator, pool, station or EVSE, below it.
@@ -564,6 +568,9 @@ function entityPage(segment: string): Page {
             let offersAsking:   AbortController | null              = null;
             let offersTimer:    ReturnType<typeof setTimeout> | undefined;
 
+            // The price statements of it, its pool and its EVSEs, asked once it is drawn.
+            let prices:         PriceStatement[] | null             = null;
+
             function draw(): void {
 
                 const content  = shell(root, {
@@ -625,6 +632,8 @@ function entityPage(segment: string): Page {
                                               })
                                             : nothing}
 
+                                      ${prices ? signedPricesCard(prices, steps[0]!.path) : nothing}
+
                                       ${jsonView(loaded)}
 
                                   </div>`}
@@ -662,6 +671,15 @@ function entityPage(segment: string): Page {
                     // The offers covering it, once it is drawn.
                     if (kind.offers)
                         void loadCoveringOffers();
+
+                    // Its price statements, once it is drawn.
+                    if (kind.prices)
+                        void loadPriceStatements(`${self.path}/priceStatements`, ask.signal).then(found => {
+                            if (!cancelled && ask === asking) {
+                                prices = found;
+                                draw();
+                            }
+                        });
 
                     // Which of its values its templates give it, once it is drawn: without, where they cannot be asked.
                     origins = await loadOrigins(steps, entity.entity, kind.parameters, (kind.children ?? []).map(children => children.field), ask.signal).
@@ -775,6 +793,10 @@ export const poiNetworkPage: Page = {
         let anchor:     TrustAnchor | null       = null;
         let copied:     string | null            = null;
 
+        // Its epochs and price statements, asked on their own as well: there are none without a history here.
+        let epochs:     Epochs | null            = null;
+        let prices:     PriceStatement[] | null  = null;
+
         function draw(): void {
 
             const content = shell(root, {
@@ -817,6 +839,10 @@ export const poiNetworkPage: Page = {
 
                                   ${anchor ? trustAnchorCard(anchor, copied, () => void copyText(anchor!.uri).then(said => { copied = said; draw(); })) : nothing}
 
+                                  ${epochs ? epochCard(epochs) : nothing}
+
+                                  ${prices ? priceStatementsCard(prices, path) : nothing}
+
                                   ${network ? jsonView(network) : nothing}
 
                               </div>`}
@@ -836,6 +862,20 @@ export const poiNetworkPage: Page = {
             void loadTrustAnchor(path, ask.signal).then(found => {
                 if (!cancelled && ask === asking) {
                     anchor = found;
+                    draw();
+                }
+            });
+
+            void loadEpochs(path, ask.signal).then(found => {
+                if (!cancelled && ask === asking) {
+                    epochs = found;
+                    draw();
+                }
+            });
+
+            void loadPriceStatements(`${path}/history/priceStatements`, ask.signal).then(found => {
+                if (!cancelled && ask === asking) {
+                    prices = found;
                     draw();
                 }
             });

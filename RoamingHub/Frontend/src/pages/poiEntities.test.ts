@@ -101,6 +101,19 @@ const noon    = new Date(2026, 9, 12, 12, 0).toISOString();
 /** The identity key of the operator of rn1, by its thumbprint. */
 const identityKeyId = 'ab'.repeat(32);
 
+// The epochs of rn1: the second one, after the first, with SHA-512 identifications.
+const profiles  = { canonicalization: 'styx-canonical-json-v1', identificationHash: 'sha256', commit: 'wwcp-poi-commit-v3',
+                    checkpoint: 'wwcp-poi-checkpoint-v1', priceStatement: 'wwcp-poi-price-statement-v1', signatureAlgorithms: [] };
+const epoch1    = { epoch: 1, profiles, status: 'closed', finalCheckpointId: 'ab'.repeat(32) };
+const epoch2    = { epoch: 2, profiles: { ...profiles, identificationHash: 'sha512' }, status: 'active',
+                    previous: { epoch: 1, checkpointId: 'ab'.repeat(32), eTags: [] } };
+
+// A price statement of the EVSE E1*1, signed by its operator.
+const priceStatement = { roamingNetworkId: 'rn1', entityType: 'EVSE', entityId: 'DE*GEF*E1*1',
+                         priceStatus: { prices: [ { chargingTariffId: 'DE*GEF*T1', elements: [ { priceComponents: [ { type: 'ENERGY', price: 0.39, stepSize: 1 } ] } ] } ] },
+                         validFrom: '2026-10-20T12:00:00.000Z', sequence: 3, previous: 'cd'.repeat(32), role: 'chargingStationOperator',
+                         signer: 'DE*GEF', signedAt: '2026-10-20T12:00:00.000Z', algorithm: 'ES256', keyId: 'ef'.repeat(32), value: 'c2ln' };
+
 function poiAPI({ path, query }: Asked): unknown {
 
     if (path === '/poi/RNs')
@@ -118,6 +131,16 @@ function poiAPI({ path, query }: Asked): unknown {
     // What a driver's app scans: the identity key of the operator of rn1.
     if (path === '/poi/RNs/rn1/trustAnchor')
         return entityOf({ roamingNetworkId: 'rn1', identityKeyIds: [ identityKeyId ], uri: `https://hub.example/poi/RNs/rn1?identityKeys=${identityKeyId}` });
+
+    // Its epochs, and the price statements of it and of the EVSE E1*1.
+    if (path === '/poi/RNs/rn1/history/epoch')
+        return entityOf(epoch2);
+
+    if (path === '/poi/RNs/rn1/history/epochs')
+        return listOf([ epoch1, epoch2 ], 2);
+
+    if (path === '/poi/RNs/rn1/history/priceStatements' || path === '/poi/RNs/rn1/CSOs/DE*GEF/CPs/DE*GEF*P1/CSs/DE*GEF*S1/EVSEs/DE*GEF*E1*1/priceStatements')
+        return entityOf({ priceStatements: [ priceStatement ] });
 
     if (list && query.get('limit') === '1')
         return listOf([], counts[list[1]!] ?? 0);
@@ -294,7 +317,7 @@ describe('the single things of the points of interest', () => {
         assert.match(root.querySelector('.poi-entity')!.textContent!, /The first one\./);
 
         assert.equal(root.querySelector<HTMLAnchorElement>('.poi-holds a')!.getAttribute('href'), '/poi/RNs/rn1/CPs');
-        assert.ok(asked.filter(one => one.path.startsWith('/poi/RNs/rn1/') && !one.path.endsWith('/trustAnchor')).every(one => one.query.get('limit') === '1'),
+        assert.ok(asked.filter(one => one.path.startsWith('/poi/RNs/rn1/') && !one.path.endsWith('/trustAnchor') && !one.path.includes('/history/')).every(one => one.query.get('limit') === '1'),
                   'a list is asked for more than the one entry the POI API answers at least');
 
         // What it says of itself, without what it holds, field by field, and as JSON with its ETag.
@@ -315,6 +338,24 @@ describe('the single things of the points of interest', () => {
         assert.ok(card.querySelector('.poi-qr svg')!.getAttribute('viewBox'), 'a QR code scaling with its box');
         assert.equal(card.querySelector('code')!.textContent, `https://hub.example/poi/RNs/rn1?identityKeys=${identityKeyId}`);
         assert.deepEqual([ ...card.querySelectorAll('code') ].slice(1).map(code => code.textContent), [ identityKeyId ]);
+
+    });
+
+    it('show the epoch of a roaming network with its profiles and every epoch, and its price statements, each leading to its entity', async () => {
+
+        const root    = await open(poiNetworkPage, '/poi/RNs/rn1', null, poiAPI,
+                                   root => root.querySelector('.poi-epochs') !== null && root.querySelector('.poi-price-statements') !== null);
+        const epochs  = root.querySelector('.poi-epochs')!;
+        const prices  = root.querySelector('.poi-price-statements')!;
+
+        assert.match(epochs.querySelector('h2')!.textContent!,                       /Epoch 2\s*active/);
+        assert.match(epochs.textContent!,                                            /Identifications\s*sha512/);
+        assert.match(epochs.textContent!,                                            new RegExp(`After\\s*epoch 1,\\s*final checkpoint ${'ab'.repeat(32)}`));
+        assert.equal(epochs.querySelectorAll('tbody tr').length,                     2);
+
+        assert.match(prices.querySelector('h2')!.textContent!,                       /Price statements\s*1/);
+        assert.match(prices.textContent!,                                            /DE\*GEF\*T1\s*energy 0\.39\/kWh in steps of 1 Wh/);
+        assert.equal(prices.querySelector('tbody a')!.getAttribute('href'),          '/poi/RNs/rn1/EVSEs/DE*GEF*E1*1');
 
     });
 
@@ -362,6 +403,18 @@ describe('the single things of the points of interest', () => {
         assert.equal(value(root, 'Max current')!.textContent!.trim(), '32 A');
         assert.match(root.querySelector('.poi-entity .kv-nested')!.textContent!, /Charging connectors[\s\S]*IEC62196Type2Outlet/);
         assert.equal(root.querySelector('.poi-children'), null, 'an EVSE has no children of its own');
+
+    });
+
+    it('show the signed prices of an EVSE', async () => {
+
+        const root   = await open(evsePage, '/poi/RNs/rn1/CSOs/DE*GEF/CPs/DE*GEF*P1/CSs/DE*GEF*S1/EVSEs/DE*GEF*E1*1', null, poiAPI,
+                                  root => root.querySelector('.poi-price-statements') !== null);
+        const card   = root.querySelector('.poi-price-statements')!;
+
+        assert.match(card.querySelector('h2')!.textContent!,  /Signed prices\s*1/);
+        assert.match(card.textContent!,                       /#3\s*after cdcdcdcdcdcd…/);
+        assert.match(card.textContent!,                       /until the next one/);
 
     });
 
