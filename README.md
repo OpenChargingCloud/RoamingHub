@@ -321,7 +321,9 @@ that answered and authenticated agree on, with a line for each of them, so a
 failure says which of the four failed and how. The time is measured against
 this hub's clock and never set from it.
 
-Every key of the `nts` section, and what it is when absent:
+Every key of one group of time servers, and what it is when absent. Written
+flat, as below, they are the legal group; a section naming several groups
+carries the same keys under each of them:
 
 | Key | Default | |
 |---|---|---|
@@ -337,6 +339,41 @@ Every key of the `nts` section, and what it is when absent:
 | `legalTimeToleranceSeconds` | `1` | how far off the clock may be |
 | `legalTimeMaxAgeSeconds` | `3600` | how old the last check may be |
 
+**A hub may ask more than one group.** The word does double duty here, and it
+is worth separating: above, a group is the set of servers a quorum is taken
+over; here it is a named group of its own, with its own servers, its own
+client and its own checks. `legal` and `local` are the well-known names. The
+section names them under `groups`:
+
+```json
+"nts": { "groups": {
+  "legal": { "servers": [ "ptbtime1.ptb.de", "ptbtime2.ptb.de" ], "minServers": 2,
+             "legalTimeAuthority": "PTB" },
+  "local": { "servers": [ "lc1.local" ], "checkEverySeconds": 30,
+             "displayName": { "en": "Local time", "de": "Lokale Zeit" } }
+} }
+```
+
+A group's name is lower-case letters, digits and hyphens, beginning with a
+letter, and `displayName` is what a page calls it - one text for every
+language or one per language, and without it a page says "<id> time". Only
+the legal group may say `legalTimeAuthority`, `legalTimeToleranceSeconds`
+and `legalTimeMaxAgeSeconds`, and its checks are what goes into the
+metrological log; every other group's go into the log like anything else.
+The legal group naming no server is the PTB's four, while any other group
+has no default: it is off while it names nobody, and refused switched on
+without one. `groups` with keys beside it is refused at the start, since
+those keys would belong to no group.
+
+**A file written flat keeps working, and is left alone until it is not.** The
+flat section is the legal group, and a hub that only reads its file never
+rewrites it - so every path in this section, `nts.servers` and the rest, is
+still what such a file says. The first save moves it into `groups.legal`
+whole, which is the moment somebody meant the file to be written; from then on
+a key is named by its place, `nts.groups.local.ntpPort`. Worth knowing before
+somebody greps a file for `nts.servers` after saving something on the NTS
+page and finds nothing.
+
 Servers sharing a priority are **one band** and are asked together; a lower
 priority is asked first. The four it asks by default share one, because they
 are peers - putting them in separate bands would say something about them that
@@ -347,11 +384,11 @@ Servers that disagree by more than `nts.maxDeviationSeconds` are written down
 rather than acted on. The disagreement belongs in the log, and the time is
 still a time.
 
-A section naming a single `hostname` and no list becomes a group of one, which
-is what every file written before there were groups says, and it keeps working.
-A group of one is held to a quorum of one, and a section asking two of it is
-refused. A list without `minServers` is held to two, as the default four are,
-or to all of its servers when it has fewer switched on.
+A section naming a single `hostname` and no list becomes a group of one,
+which is what every file written before a group could be a list says, and
+it keeps working. A group of one is held to a quorum of one, and a section
+asking two of it is refused. A list without `minServers` is held to two, as
+the default four are, or to all of its servers when it has fewer switched on.
 
 A section mentioning neither leaves the servers alone rather than quietly
 reducing four to one, and one mentioning nothing but `minServers` or
@@ -389,11 +426,13 @@ believed with is kept in `known-servers.json` beside the configuration file,
 fingerprints and nothing else, so that another certificate is noticed across
 a restart even where a server is held to none.
 
-The NTS page lists every server of the group with a Test of its own - the
-name, the TLS handshake and what the server's certificate claims, down to the
-root CA it ends at, with the SHA-256 fingerprints of both, which are what a
-pin is compared with; the key exchange and the authenticated request, each
-step timed - and an Edit, where the pins go: the fingerprint the server showed
+The NTS page shows a tab per group, and a `+` tab that makes one, switched
+off until it names a server. Within a tab it lists every server of that
+group with a Test of its own - the name, the TLS handshake and what the
+server's certificate claims, down to the root CA it ends at, with the
+SHA-256 fingerprints of both, which are what a pin is compared with; the key
+exchange and the authenticated request, each step timed - and an Edit, where
+the pins go: the fingerprint the server showed
 last and the certificates and roots the store keeps for it are offered with a
 click. Below them is what the group is held to, and what counts as legal
 time - who stands behind the servers' time, how far off the clock may be
