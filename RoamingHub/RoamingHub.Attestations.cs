@@ -137,6 +137,11 @@ namespace cloud.charging.open.RoamingHub
             var networkOperator  = network.Operator!;
             var current          = networkOperator.KeyStatement;
 
+            // With a quorum of several holders, its key statement needs the signatures of the others as well: not stated
+            // anew here alone (SPECIFICATION.md of WWCP POI, section 4.1).
+            if (networkOperator.MinConsensus > 1)
+                return null;
+
             if (current is not null                                         &&
                 current.ValidUntil - Now >= KeyStatementRenewal             &&
                 current.SigningKeys. SequenceEqual(networkOperator.SigningKeys)  &&

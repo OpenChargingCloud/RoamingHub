@@ -618,12 +618,20 @@ signing keys, signed by the identity key, valid for 30 days and stated anew by a
 commit a week before it ends, and in the same change set that replaces a key.
 Every head is attested by the signing key, again every minute once its
 attestation is older than five minutes. The page of a roaming network in the web
-interface shows its **trust anchor** as a QR code,
-`https://…/poi/RNs/<id>?identityKeys=<thumbprint>`, also at
-`GET /poi/RNs/<id>/trustAnchor`: an app that scanned it gets
-`/poi/RNs/<id>/CSs/<CS_Id>/proof` and trusts the proof by the identity key alone.
-Show it where it cannot be swapped for another one, on a website or in documents,
-not stuck on a charging station.
+interface shows its **trust anchor** as a QR code: `WWCPPOI1:` and the Base45 of
+its CBOR, with the name and description of the network, the homepage of its
+operator, the thumbprints of its identity keys and its `minConsensus`; the URI
+`https://…/poi/RNs/<id>?identityKeys=<thumbprint>` to copy says the same without
+name, description and homepage. Both are at `GET /poi/RNs/<id>/trustAnchor`: an
+app that scanned it gets `/poi/RNs/<id>/CSs/<CS_Id>/proof` and trusts the proof by
+the identity keys alone. Show it where it cannot be swapped for another one, on a
+website or in documents, not stuck on a charging station.
+
+The keys of the operator are held here, one holder. A roaming network whose
+operator shares its keys with other holders as a quorum (`minConsensus` above 1,
+SPECIFICATION.md of WWCP POI, section 4.1) needs their signatures as well: its
+key statement and what the operator owns are signed by each holder on its own,
+and the hub does not state its keys anew there alone.
 
 Every roaming network is kept in its directory below `poi/`: a log of every
 commit and status update, compacted once it has `compactAfterLogEntries`

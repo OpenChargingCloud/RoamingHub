@@ -1,8 +1,10 @@
 /**
  * The trust anchor of a roaming network: what a driver's app pins of it, the identity keys of its roaming network
- * operator by their thumbprints, as one URI for a QR code (SPECIFICATION.md of WWCP POI, section 8.6). The app scans
- * it, gets the proof of a charging station below the roaming network it names, and checks it offline: the key statement
- * the proof gives must be signed by one of these keys, and the attestation by a signing key it states.
+ * operator by their thumbprints and how many of their holders must sign, its minConsensus (SPECIFICATION.md of WWCP
+ * POI, sections 4.1 and 8.6). Its QR code holds WWCPPOI1: and the Base45 of its CBOR, with the name and description of
+ * the network and where to learn more; its URI says the same without them. The app scans it, gets the proof of a
+ * charging station below the roaming network it names, and checks it offline: the key statement the proof gives must
+ * be signed by these keys of minConsensus holders, and the attestations by signing keys it states of as many.
  */
 
 import qrcode from 'qrcode-generator';
@@ -15,8 +17,16 @@ import { html, nothing, unsafeHTML, type TemplateResult } from '@node/view';
 export interface TrustAnchor {
     roamingNetworkId:  string;
     identityKeyIds:    string[];
+    /** How many holders of the identity keys must sign: 1 unless several share them as a quorum. */
+    minConsensus:      number;
     uri:               string;
+    /** The text of its QR code, WWCPPOI1: and the Base45 of its CBOR; null from a hub not writing it. */
+    qrCode:            string | null;
 }
+
+
+/** What the text of the QR code of a trust anchor is: its prefix and Base45, of the alphanumeric mode of QR codes. */
+const qrCodeText = /^WWCPPOI1:[0-9A-Z $%*+\-./:]+$/;
 
 
 /** The given answer as a trust anchor, or null when it is none. */
@@ -25,13 +35,15 @@ export function trustAnchorOf(Answer: unknown): TrustAnchor | null {
     if (typeof Answer !== 'object' || Answer === null)
         return null;
 
-    const { roamingNetworkId, identityKeyIds, uri } = Answer as Record<string, unknown>;
+    const { roamingNetworkId, identityKeyIds, minConsensus = 1, uri, qrCode = null } = Answer as Record<string, unknown>;
 
     return typeof roamingNetworkId === 'string' &&
            typeof uri === 'string' && /^https?:\/\//.test(uri) &&
            Array.isArray(identityKeyIds) && identityKeyIds.length > 0 &&
-           identityKeyIds.every(id => typeof id === 'string' && /^[0-9a-f]{64}$/.test(id))
-               ? { roamingNetworkId, identityKeyIds: identityKeyIds as string[], uri }
+           identityKeyIds.every(id => typeof id === 'string' && /^[0-9a-f]{64}$/.test(id)) &&
+           typeof minConsensus === 'number' && Number.isInteger(minConsensus) && minConsensus >= 1 && minConsensus <= identityKeyIds.length &&
+           (qrCode === null || (typeof qrCode === 'string' && qrCodeText.test(qrCode)))
+               ? { roamingNetworkId, identityKeyIds: identityKeyIds as string[], minConsensus, uri, qrCode: qrCode as string | null }
                : null;
 
 }
@@ -55,13 +67,13 @@ export async function loadTrustAnchor(Path: string, Signal?: AbortSignal): Promi
 
 /**
  * The QR code of the given text as the SVG the library writes, scaling with its box: only its modules go in, never
- * the text itself.
+ * the text itself. The alphanumeric mode takes Base45 in fewer modules than bytes.
  */
-export function qrSVG(Text: string): string {
+export function qrSVG(Text: string, Mode: 'Byte' | 'Alphanumeric' = 'Byte'): string {
 
     const qr = qrcode(0, 'M');
 
-    qr.addData(Text, 'Byte');
+    qr.addData(Text, Mode);
     qr.make();
 
     return qr.createSvgTag({ cellSize: 4, margin: 4, scalable: true });
@@ -70,7 +82,8 @@ export function qrSVG(Text: string): string {
 
 
 /**
- * The card of the trust anchor: its QR code, its URI to copy, and the identity keys it names.
+ * The card of the trust anchor: its QR code, of its CBOR where the hub writes it, else of its URI; its URI to copy;
+ * the identity keys it names, and how many of their holders must sign.
  *
  * @param Anchor   The trust anchor.
  * @param Copied   What the last copy said, if anything.
@@ -89,7 +102,7 @@ export function trustAnchorCard(Anchor:  TrustAnchor,
                 Show it where it can not be swapped for another one - on the website or in the documents of the operator,
                 not stuck on a charging station.
             </p>
-            <div class="poi-qr" role="img" aria-label="QR code of the trust anchor">${unsafeHTML(qrSVG(Anchor.uri))}</div>
+            <div class="poi-qr" role="img" aria-label="QR code of the trust anchor">${unsafeHTML(Anchor.qrCode ? qrSVG(Anchor.qrCode, 'Alphanumeric') : qrSVG(Anchor.uri))}</div>
             <div class="kv-list">
                 <div class="kv">
                     <span class="k">URI</span>
@@ -100,6 +113,12 @@ export function trustAnchorCard(Anchor:  TrustAnchor,
                 <div class="kv">
                     <span class="k">Identity keys</span>
                     <span class="poi-value">${Anchor.identityKeyIds.map(id => html`<div><code class="path">${id}</code></div>`)}</span>
+                </div>
+                <div class="kv">
+                    <span class="k">Quorum</span>
+                    <span class="poi-value">${Anchor.minConsensus > 1
+                                                  ? `${Anchor.minConsensus} holders of these keys sign together: none of them alone`
+                                                  : 'one holder signs'}</span>
                 </div>
             </div>
         </section>`;
