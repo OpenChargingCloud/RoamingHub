@@ -303,7 +303,7 @@ export interface RoamingNetworkSpec {
 /** What the hub says of a roaming network it made: at revision 0, with its genesis commit, operated by the hub. */
 export interface RoamingNetworkMade {
     message:         string;
-    roamingNetwork:  { '@id': string; name?: Record<string, string>; description?: Record<string, string>; roamingNetworkOperator?: { '@id': string } };
+    roamingNetwork:  { '@id': string; name?: Record<string, string>; description?: Record<string, string>; operator?: { '@id': string } };
     revision:        number;
     commitId:        string;
 }

@@ -280,7 +280,7 @@ namespace cloud.charging.open.RoamingHub.Tests
 
             var list             = JArray. Parse(await anybody.GetStringAsync("poi/RNs"));
             var network          = JObject.Parse(await anybody.GetStringAsync("poi/RNs/QA"));
-            var networkOperator  = network[RoamingNetworkOperator.JSONProperty];
+            var networkOperator  = network[RoamingNetwork.PropertyKeys.Operator];
 
             Assert.That(RoamingHub.POI.TryGetRoamingNetworkHistory(RoamingNetwork_Id.Parse("QA"), out var history), Is.True);
 
@@ -289,7 +289,7 @@ namespace cloud.charging.open.RoamingHub.Tests
                 Assert.That(made.StatusCode,                                                          Is.EqualTo(HttpStatusCode.Created), madeJSON.ToString());
                 Assert.That(madeJSON["revision"]?.Value<Int32>(),                                     Is.EqualTo(0));
                 Assert.That(madeJSON["roamingNetwork"]?["@id"]?.Value<String>(),                      Is.EqualTo("QA"));
-                Assert.That(madeJSON["roamingNetwork"]?[RoamingNetworkOperator.JSONProperty]?["@id"]?.Value<String>(),  Is.EqualTo(RoamingHub.NetworkOperator.Id.ToString()));
+                Assert.That(madeJSON["roamingNetwork"]?[RoamingNetwork.PropertyKeys.Operator]?["@id"]?.Value<String>(),  Is.EqualTo(RoamingHub.NetworkOperator.Id.ToString()));
 
                 Assert.That(list.Select(entry => entry["@id"]?.Value<String>()),                      Does.Contain("QA"));
                 Assert.That(network["name"]?["en"]?.Value<String>(),                                  Is.EqualTo("Quality assurance"));
@@ -363,7 +363,7 @@ namespace cloud.charging.open.RoamingHub.Tests
                     break;
 
                 case "an operator":
-                    json[RoamingNetworkOperator.JSONProperty] = new JObject(new JProperty("@id", "Somebody"));
+                    json[RoamingNetwork.PropertyKeys.Operator] = new JObject(new JProperty("@id", "Somebody"));
                     break;
 
                 case "a CSO":

@@ -84,9 +84,9 @@ namespace cloud.charging.open.RoamingHub
                 return networkOperator;
             }
 
-            var json = networkOperator.ToJSON();
+            var json = networkOperator.ToJSON(Embedded: true);
 
-            json[RoamingNetworkKeyStatement.JSONProperty] = keyStatement.ToJSON();
+            json[RoamingNetworkKeyStatement.JSONProperty] = keyStatement.ToJSON(Embedded: true);
 
             return RoamingNetworkOperator.TryParse(json, out var stating, out var error)
                        ? stating
@@ -158,7 +158,7 @@ namespace cloud.charging.open.RoamingHub
                              NetworkOperator.Sign(
                                  network,
                                  network.CreateChangeSet(
-                                     [ RoamingNetworkChange.UpdateProperty(networkOperator, RoamingNetworkKeyStatement.JSONProperty, null, keyStatement.ToJSON()) ],
+                                     [ RoamingNetworkChange.UpdateProperty(networkOperator, RoamingNetworkKeyStatement.JSONProperty, null, keyStatement.ToJSON(Embedded: true)) ],
                                      Description: new ImmutableI18NString(I18NString.Create(Languages.en, $"The keys of the roaming network operator '{NetworkOperator.Id}' stated until {keyStatement.ValidUntil.ToISO8601()}.")),
                                      CreatedAt:   Now
                                  )

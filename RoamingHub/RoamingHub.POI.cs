@@ -468,7 +468,7 @@ namespace cloud.charging.open.RoamingHub
         {
 
             if (JSON.Properties().FirstOrDefault(property => !NewRoamingNetworkProperties.Contains(property.Name)) is JProperty other)
-                return Invalid(other.Name is "signingKeys" or "identityKeys" or RoamingNetworkOperator.JSONProperty
+                return Invalid(other.Name is "signingKeys" or "identityKeys" or RoamingNetwork.PropertyKeys.Operator
                                    ? $"A roaming network made here is operated by this hub, '{NetworkOperator.Id}', with its keys: '{other.Name}' is not given."
                                    : $"A roaming network is made with {String.Join(", ", NewRoamingNetworkProperties.Where(name => name != "@context"))} only, not with '{other.Name}': " +
                                       "everything else in it is added by change sets its owners sign.");

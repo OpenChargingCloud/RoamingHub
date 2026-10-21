@@ -442,11 +442,11 @@ namespace cloud.charging.open.RoamingHub.Tests
 
                 Assert.That(rotated.StatusCode,                                                       Is.EqualTo(HttpStatusCode.OK), rotatedJSON.ToString());
                 Assert.That(rotatedJSON["changed"]?.Values<String>(),                                 Is.EqualTo(new[] { "QA" }));
-                Assert.That(rotatedJSON["roamingNetworkOperator"]?["signingKeys"]?[0]?["@id"]?.Value<String>(),  Is.EqualTo(RoamingHub.NetworkOperator.SigningKey.Id));
+                Assert.That(rotatedJSON[RoamingNetwork.PropertyKeys.Operator]?["signingKeys"]?[0]?["@id"]?.Value<String>(),  Is.EqualTo(RoamingHub.NetworkOperator.SigningKey.Id));
                 Assert.That(RoamingHub.NetworkOperator.SigningKey.Id,                                 Is.Not.EqualTo(old));
 
                 Assert.That(renamed.StatusCode,                                                       Is.EqualTo(HttpStatusCode.OK), renamedJSON.ToString());
-                Assert.That(renamedJSON["roamingNetworkOperator"]?["name"]?["en"]?.Value<String>(),   Is.EqualTo("GraphDefined GmbH"));
+                Assert.That(renamedJSON[RoamingNetwork.PropertyKeys.Operator]?["name"]?["en"]?.Value<String>(),   Is.EqualTo("GraphDefined GmbH"));
 
                 Assert.That(nameless.StatusCode,                                                      Is.EqualTo(HttpStatusCode.BadRequest));
 

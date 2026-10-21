@@ -75,7 +75,7 @@ namespace cloud.charging.open.RoamingHub
             => Task.FromResult(
                    JSONResponse(Request,
                                 HTTPStatusCode.OK,
-                                RoamingHub.NetworkOperator.Operator.ToJSON())
+                                RoamingHub.NetworkOperator.Operator.ToJSON(Embedded: true))
                );
 
         #endregion
@@ -155,7 +155,7 @@ namespace cloud.charging.open.RoamingHub
 
             var json = Update.ToJSON();
 
-            json[RoamingNetworkOperator.JSONProperty] = RoamingHub.NetworkOperator.Operator.ToJSON();
+            json[RoamingNetwork.PropertyKeys.Operator] = RoamingHub.NetworkOperator.Operator.ToJSON(Embedded: true);
 
             return JSONResponse(Request,
                                 Update.Success ? HTTPStatusCode.OK : HTTPStatusCode.MultiStatus,
@@ -211,7 +211,7 @@ namespace cloud.charging.open.RoamingHub
             if (!network.Description.IsNullOrEmpty())
                 summary["description"]  = network.Description.ToJSON();
 
-            summary[RoamingNetworkOperator.JSONProperty] = new JObject(new JProperty("@id", RoamingHub.NetworkOperator.Id.ToString()));
+            summary[RoamingNetwork.PropertyKeys.Operator] = new JObject(new JProperty("@id", RoamingHub.NetworkOperator.Id.ToString()));
 
             return Task.FromResult(
                        JSONResponse(Request,

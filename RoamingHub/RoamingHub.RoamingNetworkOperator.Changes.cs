@@ -122,10 +122,10 @@ namespace cloud.charging.open.RoamingHub
                                                                       now,
                                                                       KeyStatementValidity);
 
-                        List<RoamingNetworkChange> changes = [ RoamingNetworkChange.UpdateProperty(network.Operator, property, null, new JArray(keys.Select(key => key.ToJSON()))) ];
+                        List<RoamingNetworkChange> changes = [ RoamingNetworkChange.UpdateProperty(network.Operator, property, null, new JArray(keys.Select(key => key.ToJSON(Embedded: true)))) ];
 
                         if (keyStatement is not null)
-                            changes.Add(RoamingNetworkChange.UpdateProperty(network.Operator, RoamingNetworkKeyStatement.JSONProperty, null, keyStatement.ToJSON()));
+                            changes.Add(RoamingNetworkChange.UpdateProperty(network.Operator, RoamingNetworkKeyStatement.JSONProperty, null, keyStatement.ToJSON(Embedded: true)));
 
                         var changeSet     = NetworkOperator.Sign(
                                                 network,

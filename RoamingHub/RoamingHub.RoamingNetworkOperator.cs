@@ -426,7 +426,7 @@ namespace cloud.charging.open.RoamingHub
                                     Append(NewKey).
                                     OrderBy(key => key.Id, StringComparer.Ordinal);
 
-                Change(property, new JArray(keys.Select(key => key.ToJSON())), Now);
+                Change(property, new JArray(keys.Select(key => key.ToJSON(Embedded: true))), Now);
 
             }
 
@@ -585,7 +585,7 @@ namespace cloud.charging.open.RoamingHub
                             DateTimeOffset  Now)
         {
 
-            var json = networkOperator.ToJSON();
+            var json = networkOperator.ToJSON(Embedded: true);
 
             json[PropertyName]  = Value;
             json["lastChange"]  = Now.ToISO8601();
@@ -657,7 +657,7 @@ namespace cloud.charging.open.RoamingHub
                                           RoamingNetworkOperator  Operator)
         {
             var written = Path + ".tmp";
-            File.WriteAllText(written, Operator.ToJSON().ToString());
+            File.WriteAllText(written, Operator.ToJSON(Embedded: true).ToString());
             File.Move(written, Path, overwrite: true);
         }
 
@@ -906,8 +906,8 @@ namespace cloud.charging.open.RoamingHub
                         return Invalid($"The {EntityType} '{id}' can not be added: {keysError}");
                     }
 
-                    party[POIPartyKeys.SigningKeysProperty]   = new JArray(signingKeys. Select(key => key.ToJSON()));
-                    party[POIPartyKeys.IdentityKeysProperty]  = new JArray(identityKeys.Select(key => key.ToJSON()));
+                    party[POIPartyKeys.SigningKeysProperty]   = new JArray(signingKeys. Select(key => key.ToJSON(Embedded: true)));
+                    party[POIPartyKeys.IdentityKeysProperty]  = new JArray(identityKeys.Select(key => key.ToJSON(Embedded: true)));
 
                 }
 
