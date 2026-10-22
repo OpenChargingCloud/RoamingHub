@@ -112,7 +112,10 @@ namespace cloud.charging.open.RoamingHub
 
                 HTTPStatusCode:      (UInt16) Response.HTTPStatusCode.Code,
                 OCPIStatusCode:      ocpiStatusCode,
-                OCPIStatusMessage:   ocpiStatusMessage,
+
+                // The OCPI library echoes the caller's access token in the status message of a credentials handshake;
+                // the traffic is read by accounts that may not see it, so it is masked here (see OCPIVersion.MaskTokens).
+                OCPIStatusMessage:   cloud.charging.open.RoamingHub.OCPI.OCPIVersion.MaskTokens(ocpiStatusMessage),
 
                 Duration:            Response.Timestamp - Request.Timestamp,
                 RequestSize:         (Int64) (Request. ContentLength ?? 0),
@@ -122,8 +125,10 @@ namespace cloud.charging.open.RoamingHub
                 CorrelationId:       Request.GetHeaderField(protocols.OCPI.HTTPHeaders.X_Correlation_ID),
                 RemoteSocket:        Request.RemoteSocket.ToString(),
 
-                RequestBody:         KeepPayloads ? Request. HTTPBodyAsUTF8String : null,
-                ResponseBody:        KeepPayloads ? Response.HTTPBodyAsUTF8String : null
+                // A credentials body carries the token the peer will be called with, or the one this hub handed out;
+                // it is redacted before it is kept, whatever the module (every other body has no such field).
+                RequestBody:         KeepPayloads ? cloud.charging.open.RoamingHub.OCPI.OCPIVersion.MaskTokenFields(Request. HTTPBodyAsUTF8String) : null,
+                ResponseBody:        KeepPayloads ? cloud.charging.open.RoamingHub.OCPI.OCPIVersion.MaskTokenFields(Response.HTTPBodyAsUTF8String) : null
 
             );
 

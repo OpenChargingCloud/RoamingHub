@@ -265,7 +265,7 @@ namespace cloud.charging.open.RoamingHub.OCPI
                         worked ? protocols.WWCP.Node.Logging.LogLevel.Notice : protocols.WWCP.Node.Logging.LogLevel.Warning,
                         worked
                             ? $"The peer {who} {What} this hub (OCPI {Label})."
-                            : $"The peer {who} tried to {What.Split(' ')[0]} this hub and was answered {Response.StatusCode}: {Response.StatusMessage} (OCPI {Label}).",
+                            : $"The peer {who} tried to {What.Split(' ')[0]} this hub and was answered {Response.StatusCode}: {MaskTokens(Response.StatusMessage)} (OCPI {Label}).",
                         "ocpi", "credentials", "peer"
                     );
 

@@ -486,9 +486,71 @@ namespace cloud.charging.open.RoamingHub.OCPI
 
             return OCPIOperationResult.Failed(
                        $"The registration with '{Id}' did not go through" +
-                       (StatusCode.HasValue ? $" ({StatusCode}" + (StatusMessage.IsNotNullOrEmpty() ? $": {StatusMessage}" : "") + ")" : "") +
+                       (StatusCode.HasValue ? $" ({StatusCode}" + (StatusMessage.IsNotNullOrEmpty() ? $": {MaskTokens(StatusMessage)}" : "") + ")" : "") +
                        ". Check their versions URL and the token they handed out; every step is in the log."
                    );
+
+        }
+
+        #endregion
+
+        #region (static) MaskTokens(Text) / MaskTokenFields(Body)
+
+        /// <summary>
+        /// Redact OCPI access tokens quoted in an OCPI status message before it is logged or kept: the OCPI library
+        /// echoes the caller's still-valid token back in the message of a credentials handshake, e.g. "The given access
+        /// token 'TOKEN' is already registered!", and the log and the traffic are read by accounts that may not see it.
+        /// A quoted run long enough to be a token keeps only its last four characters, so a line still tells one from
+        /// another without handing over the token itself.
+        /// </summary>
+        public static String? MaskTokens(String? Text)
+
+            => Text is null || Text.Length == 0
+                   ? Text
+                   : System.Text.RegularExpressions.Regex.Replace(
+                         Text,
+                         "'([^']{8,})'",
+                         match => $"'…{match.Groups[1].Value[^4..]}'",
+                         System.Text.RegularExpressions.RegexOptions.None,
+                         TimeSpan.FromSeconds(1)
+                     );
+
+        /// <summary>
+        /// Redact the <c>token</c> of an OCPI body before it is kept beside a traffic line: a credentials body carries
+        /// the token the peer will be called with (the request) or the token this hub handed out (the response). Any
+        /// other body has no such field and is returned unchanged. A body that is not JSON is left as it is.
+        /// </summary>
+        public static String? MaskTokenFields(String? Body)
+        {
+
+            if (Body is null || Body.Length == 0 || Body.TrimStart().FirstOrDefault() is not ('{' or '['))
+                return Body;
+
+            try
+            {
+
+                if (JToken.Parse(Body) is not JContainer json)
+                    return Body;
+
+                var changed  = false;
+
+                foreach (var property in json.DescendantsAndSelf().OfType<JProperty>().ToArray())
+                    if (String.Equals(property.Name, "token", StringComparison.OrdinalIgnoreCase) &&
+                        property.Value.Type == JTokenType.String &&
+                        property.Value.Value<String>() is { Length: > 0 } value)
+                    {
+                        property.Value  = value.Length > 4 ? $"…{value[^4..]}" : "…";
+                        changed         = true;
+                    }
+
+                return changed ? json.ToString(Newtonsoft.Json.Formatting.None) : Body;
+
+            }
+            catch
+            {
+                // A body that will not parse is kept as it is: it carries no token field this hub could name.
+                return Body;
+            }
 
         }
 
