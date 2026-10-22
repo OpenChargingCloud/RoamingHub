@@ -15,9 +15,9 @@ const { render } = await import('@node/view');
 const profiles = {
     canonicalization:     'styx-canonical-json-v1',
     identificationHash:   'sha256',
-    commit:               'wwcp-poi-commit-v3',
-    checkpoint:           'wwcp-poi-checkpoint-v1',
-    priceStatement:       'wwcp-poi-price-statement-v1',
+    commit:               'https://open.charging.cloud/contexts/wwcp+json/roamingNetwork/commit/v3',
+    checkpoint:           'https://open.charging.cloud/contexts/wwcp+json/roamingNetwork/checkpoint/v1',
+    priceStatement:       'https://open.charging.cloud/contexts/wwcp+json/roamingNetwork/priceStatement/v1',
     signatureAlgorithms:  []
 };
 
@@ -59,7 +59,7 @@ describe('the epochs of a roaming network', () => {
         assert.match(text,  /Epoch 1\s*active/);
         assert.match(text,  /Identifications\s*sha256/);
         assert.match(text,  /Signature algorithms\s*any supported/);
-        assert.match(text,  /wwcp-poi-commit-v3\s*wwcp-poi-checkpoint-v1\s*wwcp-poi-price-statement-v1/);
+        assert.match(text,  /Contexts\s*\S+\/roamingNetwork\/commit\/v3\s*\S+\/roamingNetwork\/checkpoint\/v1\s*\S+\/roamingNetwork\/priceStatement\/v1/);
         assert.doesNotMatch(text, /After|Final checkpoint/);
         assert.equal(root.querySelectorAll('table').length, 0);
 

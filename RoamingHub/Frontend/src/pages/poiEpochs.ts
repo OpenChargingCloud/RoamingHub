@@ -150,7 +150,7 @@ export function epochCard(Epochs: Epochs): TemplateResult {
                 <div class="kv"><span class="k">Identifications</span><span class="poi-value"><code>${current.profiles.identificationHash}</code></span></div>
                 <div class="kv"><span class="k">Signature algorithms</span><span class="poi-value">${algorithmsText(current.profiles.signatureAlgorithms)}</span></div>
                 <div class="kv"><span class="k">Canonicalization</span><span class="poi-value"><code>${current.profiles.canonicalization}</code></span></div>
-                <div class="kv"><span class="k">Profiles</span><span class="poi-value">
+                <div class="kv"><span class="k">Contexts</span><span class="poi-value">
                     <div><code>${current.profiles.commit}</code></div>
                     <div><code>${current.profiles.checkpoint}</code></div>
                     <div><code>${current.profiles.priceStatement}</code></div></span></div>
