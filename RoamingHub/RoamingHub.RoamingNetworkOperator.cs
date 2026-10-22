@@ -330,21 +330,18 @@ namespace cloud.charging.open.RoamingHub
         #endregion
 
 
-        #region StateKeys(RoamingNetworkId, SigningKeys, IdentityKeys, Now, Validity)
+        #region StateKeys(RoamingNetworkId, IdentityKeys, Now, Validity)
 
         /// <summary>
         /// The key statement of this operator in the given roaming network (SPECIFICATION.md of WWCP POI, section 8.6):
-        /// the given signing keys and identity keys, as the network names them or will, signed with one of these identity
-        /// keys held here, the current one where they name it, valid from now for the given time. Null where they name
-        /// none held here.
+        /// the given identity keys, as the network names them or will, signed with one of them held here, the current one
+        /// where they name it, valid from now for the given time. Null where they name none held here.
         /// </summary>
         /// <param name="RoamingNetworkId">The roaming network.</param>
-        /// <param name="SigningKeys">The signing keys of this operator the network names.</param>
         /// <param name="IdentityKeys">The identity keys of this operator the network names.</param>
         /// <param name="Now">When it is signed.</param>
         /// <param name="Validity">How long it is valid.</param>
         public RoamingNetworkKeyStatement? StateKeys(RoamingNetwork_Id          RoamingNetworkId,
-                                                     IEnumerable<POIPublicKey>  SigningKeys,
                                                      IEnumerable<POIPublicKey>  IdentityKeys,
                                                      DateTimeOffset             Now,
                                                      TimeSpan                   Validity)
@@ -352,30 +349,68 @@ namespace cloud.charging.open.RoamingHub
 
             var identityKeys = IdentityKeys.ToArray();
 
-            ECPrivateKeyParameters key;
+            return HeldIdentityKeyOf(identityKeys) is ECPrivateKeyParameters key
+                       ? RoamingNetworkKeyStatement.Create(key,
+                                                           COSEAlgorithm.ES512,
+                                                           1,
+                                                           RoamingNetworkId,
+                                                           Id,
+                                                           identityKeys,
+                                                           Now,
+                                                           Now + Validity)
+                       : null;
+
+        }
+
+        #endregion
+
+        #region CertifySigningKeys(RoamingNetworkId, SigningKeys, IdentityKeys, Now)
+
+        /// <summary>
+        /// The certificates of the given signing keys of this operator in the given roaming network (SPECIFICATION.md of
+        /// WWCP POI, section 8.6), as the network names them or will: each signed with one of the given identity keys held
+        /// here, the current one where they name it. This hub holds all keys of its operator, so they are of one holder.
+        /// Null where they name none held here.
+        /// </summary>
+        /// <param name="RoamingNetworkId">The roaming network.</param>
+        /// <param name="SigningKeys">The signing keys of this operator the network names.</param>
+        /// <param name="IdentityKeys">The identity keys of this operator the network names.</param>
+        /// <param name="Now">When they are signed.</param>
+        public IReadOnlyList<RoamingNetworkSigningKeyCertificate>? CertifySigningKeys(RoamingNetwork_Id          RoamingNetworkId,
+                                                                                      IEnumerable<POIPublicKey>  SigningKeys,
+                                                                                      IEnumerable<POIPublicKey>  IdentityKeys,
+                                                                                      DateTimeOffset             Now)
+
+            => HeldIdentityKeyOf(IdentityKeys.ToArray()) is ECPrivateKeyParameters key
+                   ? [ .. SigningKeys.Select(signingKey => RoamingNetworkSigningKeyCertificate.Create(key,
+                                                                                                    COSEAlgorithm.ES512,
+                                                                                                    RoamingNetworkId,
+                                                                                                    Id,
+                                                                                                    signingKey,
+                                                                                                    Now)) ]
+                   : null;
+
+        #endregion
+
+        #region (private) HeldIdentityKeyOf(IdentityKeys)
+
+        /// <summary>
+        /// The private key of one of the given identity keys held here, the current one where they name it, or null.
+        /// </summary>
+        private ECPrivateKeyParameters? HeldIdentityKeyOf(IReadOnlyCollection<POIPublicKey> IdentityKeys)
+        {
 
             lock (keysLock)
             {
 
                 var held   = HeldKeys(POIKeyKind.Identity);
-                var named  = identityKeys.Select(identityKey => identityKey.Id).Where(held.ContainsKey).ToArray();
+                var named  = IdentityKeys.Select(identityKey => identityKey.Id).Where(held.ContainsKey).ToArray();
 
-                if (named.Length == 0)
-                    return null;
-
-                key = held[named.Contains(CurrentKeyIdOrNull(POIKeyKind.Identity)) ? CurrentKeyIdOrNull(POIKeyKind.Identity)! : named[0]].Key;
+                return named.Length == 0
+                           ? null
+                           : held[named.Contains(CurrentKeyIdOrNull(POIKeyKind.Identity)) ? CurrentKeyIdOrNull(POIKeyKind.Identity)! : named[0]].Key;
 
             }
-
-            return RoamingNetworkKeyStatement.Create(key,
-                                                     COSEAlgorithm.ES512,
-                                                     1,
-                                                     RoamingNetworkId,
-                                                     Id,
-                                                     SigningKeys,
-                                                     identityKeys,
-                                                     Now,
-                                                     Now + Validity);
 
         }
 

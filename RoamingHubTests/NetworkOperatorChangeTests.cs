@@ -139,10 +139,10 @@ namespace cloud.charging.open.RoamingHub.Tests
                 foreach (var history in new[] { qa, prod })
                     Assert.That(history.Head.RoamingNetwork.Operator!.SigningKeys.Select(key => key.Id),  Is.EqualTo(new[] { current.Id }), history.RoamingNetworkId.ToString());
 
-                // Stated anew with it, and its heads attested by it.
+                // Certified anew, and its heads attested by it.
                 foreach (var history in new[] { qa, prod })
                 {
-                    Assert.That(history.Head.RoamingNetwork.Operator!.KeyStatement?.SigningKeys.Select(key => key.Id),  Is.EqualTo(new[] { current.Id }), history.RoamingNetworkId.ToString());
+                    Assert.That(history.Head.RoamingNetwork.Operator!.SigningKeyCertificates.Select(certificate => certificate.SigningKey.Id),  Is.EqualTo(new[] { current.Id }), history.RoamingNetworkId.ToString());
                     Assert.That(history.CurrentAttestations().Select(attestation => attestation.KeyId),                Does.Contain(current.Id),           history.RoamingNetworkId.ToString());
                 }
 
