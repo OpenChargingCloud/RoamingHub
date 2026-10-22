@@ -102,8 +102,8 @@ const noon    = new Date(2026, 9, 12, 12, 0).toISOString();
 const identityKeyId = 'ab'.repeat(32);
 
 // The epochs of rn1: the second one, after the first, with SHA-512 identifications.
-const profiles  = { canonicalization: 'styx-canonical-json-v1', identificationHash: 'sha256', commit: 'https://open.charging.cloud/contexts/wwcp+json/roamingNetwork/commit/v3',
-                    checkpoint: 'https://open.charging.cloud/contexts/wwcp+json/roamingNetwork/checkpoint/v1', priceStatement: 'https://open.charging.cloud/contexts/wwcp+json/roamingNetwork/priceStatement/v1', signatureAlgorithms: [] };
+const profiles  = { canonicalization: 'styx-canonical-json-v1', identificationHash: 'sha256', commit: 'https://open.charging.cloud/contexts/wwcp/roamingNetwork/commit/v3',
+                    checkpoint: 'https://open.charging.cloud/contexts/wwcp/roamingNetwork/checkpoint/v1', priceStatement: 'https://open.charging.cloud/contexts/wwcp/roamingNetwork/priceStatement/v1', signatureAlgorithms: [] };
 const epoch1    = { epoch: 1, profiles, status: 'closed', finalCheckpointId: 'ab'.repeat(32) };
 const epoch2    = { epoch: 2, profiles: { ...profiles, identificationHash: 'sha512' }, status: 'active',
                     previous: { epoch: 1, checkpointId: 'ab'.repeat(32), eTags: [] } };

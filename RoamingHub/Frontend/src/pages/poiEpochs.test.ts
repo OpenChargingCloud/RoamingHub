@@ -15,9 +15,9 @@ const { render } = await import('@node/view');
 const profiles = {
     canonicalization:     'styx-canonical-json-v1',
     identificationHash:   'sha256',
-    commit:               'https://open.charging.cloud/contexts/wwcp+json/roamingNetwork/commit/v3',
-    checkpoint:           'https://open.charging.cloud/contexts/wwcp+json/roamingNetwork/checkpoint/v1',
-    priceStatement:       'https://open.charging.cloud/contexts/wwcp+json/roamingNetwork/priceStatement/v1',
+    commit:               'https://open.charging.cloud/contexts/wwcp/roamingNetwork/commit/v3',
+    checkpoint:           'https://open.charging.cloud/contexts/wwcp/roamingNetwork/checkpoint/v1',
+    priceStatement:       'https://open.charging.cloud/contexts/wwcp/roamingNetwork/priceStatement/v1',
     signatureAlgorithms:  []
 };
 

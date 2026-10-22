@@ -515,7 +515,7 @@ namespace cloud.charging.open.RoamingHub.Tests
             Assert.That(RoamingNetworkTrustAnchor.TryParse(trustAnchor["uri"]!.Value<String>()!, out var anchor, out var error), Is.True, error);
 
             // Below the roaming network the anchor names, the proof of the charging station.
-            var proofText      = await anybody.GetStringAsync($"{anchor!.RoamingNetworkURL}/CSs/DE*QAC*S1/proof");
+            var proofText      = await anybody.GetStringAsync($"{anchor!.URL}/CSs/DE*QAC*S1/proof");
 
             Assert.That(RoamingNetworkProof.TryParse(proofText, out var proof, out error), Is.True, error);
 
@@ -523,11 +523,11 @@ namespace cloud.charging.open.RoamingHub.Tests
 
                 Assert.That(addPool.StatusCode,                                                                     Is.EqualTo(HttpStatusCode.Created), addPool.Text);
 
-                Assert.That(anchor.IdentityKeyIds,                                                                  Is.EqualTo(new[] { RoamingHub.NetworkOperator.IdentityKey.Id }));
+                Assert.That(anchor.Keys,                                                                            Is.EqualTo(new[] { RoamingHub.NetworkOperator.IdentityKey.Id }));
                 Assert.That(Head().Operator!.KeyStatement!.SigningKeys.Select(key => key.Id),                       Is.EqualTo(new[] { RoamingHub.NetworkOperator.SigningKey.Id }));
                 Assert.That(Head().Operator!.KeyStatement!.Signatures.Single().KeyId,                               Is.EqualTo(RoamingHub.NetworkOperator.IdentityKey.Id));
 
-                Assert.That(proof!.Verify(anchor.IdentityKeyIds, out var attestation, out var verifyError),         Is.True, verifyError);
+                Assert.That(proof!.Verify(anchor.Keys, out var attestation, out var verifyError),                   Is.True, verifyError);
                 Assert.That(attestation!.CommitId,                                                                  Is.EqualTo(proof.CommitId));
                 Assert.That(attestation.KeyId,                                                                      Is.EqualTo(RoamingHub.NetworkOperator.SigningKey.Id));
                 Assert.That(proof.Given("chargingStationOperators", "chargingPools", "chargingStations").Single()["@id"]!.Value<String>(),

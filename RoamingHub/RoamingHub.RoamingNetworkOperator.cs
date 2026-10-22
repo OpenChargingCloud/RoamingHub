@@ -369,6 +369,7 @@ namespace cloud.charging.open.RoamingHub
 
             return RoamingNetworkKeyStatement.Create(key,
                                                      COSEAlgorithm.ES512,
+                                                     1,
                                                      RoamingNetworkId,
                                                      Id,
                                                      SigningKeys,
