@@ -525,7 +525,7 @@ namespace cloud.charging.open.RoamingHub.Tests
 
                 Assert.That(anchor.IdentityKeyIds,                                                                  Is.EqualTo(new[] { RoamingHub.NetworkOperator.IdentityKey.Id }));
                 Assert.That(Head().Operator!.KeyStatement!.SigningKeys.Select(key => key.Id),                       Is.EqualTo(new[] { RoamingHub.NetworkOperator.SigningKey.Id }));
-                Assert.That(Head().Operator!.KeyStatement!.KeyId,                                                   Is.EqualTo(RoamingHub.NetworkOperator.IdentityKey.Id));
+                Assert.That(Head().Operator!.KeyStatement!.Signatures.Single().KeyId,                               Is.EqualTo(RoamingHub.NetworkOperator.IdentityKey.Id));
 
                 Assert.That(proof!.Verify(anchor.IdentityKeyIds, out var attestation, out var verifyError),         Is.True, verifyError);
                 Assert.That(attestation!.CommitId,                                                                  Is.EqualTo(proof.CommitId));

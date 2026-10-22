@@ -204,7 +204,7 @@ namespace cloud.charging.open.RoamingHub.Tests
                 // Signed by the identity key it replaces, and by the signing key for the key statement made anew, which the
                 // new identity key signs.
                 Assert.That(rotation.ChangeSet!.Signatures.Select(signature => signature.KeyId),      Is.EqualTo(new[] { old.Id, signingKey.Id }));
-                Assert.That(HistoryOf(RoamingHub, "QA").Head.RoamingNetwork.Operator!.KeyStatement?.KeyId,                    Is.EqualTo(current.Id));
+                Assert.That(HistoryOf(RoamingHub, "QA").Head.RoamingNetwork.Operator!.KeyStatement?.Signatures.Single().KeyId,  Is.EqualTo(current.Id));
                 Assert.That(HistoryOf(RoamingHub, "QA").Head.RoamingNetwork.Operator!.KeyStatement?.IdentityKeys.Select(key => key.Id),  Is.EqualTo(new[] { current.Id }));
 
 
@@ -249,7 +249,7 @@ namespace cloud.charging.open.RoamingHub.Tests
 
                 Assert.That(revision,                                                                Is.Zero);
                 Assert.That(first.ValidUntil - first.SignedAt,                                       Is.EqualTo(RoamingHub.KeyStatementValidity));
-                Assert.That(first.KeyId,                                                             Is.EqualTo(RoamingHub.NetworkOperator.IdentityKey.Id));
+                Assert.That(first.Signatures.Single().KeyId,                                         Is.EqualTo(RoamingHub.NetworkOperator.IdentityKey.Id));
 
                 Assert.That(atFirst,                                                                 Is.Empty);
                 Assert.That(atLast.Select(id => id.ToString()),                                      Is.EqualTo(new[] { "QA" }));
