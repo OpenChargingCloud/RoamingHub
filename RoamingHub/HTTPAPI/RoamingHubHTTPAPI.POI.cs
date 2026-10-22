@@ -236,7 +236,9 @@ namespace cloud.charging.open.RoamingHub
         /// to a roaming network this hub operates, signed by this hub.
         /// </summary>
         /// <remarks>
-        /// 201 with the commit that added it; 400 where it is no party this hub adds, 404 where there is no such
+        /// 202 with the change set that adds it, waiting for the signatures of its identity keys, as the proof that it
+        /// holds them: {message, status: "pending", changeSetId, changeSet, missing}; 201 with the commit that added a
+        /// grid operator without keys; 400 where it is no party this hub adds, 404 where there is no such
         /// roaming network, 403 where another roaming network operator operates it, 409 where it has that party
         /// already, 422 where its history refused the commit.
         /// </remarks>
@@ -263,6 +265,28 @@ namespace cloud.charging.open.RoamingHub
                 return Task.FromResult(errorResponse);
 
             var result = RoamingHub.AddParty(roamingNetworkId, entityType, json);
+
+            // Waiting for the signatures of its identity keys, as the proof that it holds them.
+            if (result.Status == RoamingNetworkPartyStatus.Pending && result.ChangeSet is not null)
+            {
+
+                Log.Notice($"'{user.Id}' asked to add the {entityType} '{json["@id"]}' to the roaming network '{roamingNetworkId}', signed by this hub, '{RoamingHub.NetworkOperator.Id}': " +
+                           $"the change set '{result.ChangeSet.Id}' waits for the signatures of its identity keys.",
+                           "poi", "web", "security");
+
+                return Task.FromResult(
+                           JSONResponse(Request,
+                                        HTTPStatusCode.Accepted,
+                                        new JObject(
+                                            new JProperty("message",      result.Message),
+                                            new JProperty("status",       "pending"),
+                                            new JProperty("changeSetId",  result.ChangeSet.Id.ToString()),
+                                            new JProperty("changeSet",    result.ChangeSet.ToJSON()),
+                                            new JProperty("missing",      new JArray(result.Missing ?? []))
+                                        ))
+                       );
+
+            }
 
             if (!result.Success || result.Commit is null)
                 return Task.FromResult(

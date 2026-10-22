@@ -80,6 +80,42 @@ namespace cloud.charging.open.RoamingHub.Tests
 
         #endregion
 
+        #region (helper) AddedParty(Hub, RoamingNetworkId, Id)
+
+        /// <summary>
+        /// The charging station operator of the given identification, with keys of its own, added to the given roaming
+        /// network of the given hub: the hub signs it as the roaming network operator, and its change set waits until the
+        /// operator signed it with its identity key, as the proof that it holds it (SPECIFICATION.md of WWCP POI, section
+        /// 4.1); then it is committed.
+        /// </summary>
+        internal static RoamingNetworkPartyAddition AddedParty(RoamingHub  Hub,
+                                                               String      RoamingNetworkId,
+                                                               String      Id)
+        {
+
+            var identityKey  = NewKey(COSECurve.P521);
+            var asked        = Hub.AddParty(RoamingNetwork_Id.Parse(RoamingNetworkId),
+                                            nameof(ChargingStationOperator),
+                                            new JObject(new JProperty("@id",           Id),
+                                                        new JProperty("signingKeys",   new JArray(POIPublicKey.From(NewKey(COSECurve.P256)).ToJSON())),
+                                                        new JProperty("identityKeys",  new JArray(POIPublicKey.From(identityKey).ToJSON()))));
+
+            if (asked.Status != RoamingNetworkPartyStatus.Pending || asked.ChangeSet is null)
+                return asked;
+
+            Assert.That(Hub.POI.TryGetRoamingNetworkHistory(RoamingNetwork_Id.Parse(RoamingNetworkId), out var history), Is.True);
+
+            var proof        = asked.ChangeSet.Sign(identityKey, POIPublicKey.From(identityKey).Id, COSEAlgorithm.ES512).Signatures[^1];
+            var result       = history!.AddPendingSignatures(asked.ChangeSet.Id, [ proof ]);
+
+            return result.IsCommitted && result.Commit is not null
+                       ? new (RoamingNetworkPartyStatus.Added,   asked.Message, result.Commit)
+                       : new (RoamingNetworkPartyStatus.Refused, result.ErrorResponse ?? result.Status.ToString());
+
+        }
+
+        #endregion
+
         #region (helper) QA(Id = "QA")
 
         /// <summary>
@@ -108,6 +144,45 @@ namespace cloud.charging.open.RoamingHub.Tests
                    new JProperty("signingKeys",   new JArray(POIPublicKey.From(csoSigningKey).ToJSON())),
                    new JProperty("identityKeys",  new JArray(POIPublicKey.From(csoIdentityKey).ToJSON()["key"]!))
                );
+
+        #endregion
+
+        #region (helper) AddQAC(Admin)
+
+        /// <summary>
+        /// DE*QAC added to QA over HTTP: asked for by the administrator, its change set waits, signed by the hub as the
+        /// roaming network operator, until DE*QAC signed it with its identity key, as the proof that it holds it; the
+        /// answer to that signature, the change set committed.
+        /// </summary>
+        private async Task<JObject> AddQAC(HttpClient Admin)
+        {
+
+            var asked      = await Post(Admin, QAC(), $"{NewPath}/QA/CSOs");
+            var askedText  = await asked.Content.ReadAsStringAsync();
+
+            Assert.That(asked.StatusCode, Is.EqualTo(HttpStatusCode.Accepted), askedText);
+
+            // Its timestamps the text they are signed as.
+            var askedJSON  = JObject.Load(new Newtonsoft.Json.JsonTextReader(new StringReader(askedText)) { DateParseHandling = Newtonsoft.Json.DateParseHandling.None });
+
+            Assert.That(askedJSON["status"]?.Value<String>(),  Is.EqualTo("pending"));
+            Assert.That(RoamingNetworkChangeSet.TryParse((JObject) askedJSON["changeSet"]!, out var changeSet, out var error), Is.True, error);
+
+            var proof      = changeSet!.Sign(csoIdentityKey, POIPublicKey.From(csoIdentityKey).Id, COSEAlgorithm.ES512).Signatures[^1];
+
+            using var anybody = Anonymous();
+
+            var signed     = await Post(anybody,
+                                        new JObject(new JProperty("signatures", new JArray(proof.ToJSON()))),
+                                        $"poi/RNs/QA/history/changeSets/pending/{changeSet.Id}/signatures");
+
+            var signedJSON = JObject.Parse(await signed.Content.ReadAsStringAsync());
+
+            Assert.That(signedJSON["status"]?.Value<String>(), Is.EqualTo("committed"), signedJSON.ToString());
+
+            return signedJSON;
+
+        }
 
         #endregion
 
@@ -166,7 +241,8 @@ namespace cloud.charging.open.RoamingHub.Tests
             using var admin = await SignedIn();
 
             Assert.That((await Post(admin, QA())).StatusCode,                                           Is.EqualTo(HttpStatusCode.Created));
-            Assert.That((await Post(admin, QAC(), $"{NewPath}/QA/CSOs")).StatusCode,  Is.EqualTo(HttpStatusCode.Created));
+
+            await AddQAC(admin);
 
         }
 
@@ -205,8 +281,11 @@ namespace cloud.charging.open.RoamingHub.Tests
 
                 // Only the public halves leave the directory.
                 Assert.That(served["@id"]?.Value<String>(),                                           Is.EqualTo(networkOperator.Id.ToString()));
-                Assert.That(served["signingKeys"]?[0]?["@id"]?.Value<String>(),                       Is.EqualTo(networkOperator.SigningKey.Id));
-                Assert.That(COSEKey.TryParse(Convert.FromBase64String(served["signingKeys"]![0]!["key"]!.Value<String>()!), out var key, out _) && !key.IsPrivate, Is.True);
+                // Its signing key named by its certificate, by its identity key; no signing keys of its own.
+                Assert.That(served["signingKeys"],                                                    Is.Null);
+                Assert.That(served["signingKeyCertificates"]?[0]?["signingKey"]?["@id"]?.Value<String>(),  Is.EqualTo(networkOperator.SigningKey.Id));
+                Assert.That(served["signingKeyCertificates"]?[0]?["keyId"]?.Value<String>(),          Is.EqualTo(networkOperator.IdentityKey.Id));
+                Assert.That(COSEKey.TryParse(Convert.FromBase64String(served["signingKeyCertificates"]![0]!["signingKey"]!["key"]!.Value<String>()!), out var key, out _) && !key.IsPrivate, Is.True);
                 Assert.That(stored.ToString(),                                                        Is.EqualTo(served.ToString()));
 
                 Assert.That(RoamingHub.POI.RoamingNetworks,                                           Is.Empty);
@@ -295,7 +374,7 @@ namespace cloud.charging.open.RoamingHub.Tests
                 Assert.That(network["name"]?["en"]?.Value<String>(),                                  Is.EqualTo("Quality assurance"));
                 Assert.That(network["signingKeys"],                                                   Is.Null);
                 Assert.That(networkOperator?["@id"]?.Value<String>(),                                 Is.EqualTo(RoamingHub.NetworkOperator.Id.ToString()));
-                Assert.That(networkOperator?["signingKeys"]?[0]?["@id"]?.Value<String>(),             Is.EqualTo(RoamingHub.NetworkOperator.SigningKey. Id));
+                Assert.That(networkOperator?["signingKeyCertificates"]?[0]?["signingKey"]?["@id"]?.Value<String>(),  Is.EqualTo(RoamingHub.NetworkOperator.SigningKey. Id));
                 Assert.That(networkOperator?["identityKeys"]?[0]?["@id"]?.Value<String>(),            Is.EqualTo(RoamingHub.NetworkOperator.IdentityKey.Id));
                 Assert.That(network["chargingStationOperators"],                                      Is.Null);
 
@@ -425,12 +504,10 @@ namespace cloud.charging.open.RoamingHub.Tests
             using (var admin = await SignedIn())
                 Assert.That((await Post(admin, QA())).StatusCode, Is.EqualTo(HttpStatusCode.Created));
 
-            HttpResponseMessage added;
+            JObject addedJSON;
 
             using (var admin = await SignedIn())
-                added            = await Post(admin, QAC(), $"{NewPath}/QA/CSOs");
-
-            var addedJSON        = JObject.Parse(await added.Content.ReadAsStringAsync());
+                addedJSON        = await AddQAC(admin);
 
             using var anybody    = Anonymous();
 
@@ -462,8 +539,7 @@ namespace cloud.charging.open.RoamingHub.Tests
 
             Assert.Multiple(() => {
 
-                Assert.That(added.StatusCode,                                                         Is.EqualTo(HttpStatusCode.Created), addedJSON.ToString());
-                Assert.That(addedJSON["revision"]?.Value<Int32>(),                                    Is.EqualTo(1));
+                Assert.That(addedJSON["commitId"]?.Value<String>(),                                   Is.Not.Null.And.Not.Empty, addedJSON.ToString());
                 Assert.That(qac.SigningKeys. Single().Id,                                             Is.EqualTo(POIPublicKey.From(csoSigningKey). Id));
                 Assert.That(qac.IdentityKeys.Single().Id,                                             Is.EqualTo(POIPublicKey.From(csoIdentityKey).Id));
 
@@ -515,7 +591,7 @@ namespace cloud.charging.open.RoamingHub.Tests
             Assert.That(RoamingNetworkTrustAnchor.TryParse(trustAnchor["uri"]!.Value<String>()!, out var anchor, out var error), Is.True, error);
 
             // Below the roaming network the anchor names, the proof of the charging station.
-            var proofText      = await anybody.GetStringAsync($"{anchor!.URL}/CSs/DE*QAC*S1/proof");
+            var proofText      = await anybody.GetStringAsync($"{anchor!.URLs[0]}/CSs/DE*QAC*S1/proof");
 
             Assert.That(RoamingNetworkProof.TryParse(proofText, out var proof, out error), Is.True, error);
 
@@ -588,7 +664,7 @@ namespace cloud.charging.open.RoamingHub.Tests
                     break;
 
                 case "twice":
-                    Assert.That((await Post(admin, QAC(), path)).StatusCode, Is.EqualTo(HttpStatusCode.Created));
+                    await AddQAC(admin);
                     break;
 
             }
@@ -618,9 +694,14 @@ namespace cloud.charging.open.RoamingHub.Tests
 
             await RoamingHub.DisposeAsync();
 
+            var otherIdentity = NewKey(COSECurve.P521);
             var otherOperator = new RoamingNetworkOperator(RoamingNetworkOperator_Id.Parse("Somebody"),
-                                                           SigningKeys:   [ POIPublicKey.From(NewKey(COSECurve.P256)) ],
-                                                           IdentityKeys:  [ POIPublicKey.From(NewKey(COSECurve.P521)) ]);
+                                                           IdentityKeys:            [ POIPublicKey.From(otherIdentity) ],
+                                                           SigningKeyCertificates:  [ RoamingNetworkSigningKeyCertificate.Create(otherIdentity,
+                                                                                                                                 COSEAlgorithm.ES512,
+                                                                                                                                 RoamingNetworkOperator_Id.Parse("Somebody"),
+                                                                                                                                 POIPublicKey.From(NewKey(COSECurve.P256)),
+                                                                                                                                 Timestamp.Now) ]);
 
             using (var store = new RoamingNetworkHistoryFileStore(Path.Combine(Directory, RoamingHub.POIDirectoryName, "OTHER")))
                 RoamingNetworkHistory.Start(new RoamingNetwork(RoamingNetwork_Id.Parse("OTHER"), Operator: otherOperator), Store: store);
@@ -671,11 +752,7 @@ namespace cloud.charging.open.RoamingHub.Tests
 
                 Assert.That(again.POI.TryGetRoamingNetworkHistory(RoamingNetwork_Id.Parse("QA"), out var history), Is.True);
 
-                var added = again.AddParty(RoamingNetwork_Id.Parse("QA"),
-                                           nameof(ChargingStationOperator),
-                                           new JObject(new JProperty("@id",           "DE*QAD"),
-                                                       new JProperty("signingKeys",   new JArray(POIPublicKey.From(NewKey(COSECurve.P256)).ToJSON())),
-                                                       new JProperty("identityKeys",  new JArray(POIPublicKey.From(NewKey(COSECurve.P521)).ToJSON()))));
+                var added = AddedParty(again, "QA", "DE*QAD");
 
                 Assert.Multiple(() => {
                     Assert.That(added.Status,                                                         Is.EqualTo(RoamingNetworkPartyStatus.Added), added.Message);

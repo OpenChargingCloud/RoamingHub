@@ -113,7 +113,7 @@ namespace cloud.charging.open.RoamingHub.Tests
 
             Made(RoamingHub, "QA", "PROD");
 
-            Assert.That(RoamingHub.AddParty(RoamingNetwork_Id.Parse("QA"), nameof(ChargingStationOperator), Party("DE*QAC")).Success, Is.True);
+            Assert.That(POITests.AddedParty(RoamingHub, "QA", "DE*QAC").Success, Is.True);
 
             var old       = RoamingHub.NetworkOperator.SigningKey;
             var result    = RoamingHub.RotateNetworkOperatorKey(POIKeyKind.Signing);
@@ -123,7 +123,7 @@ namespace cloud.charging.open.RoamingHub.Tests
             var prod      = HistoryOf(RoamingHub, "PROD");
             var rotation  = qa.Head.Commit;
 
-            var added     = RoamingHub.AddParty(RoamingNetwork_Id.Parse("QA"), nameof(ChargingStationOperator), Party("DE*QAD"));
+            var added     = POITests.AddedParty(RoamingHub, "QA", "DE*QAD");
 
             using var anybody = Anonymous();
 
@@ -156,7 +156,9 @@ namespace cloud.charging.open.RoamingHub.Tests
 
                 // From then on, the new one signs.
                 Assert.That(added.Success,                                                            Is.True, added.Message);
-                Assert.That(added.Commit!.ChangeSet!.Signatures.Select(signature => signature.KeyId), Is.EqualTo(new[] { current.Id }));
+                // Its change set signed by the new signing key, then by the identity key of the party, as its proof.
+                Assert.That(added.Commit!.ChangeSet!.Signatures.First().KeyId,                        Is.EqualTo(current.Id));
+                Assert.That(added.Commit.ChangeSet.Signatures,                                        Has.Length.EqualTo(2));
                 Assert.That(added.Commit.Signatures.Single().KeyId,                                   Is.EqualTo(current.Id));
 
                 // Kept as the current one, and the old one forgotten.
@@ -165,7 +167,7 @@ namespace cloud.charging.open.RoamingHub.Tests
                 Assert.That(RoamingHub.NetworkOperator.KeptKeyIds,                                    Is.Empty);
                 Assert.That(result.Message,                                                           Does.Contain($"The old key {old.Id[..16]}… is forgotten"));
 
-                Assert.That(served["signingKeys"]?[0]?["@id"]?.Value<String>(),                       Is.EqualTo(current.Id));
+                Assert.That(served["signingKeyCertificates"]?[0]?["signingKey"]?["@id"]?.Value<String>(),  Is.EqualTo(current.Id));
                 Assert.That(RoamingHub.Log.Recent(100, Tag: "security").Select(entry => entry.Message),
                             Has.Some.Contains($"The signing key of the roaming network operator '{RoamingHub.NetworkOperator.Id}' is {current.Id[..16]}… now"));
 
@@ -201,9 +203,9 @@ namespace cloud.charging.open.RoamingHub.Tests
                 Assert.That(current.Key.Curve,                                                        Is.EqualTo(COSECurve.P521));
                 Assert.That(HistoryOf(RoamingHub, "QA").Head.RoamingNetwork.Operator!.IdentityKeys.Select(key => key.Id),  Is.EqualTo(new[] { current.Id }));
 
-                // Signed by the identity key it replaces, and by the signing key for the key statement made anew, which the
-                // new identity key signs.
-                Assert.That(rotation.ChangeSet!.Signatures.Select(signature => signature.KeyId),      Is.EqualTo(new[] { old.Id, signingKey.Id }));
+                // Signed by the identity key it replaces, by the signing key for the key statement made anew, which the
+                // new identity key signs, and by the new identity key, as the proof that the hub holds it.
+                Assert.That(rotation.ChangeSet!.Signatures.Select(signature => signature.KeyId),      Is.EqualTo(new[] { old.Id, signingKey.Id, current.Id }));
                 Assert.That(HistoryOf(RoamingHub, "QA").Head.RoamingNetwork.Operator!.KeyStatement?.Signatures.Single().KeyId,  Is.EqualTo(current.Id));
                 Assert.That(HistoryOf(RoamingHub, "QA").Head.RoamingNetwork.Operator!.KeyStatement?.IdentityKeys.Select(key => key.Id),  Is.EqualTo(new[] { current.Id }));
 
@@ -287,7 +289,7 @@ namespace cloud.charging.open.RoamingHub.Tests
             try
             {
 
-                var added = again.AddParty(RoamingNetwork_Id.Parse("QA"), nameof(ChargingStationOperator), Party("DE*QAC"));
+                var added = POITests.AddedParty(again, "QA", "DE*QAC");
 
                 Assert.Multiple(() => {
                     Assert.That(again.NetworkOperator.SigningKey. Id,                                 Is.EqualTo(signingKey));
@@ -442,7 +444,7 @@ namespace cloud.charging.open.RoamingHub.Tests
 
                 Assert.That(rotated.StatusCode,                                                       Is.EqualTo(HttpStatusCode.OK), rotatedJSON.ToString());
                 Assert.That(rotatedJSON["changed"]?.Values<String>(),                                 Is.EqualTo(new[] { "QA" }));
-                Assert.That(rotatedJSON[RoamingNetwork.PropertyKeys.Operator]?["signingKeys"]?[0]?["@id"]?.Value<String>(),  Is.EqualTo(RoamingHub.NetworkOperator.SigningKey.Id));
+                Assert.That(rotatedJSON[RoamingNetwork.PropertyKeys.Operator]?["signingKeyCertificates"]?[0]?["signingKey"]?["@id"]?.Value<String>(),  Is.EqualTo(RoamingHub.NetworkOperator.SigningKey.Id));
                 Assert.That(RoamingHub.NetworkOperator.SigningKey.Id,                                 Is.Not.EqualTo(old));
 
                 Assert.That(renamed.StatusCode,                                                       Is.EqualTo(HttpStatusCode.OK), renamedJSON.ToString());

@@ -1,7 +1,7 @@
 /**
  * The trust anchor of a roaming network: what a driver's app pins of it, the identity keys of its roaming network
  * operator by their thumbprints and how many of their holders must sign, its minConsensus (SPECIFICATION.md of WWCP
- * POI, sections 4.1 and 8.6). Its QR code holds WWCPPOI1: and the Base45 of its CBOR, with the name and description of
+ * POI, sections 4.1 and 8.6). Its QR code holds WWCP/TA-2: and the Base45 of its CBOR, with the name and description of
  * the network; its URI says the same without them. The app scans it, gets the proof of a
  * charging station below the roaming network it names, and checks it offline: the key statement the proof gives must
  * be signed by these keys of minConsensus holders, and the attestations by signing keys it states of as many.
@@ -20,13 +20,13 @@ export interface TrustAnchor {
     /** How many holders of the identity keys must sign: 1 unless several share them as a quorum. */
     minConsensus:      number;
     uri:               string;
-    /** The text of its QR code, WWCPPOI1: and the Base45 of its CBOR; null from a hub not writing it. */
+    /** The text of its QR code, WWCP/TA-2: and the Base45 of its CBOR; null from a hub not writing it. */
     qrCode:            string | null;
 }
 
 
 /** What the text of the QR code of a trust anchor is: its prefix and Base45, of the alphanumeric mode of QR codes. */
-const qrCodeText = /^WWCPPOI1:[0-9A-Z $%*+\-./:]+$/;
+const qrCodeText = /^WWCP\/TA-2:[0-9A-Z $%*+\-./:]+$/;
 
 
 /** The given answer as a trust anchor, or null when it is none. */

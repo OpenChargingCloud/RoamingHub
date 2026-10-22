@@ -475,8 +475,10 @@ function newPartyCard(navigate: (path: string) => void): TemplateResult | typeof
 
     async function add(form: HTMLFormElement): Promise<void> {
 
-        const error = must<HTMLElement>(form, '#party-error');
-        error.textContent = '';
+        const error    = must<HTMLElement>(form, '#party-error');
+        const pending  = must<HTMLElement>(form, '#party-pending');
+        error.textContent  = '';
+        pending.hidden     = true;
 
         try
         {
@@ -487,7 +489,7 @@ function newPartyCard(navigate: (path: string) => void): TemplateResult | typeof
             const signingKeys       = keysOf(field(form, 'signingKeys'),  'signing key');
             const identityKeys      = keysOf(field(form, 'identityKeys'), 'identity key');
 
-            await api.poi.addParty(roamingNetworkId, kind.segment, {
+            const added = await api.poi.addParty(roamingNetworkId, kind.segment, {
                 '@id':         field(form, 'id'),
                 name:          name ? { en: name } : undefined,
                 // A grid operator not taking part comes without keys: the hub signs in its place.
@@ -496,6 +498,15 @@ function newPartyCard(navigate: (path: string) => void): TemplateResult | typeof
             });
 
             form.reset();
+
+            // Added once the party signed the change set with each of its identity keys: until then it waits.
+            if (added.status === 'pending')
+            {
+                pending.textContent  = added.message;
+                pending.hidden       = false;
+                return;
+            }
+
             navigate(`${networkPath(roamingNetworkId)}/${kind.segment}`);
 
         }
@@ -514,7 +525,9 @@ function newPartyCard(navigate: (path: string) => void): TemplateResult | typeof
             <p class="hint">
                 Added by this hub as the operator of the roaming network, with a change set it signs. The party keeps
                 its private keys: this hub gets their public halves, one per line, each the Base64 of its COSE key or
-                a key as POI writes it, <code>{"key": ...}</code>. Its data is its own to add afterwards.
+                a key as POI writes it, <code>{"key": ...}</code>. It is added once it signed the change set with each
+                of its identity keys, as the proof that it holds them; until then the change set waits. Its data is its
+                own to add afterwards.
             </p>
 
             <form id="party-form" class="form-stack"
@@ -558,6 +571,8 @@ function newPartyCard(navigate: (path: string) => void): TemplateResult | typeof
                     <button type="submit" class="btn primary">Add the party</button>
                     <span id="party-error" class="form-error" role="alert"></span>
                 </div>
+
+                <p id="party-pending" class="notice" role="status" hidden></p>
 
             </form>
 

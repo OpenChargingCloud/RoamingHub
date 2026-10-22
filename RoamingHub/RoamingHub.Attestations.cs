@@ -69,7 +69,7 @@ namespace cloud.charging.open.RoamingHub
 
         /// <summary>
         /// The roaming network operator this hub is, as a roaming network made now names it: with the key statement of
-        /// its identity keys and the certificates of its signing keys in that network.
+        /// its identity keys in that network; the certificates of its signing keys it has already.
         /// </summary>
         private RoamingNetworkOperator OperatorStatingItsKeys(RoamingNetwork_Id  RoamingNetworkId,
                                                               DateTimeOffset     Now)
@@ -80,19 +80,14 @@ namespace cloud.charging.open.RoamingHub
             if (NetworkOperator.StateKeys(RoamingNetworkId,
                                           networkOperator.IdentityKeys,
                                           Now,
-                                          KeyStatementValidity) is not RoamingNetworkKeyStatement keyStatement ||
-                NetworkOperator.CertifySigningKeys(RoamingNetworkId,
-                                                   networkOperator.SigningKeys,
-                                                   networkOperator.IdentityKeys,
-                                                   Now) is not IReadOnlyList<RoamingNetworkSigningKeyCertificate> certificates)
+                                          KeyStatementValidity) is not RoamingNetworkKeyStatement keyStatement)
             {
                 return networkOperator;
             }
 
             var json = networkOperator.ToJSON(Embedded: true);
 
-            json[RoamingNetworkKeyStatement.         JSONProperty] = keyStatement.ToJSON(Embedded: true);
-            json[RoamingNetworkSigningKeyCertificate.JSONProperty] = new JArray(certificates.Select(certificate => certificate.ToJSON(Embedded: true)));
+            json[RoamingNetworkKeyStatement.JSONProperty] = keyStatement.ToJSON(Embedded: true);
 
             return RoamingNetworkOperator.TryParse(json, out var stating, out var error)
                        ? stating
@@ -127,10 +122,9 @@ namespace cloud.charging.open.RoamingHub
         #region (private) StateKeysAnew(History, Now)
 
         /// <summary>
-        /// Commit a new key statement of the roaming network operator this hub is, with the certificates of its signing
-        /// keys, to the given history, where its head states none, one valid for less than
-        /// <see cref="KeyStatementRenewal"/>, one naming other identity keys than the network names, or certifies not
-        /// every signing key the network names. Null where nothing was to be done or could be.
+        /// Commit a new key statement of the roaming network operator this hub is to the given history, where its head
+        /// states none, one valid for less than <see cref="KeyStatementRenewal"/>, or one naming other identity keys than
+        /// the network names. Null where nothing was to be done or could be.
         /// </summary>
         private RoamingNetworkCommitResult? StateKeysAnew(RoamingNetworkHistory  History,
                                                           DateTimeOffset         Now)
@@ -151,8 +145,7 @@ namespace cloud.charging.open.RoamingHub
 
             if (current is not null                                         &&
                 current.ValidUntil - Now >= KeyStatementRenewal             &&
-                current.IdentityKeys.SequenceEqual(networkOperator.IdentityKeys) &&
-                networkOperator.SigningKeys.All(signingKey => networkOperator.SigningKeyCertificates.Any(certificate => certificate.SigningKey.Equals(signingKey))))
+                current.IdentityKeys.SequenceEqual(networkOperator.IdentityKeys))
             {
                 return null;
             }
@@ -160,11 +153,7 @@ namespace cloud.charging.open.RoamingHub
             if (NetworkOperator.StateKeys(network.Id,
                                           networkOperator.IdentityKeys,
                                           Now,
-                                          KeyStatementValidity) is not RoamingNetworkKeyStatement keyStatement ||
-                NetworkOperator.CertifySigningKeys(network.Id,
-                                                   networkOperator.SigningKeys,
-                                                   networkOperator.IdentityKeys,
-                                                   Now) is not IReadOnlyList<RoamingNetworkSigningKeyCertificate> certificates)
+                                          KeyStatementValidity) is not RoamingNetworkKeyStatement keyStatement)
             {
                 return null;
             }
@@ -173,8 +162,7 @@ namespace cloud.charging.open.RoamingHub
                              NetworkOperator.Sign(
                                  network,
                                  network.CreateChangeSet(
-                                     [ RoamingNetworkChange.UpdateProperty(networkOperator, RoamingNetworkKeyStatement.         JSONProperty, null, keyStatement.ToJSON(Embedded: true)),
-                                       RoamingNetworkChange.UpdateProperty(networkOperator, RoamingNetworkSigningKeyCertificate.JSONProperty, null, new JArray(certificates.Select(certificate => certificate.ToJSON(Embedded: true)))) ],
+                                     [ RoamingNetworkChange.UpdateProperty(networkOperator, RoamingNetworkKeyStatement.JSONProperty, null, keyStatement.ToJSON(Embedded: true)) ],
                                      Description: new ImmutableI18NString(I18NString.Create(Languages.en, $"The keys of the roaming network operator '{NetworkOperator.Id}' stated until {keyStatement.ValidUntil.ToISO8601()}.")),
                                      CreatedAt:   Now
                                  )

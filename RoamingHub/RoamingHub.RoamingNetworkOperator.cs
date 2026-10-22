@@ -244,11 +244,16 @@ namespace cloud.charging.open.RoamingHub
                                       _                                         => null
                                   };
 
+            // Its signing key is named by its certificate, signed by its identity key.
             var made            = new RoamingNetworkOperator(id,
                                                              name,
-                                                             SigningKeys:   [ POIPublicKey.From(newSigningKey) ],
-                                                             IdentityKeys:  [ identityKey ],
-                                                             Created:       Now ?? Timestamp.Now);
+                                                             IdentityKeys:            [ identityKey ],
+                                                             SigningKeyCertificates:  [ RoamingNetworkSigningKeyCertificate.Create(newIdentityKey,
+                                                                                                                                   COSEAlgorithm.ES512,
+                                                                                                                                   id,
+                                                                                                                                   POIPublicKey.From(newSigningKey),
+                                                                                                                                   Now ?? Timestamp.Now) ],
+                                                             Created:                 Now ?? Timestamp.Now);
 
             // Written last: once it is there, the operator is complete.
             WriteOperator(operatorPath, made);
@@ -311,6 +316,30 @@ namespace cloud.charging.open.RoamingHub
 
         #endregion
 
+        #region ProveIdentityKey(ChangeSet, IdentityKey)
+
+        /// <summary>
+        /// The given change set, signed with the given new identity key held here (SPECIFICATION.md of WWCP POI, section
+        /// 4.1): every identity key a change set enters anew signs it, as the proof that its party holds it.
+        /// </summary>
+        /// <exception cref="InvalidOperationException">The identity key is not held here.</exception>
+        public RoamingNetworkChangeSet ProveIdentityKey(RoamingNetworkChangeSet  ChangeSet,
+                                                        POIPublicKey             IdentityKey)
+        {
+
+            ECPrivateKeyParameters key;
+
+            lock (keysLock)
+                key = HeldKeys(POIKeyKind.Identity).TryGetValue(IdentityKey.Id, out var held)
+                          ? held.Key
+                          : throw new InvalidOperationException($"The identity key '{IdentityKey.Id}' is not held here, by the roaming network operator '{Id}'.");
+
+            return ChangeSet.Sign(key, IdentityKey.Id, COSEAlgorithm.ES512);
+
+        }
+
+        #endregion
+
         #region CommitSigner(RoamingNetwork)
 
         /// <summary>
@@ -364,27 +393,24 @@ namespace cloud.charging.open.RoamingHub
 
         #endregion
 
-        #region CertifySigningKeys(RoamingNetworkId, SigningKeys, IdentityKeys, Now)
+        #region CertifySigningKeys(SigningKeys, IdentityKeys, Now)
 
         /// <summary>
-        /// The certificates of the given signing keys of this operator in the given roaming network (SPECIFICATION.md of
-        /// WWCP POI, section 8.6), as the network names them or will: each signed with one of the given identity keys held
-        /// here, the current one where they name it. This hub holds all keys of its operator, so they are of one holder.
-        /// Null where they name none held here.
+        /// The certificates of the given signing keys of this operator (SPECIFICATION.md of WWCP POI, section 8.6), its
+        /// signing keys in every roaming network it operates: each signed with one of the given identity keys held here,
+        /// the current one where they name it. This hub holds all keys of its operator, so they are of one holder. Null
+        /// where they name none held here.
         /// </summary>
-        /// <param name="RoamingNetworkId">The roaming network.</param>
-        /// <param name="SigningKeys">The signing keys of this operator the network names.</param>
-        /// <param name="IdentityKeys">The identity keys of this operator the network names.</param>
+        /// <param name="SigningKeys">The signing keys to certify.</param>
+        /// <param name="IdentityKeys">The identity keys of this operator, as a network names them or will.</param>
         /// <param name="Now">When they are signed.</param>
-        public IReadOnlyList<RoamingNetworkSigningKeyCertificate>? CertifySigningKeys(RoamingNetwork_Id          RoamingNetworkId,
-                                                                                      IEnumerable<POIPublicKey>  SigningKeys,
+        public IReadOnlyList<RoamingNetworkSigningKeyCertificate>? CertifySigningKeys(IEnumerable<POIPublicKey>  SigningKeys,
                                                                                       IEnumerable<POIPublicKey>  IdentityKeys,
                                                                                       DateTimeOffset             Now)
 
             => HeldIdentityKeyOf(IdentityKeys.ToArray()) is ECPrivateKeyParameters key
                    ? [ .. SigningKeys.Select(signingKey => RoamingNetworkSigningKeyCertificate.Create(key,
                                                                                                     COSEAlgorithm.ES512,
-                                                                                                    RoamingNetworkId,
                                                                                                     Id,
                                                                                                     signingKey,
                                                                                                     Now)) ]
@@ -456,13 +482,28 @@ namespace cloud.charging.open.RoamingHub
             lock (keysLock)
             {
 
-                var property  = Kind == POIKeyKind.Signing ? POIPartyKeys.SigningKeysProperty : POIPartyKeys.IdentityKeysProperty;
-                var keys      = (Kind == POIKeyKind.Signing ? networkOperator.SigningKeys : networkOperator.IdentityKeys).
-                                    Where (key => key.Id != OldKeyId).
-                                    Append(NewKey).
-                                    OrderBy(key => key.Id, StringComparer.Ordinal);
+                var keys          = (Kind == POIKeyKind.Signing ? networkOperator.SigningKeys : networkOperator.IdentityKeys).
+                                        Where (key => key.Id != OldKeyId).
+                                        Append(NewKey).
+                                        OrderBy(key => key.Id, StringComparer.Ordinal).
+                                        ToArray();
 
-                Change(property, new JArray(keys.Select(key => key.ToJSON(Embedded: true))), Now);
+                var identityKeys  = Kind == POIKeyKind.Identity ? keys : [ .. networkOperator.IdentityKeys ];
+
+                // Its signing keys are those of its certificates: the new one certified, or all anew by the new identity key.
+                var certificates  = Kind == POIKeyKind.Signing
+                                        ? networkOperator.SigningKeyCertificates.Where(certificate => certificate.SigningKey.Id != OldKeyId).
+                                                                                 Concat(CertifySigningKeys([ NewKey ], identityKeys, Now) ?? [])
+                                        : CertifySigningKeys(networkOperator.SigningKeys, identityKeys, Now) ?? [];
+
+                var changes       = new Dictionary<String, JToken> {
+                                        { RoamingNetworkOperator.PropertyKeys.SigningKeyCertificates, new JArray(certificates.Select(certificate => certificate.ToJSON(Embedded: true))) }
+                                    };
+
+                if (Kind == POIKeyKind.Identity)
+                    changes[POIPartyKeys.IdentityKeysProperty] = new JArray(keys.Select(key => key.ToJSON(Embedded: true)));
+
+                Change(changes, Now);
 
             }
 
@@ -480,7 +521,7 @@ namespace cloud.charging.open.RoamingHub
                                      DateTimeOffset  Now)
         {
             lock (keysLock)
-                Change(PropertyName, Value, Now);
+                Change(new Dictionary<String, JToken> { { PropertyName, Value } }, Now);
         }
 
         #endregion
@@ -611,19 +652,20 @@ namespace cloud.charging.open.RoamingHub
 
         #endregion
 
-        #region (private) Change(PropertyName, Value, Now)
+        #region (private) Change(Properties, Now)
 
         /// <summary>
-        /// Change a property in operator.json, written in its place at once. Locked by the caller.
+        /// Change the given properties in operator.json at once, written in its place at once. Locked by the caller.
         /// </summary>
-        private void Change(String          PropertyName,
-                            JToken          Value,
-                            DateTimeOffset  Now)
+        private void Change(IReadOnlyDictionary<String, JToken>  Properties,
+                            DateTimeOffset                       Now)
         {
 
             var json = networkOperator.ToJSON(Embedded: true);
 
-            json[PropertyName]  = Value;
+            foreach (var (propertyName, value) in Properties)
+                json[propertyName] = value;
+
             json["lastChange"]  = Now.ToISO8601();
 
             if (!RoamingNetworkOperator.TryParse(json, out var changed, out var error))
@@ -770,6 +812,13 @@ namespace cloud.charging.open.RoamingHub
         Added,
 
         /// <summary>
+        /// Not added yet: signed by this hub as the roaming network operator, its change set waits for the signatures of
+        /// the identity keys of the party, as the proof that it holds them (SPECIFICATION.md of WWCP POI, sections 4.1 and
+        /// 4.2), and is committed once they came.
+        /// </summary>
+        Pending,
+
+        /// <summary>
         /// Not added: what was asked for is no party this hub adds.
         /// </summary>
         Invalid,
@@ -804,7 +853,9 @@ namespace cloud.charging.open.RoamingHub
     /// <param name="Commit">The commit that added it.</param>
     public sealed record RoamingNetworkPartyAddition(RoamingNetworkPartyStatus  Status,
                                                      String                     Message,
-                                                     RoamingNetworkCommit?      Commit   = null)
+                                                     RoamingNetworkCommit?      Commit      = null,
+                                                     RoamingNetworkChangeSet?   ChangeSet   = null,
+                                                     IReadOnlyList<String>?     Missing     = null)
     {
 
         /// <summary>
@@ -883,7 +934,10 @@ namespace cloud.charging.open.RoamingHub
 
         /// <summary>
         /// Add a party - a charging station operator, an e-mobility provider, a grid operator or a parking operator - to
-        /// a roaming network this hub operates: a change set this hub signs as its roaming network operator, committed.
+        /// a roaming network this hub operates: a change set this hub signs as its roaming network operator, which waits
+        /// for the signatures of the identity keys of the party, as the proof that it holds them, and is committed once
+        /// they came (POST ~/poi/RNs/{RN_Id}/history/changeSets/pending/{changeSetId}/signatures); one of a grid operator
+        /// without keys is committed at once.
         /// </summary>
         /// <remarks>
         /// The party is given as POI 3 writes it, without anything it holds: {"@id", "name"?, ..., "signingKeys",
@@ -969,15 +1023,23 @@ namespace cloud.charging.open.RoamingHub
                     return Invalid($"The {EntityType} '{id}' can not be added: {e.Message}");
                 }
 
-                var result = history.Commit(changeSet);
+                // It waits for the signatures of the identity keys of the party; one without any is committed now.
+                var result = history.CoSign(changeSet);
 
-                if (!result.IsCommitted)
+                if (result.Status == RoamingNetworkCoSigningStatus.Pending)
+                    return new (RoamingNetworkPartyStatus.Pending,
+                                $"The {EntityType} '{id}' is added to the roaming network '{RoamingNetworkId}' once it signed the change set '{changeSet.Id}' with each of its identity keys, " +
+                                $"as the proof that it holds them: POST /poi/RNs/{RoamingNetworkId}/history/changeSets/pending/{changeSet.Id}/signatures. Signed by this hub, it waits until then.",
+                                ChangeSet:  result.ChangeSet ?? changeSet,
+                                Missing:    result.Missing);
+
+                if (!result.IsCommitted || result.Commit is null)
                     return new (RoamingNetworkPartyStatus.Refused, $"The {EntityType} '{id}' was not added: {result.ErrorResponse}");
 
                 return new (RoamingNetworkPartyStatus.Added,
-                            $"The {EntityType} '{id}' was added to the roaming network '{RoamingNetworkId}', at revision {result.Head.Commit.Revision}, commit {result.Head.Commit.Id}. " +
+                            $"The {EntityType} '{id}' was added to the roaming network '{RoamingNetworkId}', at revision {result.Commit.Revision}, commit {result.Commit.Id}. " +
                             $"It adds its data now, with change sets it signs.",
-                            result.Commit ?? result.Head.Commit);
+                            result.Commit);
 
             }
 

@@ -210,11 +210,7 @@ namespace cloud.charging.open.RoamingHub.Tests
             for (var i = 1; i <= 6; i++)
             {
 
-                var added = RoamingHub.AddParty(id,
-                                                nameof(ChargingStationOperator),
-                                                new JObject(new JProperty("@id",           $"DE*QA{i}"),
-                                                            new JProperty("signingKeys",   new JArray(POIPublicKey.From(POITests.NewKey(COSECurve.P256)).ToJSON())),
-                                                            new JProperty("identityKeys",  new JArray(POIPublicKey.From(POITests.NewKey(COSECurve.P521)).ToJSON()))));
+                var added = POITests.AddedParty(RoamingHub, id.ToString(), $"DE*QA{i}");
 
                 Assert.That(added.Status, Is.EqualTo(RoamingNetworkPartyStatus.Added), added.Message);
 

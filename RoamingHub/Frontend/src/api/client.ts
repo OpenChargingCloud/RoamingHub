@@ -321,9 +321,14 @@ export interface PartySpec {
 
 /** What the hub says of a party it added, with a change set it signed: the commit. */
 export interface PartyAdded {
-    message:   string;
-    revision:  number;
-    commitId:  string;
+    message:       string;
+    /** Committed: a grid operator without keys. */
+    revision?:     number;
+    commitId?:     string;
+    /** Waiting for the signatures of the identity keys of the party, as the proof that it holds them. */
+    status?:       'pending';
+    changeSetId?:  string;
+    missing?:      string[];
 }
 
 

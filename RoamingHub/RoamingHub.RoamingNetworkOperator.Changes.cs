@@ -88,7 +88,6 @@ namespace cloud.charging.open.RoamingHub
 
                 var now       = Timestamp.Now;
                 var kind      = Kind == POIKeyKind.Signing ? "signing" : "identity";
-                var property  = Kind == POIKeyKind.Signing ? POIPartyKeys.SigningKeysProperty : POIPartyKeys.IdentityKeysProperty;
                 var oldKey    = Kind == POIKeyKind.Signing ? NetworkOperator.SigningKey : NetworkOperator.IdentityKey;
                 var newKey    = NetworkOperator.MakeKey(Kind);
                 var changed   = new List<RoamingNetwork_Id>();
@@ -115,25 +114,28 @@ namespace cloud.charging.open.RoamingHub
                                                 OrderBy(key => key.Id, StringComparer.Ordinal).
                                                 ToArray();
 
-                        // Its keys stated and certified anew in the same change set: a version naming other identity keys than
-                        // its key statement, or certifying a signing key it does not name or by an identity key it does not, is
-                        // refused.
-                        IEnumerable<POIPublicKey> signingKeys   = Kind == POIKeyKind.Signing  ? keys : network.Operator.SigningKeys;
+                        // Its signing keys are those of its certificates: a new signing key certified, or after a new identity key
+                        // all of them certified anew by it, with its keys stated anew, in the same change set: a version naming
+                        // other identity keys than its key statement, or a certificate by an identity key it does not, is refused.
                         IEnumerable<POIPublicKey> identityKeys  = Kind == POIKeyKind.Identity ? keys : network.Operator.IdentityKeys;
 
-                        var keyStatement  = Kind == POIKeyKind.Identity || network.Operator.KeyStatement is not null
+                        var certificates  = Kind == POIKeyKind.Signing
+                                                ? network.Operator.SigningKeyCertificates.Where(certificate => certificate.SigningKey.Id != heldKeyId).
+                                                                                          Concat(NetworkOperator.CertifySigningKeys([ newKey ], identityKeys, now) ?? []).
+                                                                                          ToArray()
+                                                : NetworkOperator.CertifySigningKeys(network.Operator.SigningKeys, identityKeys, now)?.ToArray() ?? [];
+
+                        var keyStatement  = Kind == POIKeyKind.Identity
                                                 ? NetworkOperator.StateKeys(network.Id, identityKeys, now, KeyStatementValidity)
                                                 : null;
 
-                        var certificates  = NetworkOperator.CertifySigningKeys(network.Id, signingKeys, identityKeys, now);
+                        List<RoamingNetworkChange> changes = [ RoamingNetworkChange.UpdateProperty(network.Operator, RoamingNetworkSigningKeyCertificate.JSONProperty, null, new JArray(certificates.Select(certificate => certificate.ToJSON(Embedded: true)))) ];
 
-                        List<RoamingNetworkChange> changes = [ RoamingNetworkChange.UpdateProperty(network.Operator, property, null, new JArray(keys.Select(key => key.ToJSON(Embedded: true)))) ];
+                        if (Kind == POIKeyKind.Identity)
+                            changes.Insert(0, RoamingNetworkChange.UpdateProperty(network.Operator, POIPartyKeys.IdentityKeysProperty, null, new JArray(keys.Select(key => key.ToJSON(Embedded: true)))));
 
-                        if (keyStatement is not null && Kind == POIKeyKind.Identity)
+                        if (keyStatement is not null)
                             changes.Add(RoamingNetworkChange.UpdateProperty(network.Operator, RoamingNetworkKeyStatement.JSONProperty, null, keyStatement.ToJSON(Embedded: true)));
-
-                        if (certificates is not null)
-                            changes.Add(RoamingNetworkChange.UpdateProperty(network.Operator, RoamingNetworkSigningKeyCertificate.JSONProperty, null, new JArray(certificates.Select(certificate => certificate.ToJSON(Embedded: true)))));
 
                         var changeSet     = NetworkOperator.Sign(
                                                 network,
@@ -145,9 +147,10 @@ namespace cloud.charging.open.RoamingHub
                                                 Kind
                                             );
 
-                        // The key statement and the certificates are data, signed by the signing key as well.
-                        if (Kind == POIKeyKind.Identity && (keyStatement is not null || certificates is not null))
-                            changeSet = NetworkOperator.Sign(network, changeSet, POIKeyKind.Signing);
+                        // The key statement and the certificates are data, signed by the signing key as well; and the new
+                        // identity key signs it as the proof that this hub holds it.
+                        if (Kind == POIKeyKind.Identity)
+                            changeSet = NetworkOperator.ProveIdentityKey(NetworkOperator.Sign(network, changeSet, POIKeyKind.Signing), newKey);
 
                         var result     = history.Commit(changeSet);
 

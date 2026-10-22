@@ -576,7 +576,13 @@ form below the list, or `roamingNetworks <id> add chargingStationOperator
 The party keeps its private keys: a key is the Base64 of its COSE key or a key
 as POI writes it, its identification calculated where it is not given, and a
 private key is refused, as it is private no more once it was sent. A grid
-operator not taking part comes without keys. 201 with the commit, 400 where it
+operator not taking part comes without keys. The change set waits until the
+party signed it with each of its identity keys, as the proof that it holds them
+(SPECIFICATION.md of WWCP POI, section 4.1), with `POST
+/poi/RNs/{id}/history/changeSets/pending/{changeSetId}/signatures`, and is
+committed then. 202 with the change set waiting, `{message, status: "pending",
+changeSetId, changeSet, missing}`, 201 with the commit of a grid operator
+without keys, 400 where it
 is no party this hub adds, 403 where another operator operates the network,
 404 where there is no such network, 409 where it has that party already, and
 422 where its history refused the commit, e.g. for a party with its charging
@@ -618,7 +624,7 @@ signing keys, signed by the identity key, valid for 30 days and stated anew by a
 commit a week before it ends, and in the same change set that replaces a key.
 Every head is attested by the signing key, again every minute once its
 attestation is older than five minutes. The page of a roaming network in the web
-interface shows its **trust anchor** as a QR code: `WWCPPOI1:` and the Base45 of
+interface shows its **trust anchor** as a QR code: `WWCP/TA-2:` and the Base45 of
 its CBOR, with the name and description of the network, the thumbprints of its
 identity keys and its `minConsensus`; the URI
 `https://…/poi/RNs/<id>?identityKeys=<thumbprint>` to copy says the same without

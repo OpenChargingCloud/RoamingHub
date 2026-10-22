@@ -412,6 +412,28 @@ describe('a new party of a roaming network', () => {
 
     });
 
+    it('says that it waits for the signatures of its identity keys, as the proof that it holds them', async () => {
+
+        const root = await open(poiNetworksPage, '/poi/RNs', [ 'poi:edit' ],
+                                adding(() => ({ message: 'DE*QAC is added once it signed the change set cs1', status: 'pending', changeSetId: 'cs1', missing: [ 'its identity key' ] })),
+                                listed);
+
+        type(field(root, '#party-form', 'roamingNetwork'),                       'QA');
+        type(field(root, '#party-form', 'id'),                                   'DE*QAC');
+        type(field<HTMLTextAreaElement>(root, '#party-form', 'signingKeys'),     'pAECIAEh');
+        type(field<HTMLTextAreaElement>(root, '#party-form', 'identityKeys'),    'pAECIAMh1');
+
+        submit(root, '#party-form');
+
+        const pending = root.querySelector<HTMLElement>('#party-pending')!;
+
+        await until(() => !pending.hidden, 'it was not said that it waits');
+
+        assert.equal(pending.textContent, 'DE*QAC is added once it signed the change set cs1');
+        assert.equal(field(root, '#party-form', 'id').value, '', 'the form was not emptied');
+
+    });
+
     it('adds a grid operator not taking part without keys', async () => {
 
         const root = await open(poiNetworksPage, '/poi/RNs', [ 'poi:edit' ],
