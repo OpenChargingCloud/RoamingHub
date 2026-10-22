@@ -515,7 +515,7 @@ namespace cloud.charging.open.RoamingHub.Tests
             Assert.That(RoamingNetworkTrustAnchor.TryParse(trustAnchor["uri"]!.Value<String>()!, out var anchor, out var error), Is.True, error);
 
             // Below the roaming network the anchor names, the proof of the charging station.
-            var proofText      = await anybody.GetStringAsync($"{anchor!.RoamingNetworkURI}/CSs/DE*QAC*S1/proof");
+            var proofText      = await anybody.GetStringAsync($"{anchor!.RoamingNetworkURL}/CSs/DE*QAC*S1/proof");
 
             Assert.That(RoamingNetworkProof.TryParse(proofText, out var proof, out error), Is.True, error);
 

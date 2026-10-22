@@ -619,10 +619,10 @@ commit a week before it ends, and in the same change set that replaces a key.
 Every head is attested by the signing key, again every minute once its
 attestation is older than five minutes. The page of a roaming network in the web
 interface shows its **trust anchor** as a QR code: `WWCPPOI1:` and the Base45 of
-its CBOR, with the name and description of the network, the homepage of its
-operator, the thumbprints of its identity keys and its `minConsensus`; the URI
+its CBOR, with the name and description of the network, the thumbprints of its
+identity keys and its `minConsensus`; the URI
 `https://…/poi/RNs/<id>?identityKeys=<thumbprint>` to copy says the same without
-name, description and homepage. Both are at `GET /poi/RNs/<id>/trustAnchor`: an
+name and description. Both are at `GET /poi/RNs/<id>/trustAnchor`: an
 app that scanned it gets `/poi/RNs/<id>/CSs/<CS_Id>/proof` and trusts the proof by
 the identity keys alone. Show it where it cannot be swapped for another one, on a
 website or in documents, not stuck on a charging station.
