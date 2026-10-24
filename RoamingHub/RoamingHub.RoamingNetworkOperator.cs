@@ -882,18 +882,10 @@ namespace cloud.charging.open.RoamingHub
             { "EMPs",  nameof(EMobilityProvider)       },
             { "GOs",   nameof(GridOperator)            },
             { "POs",   nameof(ParkingOperator)         },
+            { "CSMs",  nameof(ChargingStationManufacturer) },
+            { "EMMs",  nameof(EnergyMeterManufacturer)     },
             { "TSMs",  nameof(TransparencySoftwareManufacturer) },
             { "CABs",  nameof(ConformityAssessmentBody) }
-        };
-
-        /// <summary>
-        /// The manufacturers this hub adds to the registries of the roaming networks it operates: their entity type, by
-        /// the segment the POI API lists them at below a roaming network, ~/RNs/{id}/CSMs and ~/RNs/{id}/EMMs, which is the
-        /// last segment of the path they are added at below /api/v1/poi as well.
-        /// </summary>
-        public static readonly IReadOnlyDictionary<String, String> ManufacturerTypes = new Dictionary<String, String>(StringComparer.Ordinal) {
-            { "CSMs",  nameof(ChargingStationManufacturer) },
-            { "EMMs",  nameof(EnergyMeterManufacturer)     }
         };
 
         /// <summary>
@@ -946,7 +938,8 @@ namespace cloud.charging.open.RoamingHub
 
         /// <summary>
         /// Add a party - a charging station operator, an e-mobility provider, a grid operator, a parking operator, a
-        /// transparency software manufacturer or a conformity assessment body - to a roaming network this hub operates: a
+        /// charging station or energy meter manufacturer, a transparency software manufacturer or a conformity assessment
+        /// body - to a roaming network this hub operates: a
         /// change set this hub signs as its roaming network operator, which waits for the signatures of the identity keys of
         /// the party, as the proof that it holds them, and is committed once they came
         /// (POST ~/poi/RNs/{RN_Id}/history/changeSets/pending/{changeSetId}/signatures); one of a grid operator or a
@@ -957,7 +950,8 @@ namespace cloud.charging.open.RoamingHub
         /// "identityKeys"}, its keys the public ones, each as POI 3 writes it or the Base64 of its COSE key alone.
         /// A grid operator or a conformity assessment body may come without keys: it does not take part, and this hub signs
         /// in its place, e.g. the certificates of the body (AddTransparencySoftwareCertificate).
-        /// Its data is its own to add afterwards, with change sets it signs.
+        /// Its data is its own to add afterwards, with change sets it signs: of a manufacturer of charging stations or energy
+        /// meters its models, which the stations and meters of the charging station operators name.
         /// </remarks>
         /// <param name="RoamingNetworkId">The roaming network.</param>
         /// <param name="EntityType">The entity type of the party, e.g. ChargingStationOperator.</param>
@@ -1021,90 +1015,6 @@ namespace cloud.charging.open.RoamingHub
                     return new (RoamingNetworkPartyStatus.Exists, $"The roaming network '{RoamingNetworkId}' has a {EntityType} '{id}' already.");
 
                 return SignedAndCoSigned(history, network, EntityType, id, party, " It adds its data now, with change sets it signs.");
-
-            }
-
-            static RoamingNetworkPartyAddition Invalid(String Message)
-                => new (RoamingNetworkPartyStatus.Invalid, Message);
-
-        }
-
-        #endregion
-
-        #region AddManufacturer(RoamingNetworkId, EntityType, JSON)
-
-        /// <summary>
-        /// Add a manufacturer - of charging stations or of energy meters - to the registry of a roaming network this hub
-        /// operates, so that the charging stations and energy meters of its parties can name it (manufacturerId): a change
-        /// set this hub signs as its roaming network operator, committed at once; one naming identity keys waits for their
-        /// signatures, as the proof that the manufacturer holds them, as the one of a party does.
-        /// </summary>
-        /// <remarks>
-        /// The manufacturer is given as POI 3 writes it: {"@id", "name"?, "homepage"?, ...}, its keys, if any, the public
-        /// ones, each as POI 3 writes it or the Base64 of its COSE key alone. Unlike a party, it signs no change sets: the
-        /// registry is the roaming network operator's, which changes it.
-        /// </remarks>
-        /// <param name="RoamingNetworkId">The roaming network.</param>
-        /// <param name="EntityType">The entity type of the manufacturer, ChargingStationManufacturer or EnergyMeterManufacturer.</param>
-        /// <param name="JSON">The manufacturer.</param>
-        public RoamingNetworkPartyAddition AddManufacturer(RoamingNetwork_Id  RoamingNetworkId,
-                                                           String             EntityType,
-                                                           JObject            JSON)
-        {
-
-            lock (networkOperatorLock)
-            {
-
-                #region What it must be
-
-                if (!ManufacturerTypes.Values.Contains(EntityType))
-                    return Invalid($"A manufacturer is one of {String.Join(", ", ManufacturerTypes.Values)}, not '{EntityType}'.");
-
-                if (!POI.TryGetRoamingNetworkHistory(RoamingNetworkId, out var history))
-                    return new (RoamingNetworkPartyStatus.UnknownRoamingNetwork, $"This hub serves no roaming network '{RoamingNetworkId}'.");
-
-                var network = history.Head.RoamingNetwork;
-
-                if (!NetworkOperator.Operates(network))
-                    return new (RoamingNetworkPartyStatus.NotOperatedHere,
-                                $"The roaming network '{RoamingNetworkId}' is operated by " +
-                                (network.Operator is not null ? $"'{network.Operator.Id}'" : "nobody") +
-                                $", not by this hub, '{NetworkOperator.Id}': its operator adds its manufacturers.");
-
-                if (JSON["@id"] is not JValue { Type: JTokenType.String } idJSON || String.IsNullOrWhiteSpace(idJSON.Value<String>()))
-                    return Invalid($"The {EntityType} needs an identification, '@id'.");
-
-                var id               = idJSON.Value<String>()!.Trim();
-                var manufacturer     = (JObject) JSON.DeepClone();
-                manufacturer["@id"]  = id;
-
-                #endregion
-
-                #region Its keys, if any: public ones only
-
-                foreach (var (property, kind) in new[] { (POIPartyKeys.SigningKeysProperty, "signing key"), (POIPartyKeys.IdentityKeysProperty, "identity key") })
-                {
-
-                    if (manufacturer[property] is null)
-                        continue;
-
-                    if (!TryParsePublicKeys(manufacturer[property], kind, out var keys, out var keysError))
-                        return Invalid($"The {EntityType} '{id}' can not be added: {keysError}");
-
-                    manufacturer[property] = new JArray(keys.Select(key => key.ToJSON(Embedded: true)));
-
-                }
-
-                #endregion
-
-                var exists = EntityType == nameof(ChargingStationManufacturer)
-                                 ? ChargingStationManufacturer_Id.TryParse(id, out var chargingStationManufacturerId) && network.TryGetChargingStationManufacturerById(chargingStationManufacturerId, out _)
-                                 : EnergyMeterManufacturer_Id.    TryParse(id, out var energyMeterManufacturerId)     && network.TryGetEnergyMeterManufacturerById    (energyMeterManufacturerId,     out _);
-
-                if (exists)
-                    return new (RoamingNetworkPartyStatus.Exists, $"The roaming network '{RoamingNetworkId}' has the {EntityType} '{id}' already.");
-
-                return SignedAndCoSigned(history, network, EntityType, id, manufacturer, " Charging stations and energy meters may name it now.");
 
             }
 

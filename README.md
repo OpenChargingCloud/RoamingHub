@@ -566,10 +566,11 @@ could not be written. Every commit the hub makes of a roaming network it
 operates is signed by its signing key, in the role `roamingNetworkOperator`.
 
 The hub adds the parties of a roaming network it operates - charging station
-operators, e-mobility providers, grid operators, parking operators, transparency
-software manufacturers and conformity assessment bodies - with a
+operators, e-mobility providers, grid operators, parking operators, charging
+station and energy meter manufacturers, transparency software manufacturers and
+conformity assessment bodies - with a
 change set it signs: `AddParty(roamingNetworkId, entityType, json)` in C#,
-`POST /api/v1/poi/RNs/{id}/CSOs` (or `EMPs`, `GOs`, `POs`, `TSMs`, `CABs`) with the party as
+`POST /api/v1/poi/RNs/{id}/CSOs` (or `EMPs`, `GOs`, `POs`, `CSMs`, `EMMs`, `TSMs`, `CABs`) with the party as
 POI writes it - the path the POI API lists it at, `/poi/RNs/{id}/CSOs`, below
 `/api/v1` - `{"@id", "name"?, …, "signingKeys", "identityKeys"}`, the second
 form below the list, or `roamingNetworks <id> add chargingStationOperator
@@ -591,18 +592,16 @@ pools in it: they are its own to add. `roamingNetworks <id>` shows a network
 with its parties and their keys. Making a network and adding a party is
 `poi:edit`.
 
-The hub adds the manufacturers the charging stations and energy meters of the
-parties name to the registries of a roaming network it operates the same way:
-`AddManufacturer(roamingNetworkId, entityType, json)` in C#,
-`POST /api/v1/poi/RNs/{id}/CSMs` (or `EMMs`) with the manufacturer as POI writes
-it, `{"@id", "name"?, "homepage"?, …}`, the third form below the list, or
-`roamingNetworks <id> add chargingStationManufacturer <id> [homepage <url>]
-[<name>]` (or `energyMeterManufacturer`) at the command line. A station or a
-meter names only a manufacturer of the network, so they come before the stations
-and meters naming them. Committed at once, 201; one naming identity keys waits
-for their signatures, 202, as a party does; 409 where it has that manufacturer
-already, the other answers as for a party; `poi:edit` as well. The POI API lists
-them at `/poi/RNs/{id}/CSMs` and `/poi/RNs/{id}/EMMs`.
+The manufacturers the charging stations and energy meters of the parties name
+are parties of their own, added as the others, with their keys:
+`roamingNetworks <id> add chargingStationManufacturer <id> signingKey <key>
+identityKey <key> [homepage <url>] [<name>]` (or `energyMeterManufacturer`) at
+the command line. Each states its models itself, with change sets it signs with
+a key that may sign `models`, and a station or a meter names only a model of its
+manufacturer, so they come before the stations and meters naming them; the hub
+signs no model. The POI API lists them at `/poi/RNs/{id}/CSMs` and
+`/poi/RNs/{id}/EMMs`, their models at `…/CSMs/{id}/models` and
+`…/EMMs/{id}/models`; the web interface has their models below each.
 
 A transparency software manufacturer states its releases itself, and a
 conformity assessment body with keys its certificates, with change sets they

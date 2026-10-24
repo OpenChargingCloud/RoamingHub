@@ -43,6 +43,8 @@ using ChargingPool             = cloud.charging.open.protocols.WWCP.POI.Charging
 using ChargingStation          = cloud.charging.open.protocols.WWCP.POI.ChargingStation;
 using EVSE                     = cloud.charging.open.protocols.WWCP.POI.EVSE;
 using POIEnergyMeter           = cloud.charging.open.protocols.WWCP.POI.EnergyMeter;
+using ChargingStationModel     = cloud.charging.open.protocols.WWCP.POI.ChargingStationModel;
+using EnergyMeterModel         = cloud.charging.open.protocols.WWCP.POI.EnergyMeterModel;
 
 #endregion
 
@@ -558,16 +560,15 @@ namespace cloud.charging.open.RoamingHub.Tests
 
         #endregion
 
-        #region TheHubAddsManufacturersTheStationsAndMetersOfAnOperatorName()
+        #region TheHubAddsManufacturersWhichStateTheModelsTheStationsAndMetersOfAnOperatorName()
 
         /// <summary>
-        /// A charging station naming a manufacturer and an energy meter naming its own are refused until the hub added both
-        /// to the registries of the roaming network, committed at once, signed by the hub; then DE*QAC adds them. The same
-        /// manufacturer again is a conflict, one naming an identity key waits for its signature, and nobody signed in adds
-        /// none.
+        /// A charging station naming a manufacturer and a model, and an energy meter naming its own, are refused until the
+        /// hub added both manufacturers as parties, each once its identity key signed, and each stated its model itself;
+        /// then DE*QAC adds them. A manufacturer without keys, the same one again and nobody signed in add none.
         /// </summary>
         [Test]
-        public async Task TheHubAddsManufacturersTheStationsAndMetersOfAnOperatorName()
+        public async Task TheHubAddsManufacturersWhichStateTheModelsTheStationsAndMetersOfAnOperatorName()
         {
 
             await MadeWithQAC();
@@ -575,17 +576,24 @@ namespace cloud.charging.open.RoamingHub.Tests
             using var anybody     = Anonymous();
             using var admin       = await SignedIn();
 
+            var acmeKey           = NewKey(COSECurve.P256);
+            var acmeIdentity      = NewKey(COSECurve.P521);
+            var metersKey         = NewKey(COSECurve.P256);
+            var metersIdentity    = NewKey(COSECurve.P521);
+
             var pool              = new ChargingPool(
                                         ChargingPool_Id.Parse("DE*QAC*P1"),
                                         ChargingStations:  [
                                             new ChargingStation(
                                                 ChargingStation_Id.Parse("DE*QAC*S1"),
                                                 ManufacturerId:  ChargingStationManufacturer_Id.Parse("ACME"),
+                                                ModelId:         ChargingStationModel_Id.Parse("AC-11"),
                                                 EVSEs: [
                                                     new EVSE(EVSE_Id.Parse("DE*QAC*E1*1"),
                                                              MaxPower:     Watt.FromW(11000),
                                                              EnergyMeter:  new POIEnergyMeter(EnergyMeter_Id.Parse("DE*QAC*M1*1"),
-                                                                                              ManufacturerId:  EnergyMeterManufacturer_Id.Parse("METERS")))
+                                                                                              ManufacturerId:  EnergyMeterManufacturer_Id.Parse("METERS"),
+                                                                                              ModelId:         EnergyMeterModel_Id.Parse("M-1")))
                                                 ]
                                             )
                                         ]
@@ -599,50 +607,84 @@ namespace cloud.charging.open.RoamingHub.Tests
             var poolBefore        = Assert.Throws<ArgumentException>(() => AddPool());
 
             var byAnybody         = await Post(anybody, new JObject(new JProperty("@id", "ACME")), $"{NewPath}/QA/CSMs");
+            var withoutKeys       = await Post(admin,   new JObject(new JProperty("@id", "ACME")), $"{NewPath}/QA/CSMs");
 
-            var stationMaker      = await Post(admin, new JObject(new JProperty("@id",       "ACME"),
-                                                                  new JProperty("name",      new JObject(new JProperty("en", "ACME Chargers"))),
-                                                                  new JProperty("homepage",  "https://acme.example")),
+            // A party with keys, added once it signed the change set with its identity key, as the proof that it holds it.
+            async Task<String> AddedWithKeys(String Segment, JObject Party, ECPrivateKeyParameters SigningKey, ECPrivateKeyParameters IdentityKey)
+            {
+
+                Party["signingKeys"]   = new JArray(POIPublicKey.From(SigningKey, Usages: [ POIKeyUsages.Party, POIKeyUsages.Models ]).ToJSON());
+                Party["identityKeys"]  = new JArray(POIPublicKey.From(IdentityKey).ToJSON());
+
+                var asked      = await Post(admin, Party, $"{NewPath}/QA/{Segment}");
+                var askedText  = await asked.Content.ReadAsStringAsync();
+                var askedJSON  = JObject.Load(new Newtonsoft.Json.JsonTextReader(new StringReader(askedText)) { DateParseHandling = Newtonsoft.Json.DateParseHandling.None });
+
+                Assert.That(asked.StatusCode, Is.EqualTo(HttpStatusCode.Accepted), askedText);
+                Assert.That(RoamingNetworkChangeSet.TryParse((JObject) askedJSON["changeSet"]!, out var changeSet, out var error), Is.True, error);
+
+                var proof      = changeSet!.Sign(IdentityKey, POIPublicKey.From(IdentityKey).Id, COSEAlgorithm.ES512).Signatures[^1];
+                var signed     = await Post(anybody,
+                                            new JObject(new JProperty("signatures", new JArray(proof.ToJSON()))),
+                                            $"poi/RNs/QA/history/changeSets/pending/{changeSet.Id}/signatures");
+
+                return JObject.Parse(await signed.Content.ReadAsStringAsync())["status"]?.Value<String>() ?? "";
+
+            }
+
+            var stationMaker      = await AddedWithKeys("CSMs", new JObject(new JProperty("@id",       "ACME"),
+                                                                            new JProperty("name",      new JObject(new JProperty("en", "ACME Chargers"))),
+                                                                            new JProperty("homepage",  "https://acme.example")),
+                                                        acmeKey, acmeIdentity);
+
+            var meterMaker        = await AddedWithKeys("EMMs", new JObject(new JProperty("@id",       "METERS"),
+                                                                            new JProperty("name",      new JObject(new JProperty("en", "Example Meters")))),
+                                                        metersKey, metersIdentity);
+
+            var again             = await Post(admin, new JObject(new JProperty("@id",           "acme"),
+                                                                  new JProperty("signingKeys",   new JArray(POIPublicKey.From(acmeKey).     ToJSON())),
+                                                                  new JProperty("identityKeys",  new JArray(POIPublicKey.From(acmeIdentity).ToJSON()))),
                                            $"{NewPath}/QA/CSMs");
-
-            var meterMaker        = await Post(admin, new JObject(new JProperty("@id",       "METERS"),
-                                                                  new JProperty("name",      new JObject(new JProperty("en", "Example Meters")))),
-                                           $"{NewPath}/QA/EMMs");
-
-            var again             = await Post(admin, new JObject(new JProperty("@id", "acme")), $"{NewPath}/QA/CSMs");
             var unknownKind       = await Post(admin, new JObject(new JProperty("@id", "ACME")), $"{NewPath}/QA/XYZs");
 
-            // A manufacturer naming an identity key signs its change set as the proof that it holds it, as a party does.
-            var meterIdentityKey  = NewKey(COSECurve.P521);
-            var withKey           = await Post(admin, new JObject(new JProperty("@id",           "KEYED"),
-                                                                  new JProperty("identityKeys",  new JArray(POIPublicKey.From(meterIdentityKey).ToJSON()))),
-                                           $"{NewPath}/QA/EMMs");
+            // The manufacturers are known, their models not yet.
+            var poolWithoutModel  = Assert.Throws<ArgumentException>(() => AddPool());
+
+            // Each states its model itself; the hub signs none of them.
+            var models            = await Commit(anybody, Head().CreateChangeSet([ RoamingNetworkChange.Add(new ChargingStationModel(ChargingStationModel_Id.Parse("AC-11"), Versions: [ "1.0" ], MaxPower: Watt.FromW(11000)),
+                                                                                                            ChargingStationManufacturer_Id.Parse("ACME")),
+                                                                                   RoamingNetworkChange.Add(new EnergyMeterModel(EnergyMeterModel_Id.Parse("M-1")),
+                                                                                                            EnergyMeterManufacturer_Id.Parse("METERS")) ]).
+                                                                 Sign(acmeKey,   POIPublicKey.From(acmeKey).  Id, COSEAlgorithm.ES256).
+                                                                 Sign(metersKey, POIPublicKey.From(metersKey).Id, COSEAlgorithm.ES256));
 
             var poolAfter         = await Commit(anybody, AddPool());
 
-            var stationMakerText  = await stationMaker.Content.ReadAsStringAsync();
-            var meterMakerText    = await meterMaker.  Content.ReadAsStringAsync();
-            var unknownKindText   = await unknownKind. Content.ReadAsStringAsync();
-            var withKeyText       = await withKey.     Content.ReadAsStringAsync();
+            var withoutKeysText   = await withoutKeys.Content.ReadAsStringAsync();
+            var unknownKindText   = await unknownKind.Content.ReadAsStringAsync();
             var meterMakers       = JArray. Parse(await anybody.GetStringAsync("poi/RNs/QA/EMMs"));
             var served            = JObject.Parse(await anybody.GetStringAsync("poi/RNs/QA/CSMs/ACME"));
+            var listed            = JArray. Parse(await anybody.GetStringAsync("poi/RNs/QA/CSMs/ACME/models"));
 
             Assert.Multiple(() => {
 
                 Assert.That(poolBefore?.Message,                                                      Does.Contain("The manufacturer 'ACME' of the charging station 'DE*QAC*S1' is unknown"));
                 Assert.That(byAnybody.StatusCode,                                                     Is.AnyOf(HttpStatusCode.Unauthorized, HttpStatusCode.Forbidden));
+                Assert.That(withoutKeys.StatusCode,                                                   Is.EqualTo(HttpStatusCode.BadRequest), withoutKeysText);
 
-                Assert.That(stationMaker.StatusCode,                                                  Is.EqualTo(HttpStatusCode.Created), stationMakerText);
-                Assert.That(JObject.Parse(stationMakerText)["commitId"]?.Value<String>(),             Is.Not.Null.And.Not.Empty);
-                Assert.That(meterMaker.StatusCode,                                                    Is.EqualTo(HttpStatusCode.Created), meterMakerText);
+                Assert.That(stationMaker,                                                             Is.EqualTo("committed"));
+                Assert.That(meterMaker,                                                               Is.EqualTo("committed"));
                 Assert.That(again.StatusCode,                                                         Is.EqualTo(HttpStatusCode.Conflict));
                 Assert.That(unknownKind.StatusCode,                                                   Is.EqualTo(HttpStatusCode.NotFound));
                 Assert.That(unknownKindText,                                                          Does.Contain("CSMs | EMMs"));
-                Assert.That(withKey.StatusCode,                                                       Is.EqualTo(HttpStatusCode.Accepted), withKeyText);
-                Assert.That(JObject.Parse(withKeyText)["status"]?.Value<String>(),                    Is.EqualTo("pending"));
 
+                Assert.That(poolWithoutModel?.Message,                                                Does.Contain("The model 'AC-11' of the charging station 'DE*QAC*S1' is unknown at its manufacturer 'ACME'"));
+                Assert.That(models.StatusCode,                                                        Is.EqualTo(HttpStatusCode.Created), models.Text);
                 Assert.That(poolAfter.StatusCode,                                                     Is.EqualTo(HttpStatusCode.Created), poolAfter.Text);
+
                 Assert.That(served["homepage"]?.Value<String>(),                                      Is.EqualTo("https://acme.example"));
+                Assert.That(served["chargingStationModels"]?[0]?["@id"]?.Value<String>(),            Is.EqualTo("AC-11"));
+                Assert.That(listed.Select(entry => entry["versions"]?[0]?.Value<String>()),           Is.EqualTo(new[] { "1.0" }));
                 Assert.That(meterMakers.Select(entry => entry["@id"]?.Value<String>()),               Is.EqualTo(new[] { "METERS" }));
 
             });
@@ -672,6 +714,8 @@ namespace cloud.charging.open.RoamingHub.Tests
             var softwareIdentity   = NewKey(COSECurve.P521);
             var ptbKey             = NewKey(COSECurve.P256);
             var ptbIdentity        = NewKey(COSECurve.P521);
+            var acmeKey            = NewKey(COSECurve.P256);
+            var acmeIdentity       = NewKey(COSECurve.P521);
 
             // A party with keys, added once it signed the change set with its identity key, as the proof that it holds it.
             async Task<String> AddedWithKeys(String Segment, String Id, ECPrivateKeyParameters SigningKey, ECPrivateKeyParameters IdentityKey)
@@ -700,6 +744,12 @@ namespace cloud.charging.open.RoamingHub.Tests
 
             var softwareMaker      = await AddedWithKeys("TSMs", "GraphDefined", softwareKey, softwareIdentity);
             var ptb                = await AddedWithKeys("CABs", "PTB",          ptbKey,      ptbIdentity);
+            var stationMaker       = await AddedWithKeys("CSMs", "ACME",         acmeKey,     acmeIdentity);
+
+            // The model the certificates are for, stated by its manufacturer.
+            var addModel           = await Commit(anybody, Head().CreateChangeSet([ RoamingNetworkChange.Add(new ChargingStationModel(ChargingStationModel_Id.Parse("Wallbox-22"), Versions: [ "1.0" ]),
+                                                                                                             ChargingStationManufacturer_Id.Parse("ACME")) ]).
+                                                                  Sign(acmeKey, POIPublicKey.From(acmeKey).Id, COSEAlgorithm.ES256));
 
             // A transparency software manufacturer comes with its keys; a conformity assessment body not taking part without.
             var softwareWithout    = await Post(admin, new JObject(new JProperty("@id", "Nobody")), $"{NewPath}/QA/TSMs");
@@ -719,6 +769,7 @@ namespace cloud.charging.open.RoamingHub.Tests
             // The hub adds the certificate of the BSI in its place, not one of the PTB, which signs its own.
             JObject Certificate(String Id, String Legislation)
                 => new (new JProperty("@id",                                Id),
+                        new JProperty("chargingStationManufacturerId",      "ACME"),
                         new JProperty("chargingStationModel",               "Wallbox-22"),
                         new JProperty("chargingStationModelVersion",        "1.0"),
                         new JProperty("verifiedTransparencySoftwareIds",    new JArray("chargy-1.5.0")),
@@ -745,6 +796,8 @@ namespace cloud.charging.open.RoamingHub.Tests
 
                 Assert.That(softwareMaker,                                                     Is.EqualTo("committed"));
                 Assert.That(ptb,                                                               Is.EqualTo("committed"));
+                Assert.That(stationMaker,                                                      Is.EqualTo("committed"));
+                Assert.That(addModel.StatusCode,                                               Is.EqualTo(HttpStatusCode.Created), addModel.Text);
                 Assert.That(softwareWithout.StatusCode,                                        Is.EqualTo(HttpStatusCode.UnprocessableEntity).Or.EqualTo(HttpStatusCode.BadRequest));
                 Assert.That(bsi.StatusCode,                                                    Is.EqualTo(HttpStatusCode.Created), bsiText);
 

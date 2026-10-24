@@ -4,7 +4,7 @@ import type { Page } from '@node/router';
 import { reloadButton, shell } from '@node/shell';
 import { errorMessage, formatValue, humanizeKey } from '@node/ui';
 import { html, nothing, render, type TemplateResult } from '@node/view';
-import { addressLine, entityURL, evseCountOf, gridCollections, networkPath, operatorCollections, parkingCollections, providerCollections, poiHome, roamingNetworkOf, sections, sectionsView, transparencySoftwareCertificates, transparencySoftwareReleases, type EmbeddedCollection } from './poi';
+import { addressLine, chargingStationModels, energyMeterModels, entityURL, evseCountOf, gridCollections, networkPath, operatorCollections, parkingCollections, providerCollections, poiHome, roamingNetworkOf, sections, sectionsView, transparencySoftwareCertificates, transparencySoftwareReleases, type EmbeddedCollection } from './poi';
 import { loadOffers, localTimeOf, nextRefresh, offersView, timeOf, type Offers, type OffersShown } from './poiOffers';
 import { loadOrigins, templateSegments, type Origin, type Origins } from './poiOrigins';
 import { loadTrustAnchor, trustAnchorCard, type TrustAnchor } from './poiTrustAnchor';
@@ -164,8 +164,14 @@ const kinds: Record<string, Kind> = {
     EMPs:   { label: 'E-mobility provider',            icon: 'fa-id-card',
               children:   providerCollections.map(collection => listedChildren(collection)),
               parameters: { without: providerCollections.map(collection => collection.field).join(',') } },
-    CSMs:   { label: 'Charging station manufacturer',  icon: 'fa-industry'         },
-    EMMs:   { label: 'Energy meter manufacturer',      icon: 'fa-gauge-high'       },
+    CSMs:   { label: 'Charging station manufacturer',  icon: 'fa-industry',
+              children:   [ listedChildren(chargingStationModels) ],
+              parameters: { without: chargingStationModels.field } },
+    EMMs:   { label: 'Energy meter manufacturer',      icon: 'fa-gauge-high',
+              children:   [ listedChildren(energyMeterModels) ],
+              parameters: { without: energyMeterModels.field } },
+    // A model of either: both list them as their models.
+    models: { label: 'Model',                          icon: 'fa-cube'             },
     TSMs:   { label: 'Transparency software manufacturer',  icon: 'fa-laptop-code',
               children:   [ listedChildren(transparencySoftwareReleases) ],
               parameters: { without: transparencySoftwareReleases.field } },
@@ -958,7 +964,9 @@ export const poiEntityPages: Record<string, Page> = {
     [`${network}/EMPs/:emp`]:        entityPage('EMPs'),
     ...Object.fromEntries(providerCollections.map(collection => [ `${network}/EMPs/:emp/${collection.segment}/:id`, entityPage(collection.segment) ])),
     [`${network}/CSMs/:csm`]:        entityPage('CSMs'),
+    [`${network}/CSMs/:csm/models/:id`]:  entityPage('models'),
     [`${network}/EMMs/:emm`]:        entityPage('EMMs'),
+    [`${network}/EMMs/:emm/models/:id`]:  entityPage('models'),
     [`${network}/TSMs/:tsm`]:        entityPage('TSMs'),
     [`${network}/TSMs/:tsm/TSs/:id`]:   entityPage('TSs'),
     [`${network}/CABs/:cab`]:        entityPage('CABs'),

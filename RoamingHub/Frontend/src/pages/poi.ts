@@ -1,4 +1,4 @@
-import { api, type ManufacturerSegment, type PartySegment, type PublicKey } from '../api/client';
+import { api, type PartySegment, type PublicKey } from '../api/client';
 import { poiBase, poiList, poiURL, textOf, type Address, type ChargingPool, type Entity, type ListPart, type Query, type Summary } from '../api/poi';
 import { auth } from '../auth';
 import { fromURL, toURL } from '@node/basePath';
@@ -470,6 +470,8 @@ export const partyKinds: ReadonlyArray<{ segment: PartySegment; label: string }>
     { segment: 'EMPs',  label: 'E-mobility provider'       },
     { segment: 'GOs',   label: 'Grid operator'             },
     { segment: 'POs',   label: 'Parking operator'          },
+    { segment: 'CSMs',  label: 'Charging station manufacturer' },
+    { segment: 'EMMs',  label: 'Energy meter manufacturer'     },
     { segment: 'TSMs',  label: 'Transparency software manufacturer' },
     { segment: 'CABs',  label: 'Conformity assessment body'         }
 ];
@@ -593,104 +595,6 @@ function newPartyCard(navigate: (path: string) => void): TemplateResult | typeof
 
 }
 
-/** The manufacturers this hub adds to the registries of a roaming network, by the segment the POI API lists them at. */
-export const manufacturerKinds: ReadonlyArray<{ segment: ManufacturerSegment; label: string }> = [
-    { segment: 'CSMs',  label: 'Charging station manufacturer' },
-    { segment: 'EMMs',  label: 'Energy meter manufacturer'     }
-];
-
-/**
- * A new manufacturer in the registries of a roaming network this hub operates, for whoever may add one: a change set
- * this hub signs, committed at once. The charging stations and energy meters of its parties may name it then. Added, the
- * page goes to the list of its kind.
- */
-function newManufacturerCard(navigate: (path: string) => void): TemplateResult | typeof nothing {
-
-    if (!auth.can('poi', 'edit'))
-        return nothing;
-
-    async function add(form: HTMLFormElement): Promise<void> {
-
-        const error  = must<HTMLElement>(form, '#manufacturer-error');
-        error.textContent = '';
-
-        try
-        {
-
-            const roamingNetworkId  = field(form, 'roamingNetwork');
-            const kind              = manufacturerKinds.find(entry => entry.segment === field(form, 'kind')) ?? manufacturerKinds[0];
-            const name              = field(form, 'name');
-            const homepage          = field(form, 'homepage');
-
-            await api.poi.addManufacturer(roamingNetworkId, kind.segment, {
-                '@id':     field(form, 'id'),
-                name:      name     ? { en: name } : undefined,
-                homepage:  homepage ? homepage     : undefined
-            });
-
-            form.reset();
-
-            navigate(listPathOf(roamingNetworkId, kind.segment));
-
-        }
-        catch (problem)
-        {
-            error.textContent = errorMessage(problem);
-        }
-
-    }
-
-    return html`
-        <section class="card wide poi-new-manufacturer">
-
-            <h2><i class="fa-solid fa-industry"></i> New manufacturer of a roaming network</h2>
-
-            <p class="hint">
-                Added by this hub as the operator of the roaming network to its registry of charging station or energy
-                meter manufacturers, with a change set it signs. The charging stations and energy meters of its parties
-                name a manufacturer of the network only.
-            </p>
-
-            <form id="manufacturer-form" class="form-stack"
-                  @submit=${(event: SubmitEvent) => { event.preventDefault(); void add(event.currentTarget as HTMLFormElement); }}>
-
-                <div class="form-grid">
-
-                    <label>Roaming network
-                        <input type="text" name="roamingNetwork" placeholder="QA" maxlength="64" required autocomplete="off" />
-                    </label>
-
-                    <label>Manufacturer of
-                        <select name="kind">
-                            ${manufacturerKinds.map(kind => html`<option value=${kind.segment}>${kind.label}</option>`)}
-                        </select>
-                    </label>
-
-                    <label>Identification
-                        <input type="text" name="id" placeholder="ACME" maxlength="64" required autocomplete="off" />
-                    </label>
-
-                    <label>Name
-                        <input type="text" name="name" placeholder="ACME Chargers" maxlength="100" />
-                    </label>
-
-                    <label>Homepage
-                        <input type="url" name="homepage" placeholder="https://acme.example" maxlength="200" />
-                    </label>
-
-                </div>
-
-                <div class="form-actions">
-                    <button type="submit" class="btn primary">Add the manufacturer</button>
-                    <span id="manufacturer-error" class="form-error" role="alert"></span>
-                </div>
-
-            </form>
-
-        </section>`;
-
-}
-
 /** The roaming networks this hub serves, each leading to its page; and a new one, for whoever may make it. */
 export const poiNetworksPage: Page = listPage<Summary>({
     title:        () => 'Roaming networks',
@@ -705,7 +609,7 @@ export const poiNetworksPage: Page = listPage<Summary>({
             <td>${textOf(entry.name)}</td>
             <td class="muted">${textOf(entry.description)}</td>
         </tr>`,
-    below:        navigate => html`${newNetworkCard(navigate)}${newPartyCard(navigate)}${newManufacturerCard(navigate)}`
+    below:        navigate => html`${newNetworkCard(navigate)}${newPartyCard(navigate)}`
 });
 
 /** The charging pools of every operator of a roaming network: what the points of interest are about. */
@@ -762,8 +666,8 @@ function summaryPage(section: Exclude<Segment, 'CPs'>, subtitle: string): Page {
 export const poiOperatorsPage:      Page = summaryPage('CSOs', 'Who runs the charging pools.');
 export const poiGridOperatorsPage:  Page = summaryPage('GOs',  'Who runs the grids the charging pools are connected to.');
 export const poiProvidersPage:      Page = summaryPage('EMPs', 'Who drivers charge with.');
-export const poiManufacturersPage:  Page = summaryPage('CSMs', 'Who makes the charging stations.');
-export const poiMeterMakersPage:    Page = summaryPage('EMMs', 'Who makes the energy meters.');
+export const poiManufacturersPage:  Page = summaryPage('CSMs', 'Who makes the charging stations, with their models.');
+export const poiMeterMakersPage:    Page = summaryPage('EMMs', 'Who makes the energy meters, with their models.');
 export const poiParkingPage:        Page = summaryPage('POs',  'Who runs the parking garages and spaces.');
 export const poiSoftwareMakersPage: Page = summaryPage('TSMs', 'Who makes the transparency software checking the meter values, with its releases.');
 export const poiAssessmentPage:     Page = summaryPage('CABs', 'Who certifies which transparency software checks the meters of which charging stations.');
@@ -811,6 +715,20 @@ export const energyMeterGroups: EmbeddedCollection = {
 
 /** What a grid operator embeds, each in a list of its own. */
 export const gridCollections: EmbeddedCollection[] = [ gridConnectionPoints, energyMeterTemplates, energyMeterGroups ];
+
+/** The models of a charging station manufacturer: what its charging stations are. */
+export const chargingStationModels: EmbeddedCollection = {
+    segment: 'models',  field: 'chargingStationModels',  label: 'Models',  one: 'Charging station model',  icon: 'fa-cube',
+    head:    [ 'Versions', 'Max. power' ],
+    cells:   model => [ ((model.versions as string[] | undefined) ?? []).join(', '), model.maxPower !== undefined ? `${Number(model.maxPower) / 1000} kW` : '' ]
+};
+
+/** The models of an energy meter manufacturer: what its energy meters are. */
+export const energyMeterModels: EmbeddedCollection = {
+    segment: 'models',  field: 'energyMeterModels',  label: 'Models',  one: 'Energy meter model',  icon: 'fa-cube',
+    head:    [ 'Versions', 'Accuracy class' ],
+    cells:   model => [ ((model.versions as string[] | undefined) ?? []).join(', '), String(model.accuracyClass ?? '') ]
+};
 
 /** The releases of a transparency software manufacturer: one per version of a software. */
 export const transparencySoftwareReleases: EmbeddedCollection = {
@@ -912,8 +830,8 @@ export const operatorCollections: EmbeddedCollection[] = [
 /** The groups and the offers of an e-mobility provider, each in a list of its own: of members of any operator. */
 export const providerCollections: EmbeddedCollection[] = [ evseGroups, chargingStationGroups, chargingPoolGroups, chargingTariffOffers ];
 
-/** The party a page below it is of, from its URL: /poi/RNs/{RN_Id}/{CSOs|GOs|POs|EMPs|TSMs|CABs}/{Id}/... */
-function operatorOf(url: URL, segment: 'CSOs' | 'GOs' | 'POs' | 'EMPs' | 'TSMs' | 'CABs'): string {
+/** The party a page below it is of, from its URL: /poi/RNs/{RN_Id}/{CSOs|GOs|POs|EMPs|CSMs|EMMs|TSMs|CABs}/{Id}/... */
+function operatorOf(url: URL, segment: 'CSOs' | 'GOs' | 'POs' | 'EMPs' | 'CSMs' | 'EMMs' | 'TSMs' | 'CABs'): string {
     const found = new RegExp(`^/poi/RNs/[^/]+/${segment}/([^/]+)`).exec(fromURL(url.pathname));
     return found ? decodeURIComponent(found[1]!) : '';
 }
@@ -924,7 +842,7 @@ export function gridOperatorOf(url: URL): string {
 }
 
 /** All of what an operator embeds, beyond the first its page shows, searched and paged: each leading to its page. */
-function embeddedListPage(parent:      'CSOs' | 'GOs' | 'POs' | 'EMPs' | 'TSMs' | 'CABs',
+function embeddedListPage(parent:      'CSOs' | 'GOs' | 'POs' | 'EMPs' | 'CSMs' | 'EMMs' | 'TSMs' | 'CABs',
                           collection:  EmbeddedCollection,
                           subtitle:    string): Page {
 
@@ -954,6 +872,12 @@ export const poiGridEnergyMeterTemplatesPage: Page = embeddedListPage('GOs', ene
 
 /** The groups of the energy meters of the grid connection points of a grid operator. */
 export const poiGridEnergyMeterGroupsPage: Page = embeddedListPage('GOs', energyMeterGroups, 'The groups of the energy meters of the grid connection points of a grid operator.');
+
+/** The models of a charging station manufacturer, all of them. */
+export const poiChargingStationModelsPage: Page = embeddedListPage('CSMs', chargingStationModels, 'The models of a charging station manufacturer, which its charging stations name.');
+
+/** The models of an energy meter manufacturer, all of them. */
+export const poiEnergyMeterModelsPage: Page = embeddedListPage('EMMs', energyMeterModels, 'The models of an energy meter manufacturer, which its energy meters name.');
 
 /** The releases of a transparency software manufacturer, all of them. */
 export const poiReleasesPage: Page = embeddedListPage('TSMs', transparencySoftwareReleases, 'The releases of a transparency software manufacturer.');
@@ -991,6 +915,8 @@ export const poiListPages: Record<string, Page> = {
     [`${poiHome}/:rn/POs`]:             poiParkingPage,
     [`${poiHome}/:rn/TSMs`]:            poiSoftwareMakersPage,
     [`${poiHome}/:rn/CABs`]:            poiAssessmentPage,
+    [`${poiHome}/:rn/CSMs/:csm/models`]:  poiChargingStationModelsPage,
+    [`${poiHome}/:rn/EMMs/:emm/models`]:  poiEnergyMeterModelsPage,
     [`${poiHome}/:rn/TSMs/:tsm/TSs`]:   poiReleasesPage,
     [`${poiHome}/:rn/CABs/:cab/TSCs`]:  poiCertificatesPage,
     [`${poiHome}/:rn/GOs/:go/GCPs`]:    poiGridConnectionPointsPage,

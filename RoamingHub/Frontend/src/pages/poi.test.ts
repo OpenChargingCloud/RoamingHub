@@ -9,7 +9,7 @@ import { asked, field, open, refused, submit, type, until, type Asked } from '..
 import { strict as assert }  from 'node:assert';
 import { describe, it }      from 'node:test';
 
-const { addressLine, gridOperatorOf, keysOf, listPathOf, poiCertificatesPage, poiChargingPoolsPage, poiGridConnectionPointsPage, poiReleasesPage, poiGridEnergyMeterGroupsPage, poiGridEnergyMeterTemplatesPage, poiListPages, poiNetworksPage, poiOperatorListPages, poiOperatorsPage, poiParkingListPages, poiProviderListPages, queryOf, roamingNetworkOf } = await import('./poi.ts');
+const { addressLine, gridOperatorOf, keysOf, listPathOf, poiCertificatesPage, poiChargingPoolsPage, poiChargingStationModelsPage, poiEnergyMeterModelsPage, poiGridConnectionPointsPage, poiReleasesPage, poiGridEnergyMeterGroupsPage, poiGridEnergyMeterTemplatesPage, poiListPages, poiNetworksPage, poiOperatorListPages, poiOperatorsPage, poiParkingListPages, poiProviderListPages, queryOf, roamingNetworkOf } = await import('./poi.ts');
 
 
 /** A part of a list, as the POI API answers: the entries, with the counts in the headers. */
@@ -59,6 +59,12 @@ function poiAPI({ path, query }: Asked): unknown {
     if (path === '/poi/RNs/rn1/GOs/DE*NET/GCPs')
         return listOf([ { '@id': 'GCP1', name: { de: 'Netzanschluss 1' }, voltageLevel: 'LowVoltage',
                           address: { street: 'Netzweg', houseNumber: '1', postalCode: '07743', city: { de: 'Jena' }, country: 'DEU' } } ], 1);
+
+    if (path === '/poi/RNs/rn1/CSMs/GraphDefined/models')
+        return listOf([ { '@id': 'GD-DC300', name: { en: 'GraphDefined DC 300' }, versions: [ '1.0', '1.1' ], maxPower: 300000 } ], 1);
+
+    if (path === '/poi/RNs/rn1/EMMs/KERNBERG/models')
+        return listOf([ { '@id': 'KDM-500', versions: [ '2.1' ], accuracyClass: 'B' } ], 1);
 
     if (path === '/poi/RNs/rn1/TSMs/GraphDefined/TSs')
         return listOf([ { '@id': 'chargy-1.5.0', name: { en: 'Chargy' }, version: '1.5.0', supportUntil: '2031-12-31T23:59:59.999Z' } ], 1);
@@ -218,6 +224,28 @@ describe('the points of interest', () => {
                          [ 'GCP1', 'Netzanschluss 1', 'LowVoltage', 'Netzweg 1, 07743 Jena, DEU' ]);
         assert.equal(root.querySelector<HTMLAnchorElement>('tbody a')!.getAttribute('href'), '/poi/RNs/rn1/GOs/DE*NET/GCPs/GCP1');
         assert.equal(root.querySelector('.poi-sections a.active')!.textContent!.trim(), 'Grid operators');
+
+    });
+
+    it('list the models of a charging station and of an energy meter manufacturer, each leading to its page', async () => {
+
+        assert.equal(poiListPages['/poi/RNs/:rn/CSMs/:csm/models'],  poiChargingStationModelsPage);
+        assert.equal(poiListPages['/poi/RNs/:rn/EMMs/:emm/models'],  poiEnergyMeterModelsPage);
+
+        const stations = await open(poiChargingStationModelsPage, '/poi/RNs/rn1/CSMs/GraphDefined/models', null, poiAPI, root => root.querySelector('tbody') !== null);
+
+        assert.equal(stations.querySelector('h1')!.textContent!.trim(), 'Models of GraphDefined');
+        assert.deepEqual([ ...stations.querySelectorAll('tbody tr td') ].map(cell => cell.textContent!.trim()),
+                         [ 'GD-DC300', 'GraphDefined DC 300', '1.0, 1.1', '300 kW' ]);
+        assert.equal(stations.querySelector<HTMLAnchorElement>('tbody a')!.getAttribute('href'), '/poi/RNs/rn1/CSMs/GraphDefined/models/GD-DC300');
+        assert.equal(stations.querySelector('.poi-sections a.active')!.textContent!.trim(), 'Charging station manufacturers');
+
+        const meters = await open(poiEnergyMeterModelsPage, '/poi/RNs/rn1/EMMs/KERNBERG/models', null, poiAPI, root => root.querySelector('tbody') !== null);
+
+        assert.equal(meters.querySelector('h1')!.textContent!.trim(), 'Models of KERNBERG');
+        assert.deepEqual([ ...meters.querySelectorAll('tbody tr td') ].map(cell => cell.textContent!.trim()),
+                         [ 'KDM-500', '', '2.1', 'B' ]);
+        assert.equal(meters.querySelector('.poi-sections a.active')!.textContent!.trim(), 'Energy meter manufacturers');
 
     });
 
@@ -399,71 +427,15 @@ describe('a new manufacturer of a roaming network', () => {
         assert.equal(listPathOf('Q A', 'CSOs'),      '/poi/RNs/Q%20A/CSOs');
     });
 
-    /** The stand-in POI API, and the hub adding a manufacturer as it is asked to - or saying why not. */
-    function adding(answer: (one: Asked) => unknown) {
-        return (one: Asked): unknown => one.method === 'POST' && one.path.startsWith('/poi/RNs/')
-                                            ? answer(one)
-                                            : poiAPI(one);
-    }
-
     const listed = (root: HTMLElement) => root.querySelector('tbody') !== null;
 
-    it('is offered below the list to whoever may add one, and to nobody else', async () => {
+    it('is a party: added with the card of a new party, which offers both kinds, and with no card of its own', async () => {
 
-        const viewer   = await open(poiNetworksPage, '/poi/RNs', [ 'peers:read' ],  poiAPI, listed);
-        assert.equal(viewer.querySelector('#manufacturer-form'), null, 'offered to somebody who may not add one');
+        const admin = await open(poiNetworksPage, '/poi/RNs', [ 'poi:edit' ], poiAPI, listed);
 
-        const admin    = await open(poiNetworksPage, '/poi/RNs', [ 'poi:edit' ],    poiAPI, listed);
-        assert.ok(admin.querySelector('#manufacturer-form'), 'not offered to whoever may add one');
-
-    });
-
-    it('is asked for at the list of its kind, with its name and homepage, and the form emptied once it is added', async () => {
-
-        const root = await open(poiNetworksPage, '/poi/RNs', [ 'poi:edit' ],
-                                adding(() => ({ message: 'added', revision: 2, commitId: 'c2' })),
-                                listed);
-
-        type(field(root, '#manufacturer-form', 'roamingNetwork'),  'QA');
-        type(field(root, '#manufacturer-form', 'id'),              'SAALE');
-        type(field(root, '#manufacturer-form', 'name'),            'Saale Metering');
-        type(field(root, '#manufacturer-form', 'homepage'),        'https://saale-metering.example');
-
-        const kind = field<HTMLSelectElement>(root, '#manufacturer-form', 'kind');
-        kind.value = 'EMMs';
-        kind.dispatchEvent(new Event('change', { bubbles: true }));
-
-        submit(root, '#manufacturer-form');
-
-        await until(() => asked.some(one => one.method === 'POST'), 'the hub was not asked');
-        await until(() => field(root, '#manufacturer-form', 'id').value === '', 'the form was not emptied');
-
-        const post = asked.find(one => one.method === 'POST')!;
-
-        assert.equal(post.path, '/poi/RNs/QA/EMMs');
-        assert.deepEqual(post.body, {
-                             '@id':     'SAALE',
-                             name:      { en: 'Saale Metering' },
-                             homepage:  'https://saale-metering.example'
-                         });
-
-    });
-
-    it('says why the hub did not add it, and keeps what was typed in', async () => {
-
-        const root = await open(poiNetworksPage, '/poi/RNs', [ 'poi:edit' ],
-                                adding(() => refused(409, "The roaming network 'QA' has the ChargingStationManufacturer 'GraphDefined' already.")),
-                                listed);
-
-        type(field(root, '#manufacturer-form', 'roamingNetwork'),  'QA');
-        type(field(root, '#manufacturer-form', 'id'),              'GraphDefined');
-
-        submit(root, '#manufacturer-form');
-
-        await until(() => root.querySelector('#manufacturer-error')!.textContent !== '', 'nothing was said');
-
-        assert.match(root.querySelector('#manufacturer-error')!.textContent!, /has the ChargingStationManufacturer 'GraphDefined' already/);
-        assert.equal(field(root, '#manufacturer-form', 'id').value, 'GraphDefined');
+        assert.equal(admin.querySelector('#manufacturer-form'), null, 'a card of its own');
+        assert.deepEqual([ ...field<HTMLSelectElement>(admin, '#party-form', 'kind').options ].map(option => option.value).filter(value => value.endsWith('Ms')),
+                         [ 'CSMs', 'EMMs', 'TSMs' ]);
 
     });
 
@@ -588,7 +560,8 @@ describe('a new party of a roaming network', () => {
         assert.equal(post.path, '/poi/RNs/QA/CABs');
         assert.deepEqual(post.body, { '@id': 'BSI' });
 
-        // A transparency software manufacturer comes with its keys, even when none were typed in: the hub refuses it then.
+        // A transparency software manufacturer comes with its keys, even when none were typed in: the hub refuses it then;
+        // so does a charging station or energy meter manufacturer, below.
         asked.length = 0;
 
         type(field(root, '#party-form', 'roamingNetwork'),  'QA');
@@ -604,6 +577,22 @@ describe('a new party of a roaming network', () => {
 
         assert.equal(software.path, '/poi/RNs/QA/TSMs');
         assert.deepEqual(software.body, { '@id': 'GraphDefined', signingKeys: [], identityKeys: [] });
+
+        asked.length = 0;
+
+        type(field(root, '#party-form', 'roamingNetwork'),  'QA');
+        type(field(root, '#party-form', 'id'),              'KERNBERG');
+        kind.value = 'EMMs';
+        kind.dispatchEvent(new Event('change', { bubbles: true }));
+
+        submit(root, '#party-form');
+
+        await until(() => asked.some(one => one.method === 'POST'), 'the hub was not asked');
+
+        const meters = asked.find(one => one.method === 'POST')!;
+
+        assert.equal(meters.path, '/poi/RNs/QA/EMMs');
+        assert.deepEqual(meters.body, { '@id': 'KERNBERG', signingKeys: [], identityKeys: [] });
 
     });
 
