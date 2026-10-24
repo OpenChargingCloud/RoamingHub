@@ -120,12 +120,12 @@ function poiAPI({ path, query }: Asked): unknown {
         return listOf([ { '@id': 'rn1', name: { en: 'Roaming Network 1' }, description: { en: 'The first one.' } } ], 1);
 
     // The roaming network without what it holds: what it says of itself, with the ETags of all of it.
-    if (path === '/poi/RNs/rn1' && query.get('without') === 'chargingStationManufacturers,chargingStationOperators,eMobilityProviders,energyMeterManufacturers,gridOperators,parkingOperators')
+    if (path === '/poi/RNs/rn1' && query.get('without') === 'chargingStationManufacturers,chargingStationOperators,conformityAssessmentBodies,eMobilityProviders,energyMeterManufacturers,gridOperators,parkingOperators,transparencySoftwareManufacturers')
         return entityOf({ '@context': 'https://open.charging.cloud/contexts/POI3/roamingNetwork', '@id': 'rn1',
                           name: { en: 'Roaming Network 1' }, description: { en: 'The first one.' }, dataSource: 'https://data.example',
                           eTags: [ [ 'json', 'sha256', 'hex', 'abc' ], [ 'cbor', 'sha256', 'hex', 'def' ] ] }, '"json:sha256:hex:slim"');
 
-    const counts: Record<string, number> = { CPs: 42, CSOs: 3, GOs: 1, EMPs: 2, CSMs: 0, EMMs: 1, POs: 0 };
+    const counts: Record<string, number> = { CPs: 42, CSOs: 3, GOs: 1, EMPs: 2, CSMs: 0, EMMs: 1, TSMs: 1, CABs: 2, POs: 0 };
     const list = /^\/poi\/RNs\/rn1\/([A-Za-z]+)$/.exec(path);
 
     // What a driver's app scans: the identity key of the operator of rn1.
@@ -314,6 +314,8 @@ describe('the single things of the points of interest', () => {
         assert.equal(root.querySelector('h1')!.textContent!.trim(), 'Roaming Network 1');
         assert.equal(root.querySelector('#poi-count-CPs')!.textContent!.trim(),   '42');
         assert.equal(root.querySelector('#poi-count-CSOs')!.textContent!.trim(),  '3');
+        assert.equal(root.querySelector('#poi-count-TSMs')!.textContent!.trim(),  '1');
+        assert.equal(root.querySelector('#poi-count-CABs')!.textContent!.trim(),  '2');
         assert.match(root.querySelector('.poi-entity')!.textContent!, /The first one\./);
 
         assert.equal(root.querySelector<HTMLAnchorElement>('.poi-holds a')!.getAttribute('href'), '/poi/RNs/rn1/CPs');

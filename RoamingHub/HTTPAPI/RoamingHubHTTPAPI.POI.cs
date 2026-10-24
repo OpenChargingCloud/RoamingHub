@@ -58,6 +58,8 @@ namespace cloud.charging.open.RoamingHub
             AddHandler(HTTPPath.Root + "v1/poi/roamingNetworkOperator/name",                PutNetworkOperatorName,     HTTPMethod.PUT);
             AddHandler(HTTPPath.Root + "v1/poi/RNs",                                        PostRoamingNetwork,         HTTPMethod.POST);
             AddHandler(HTTPPath.Root + "v1/poi/RNs/{roamingNetworkId}/{parties}",           PostParty,                  HTTPMethod.POST);
+            // Variable as the path of a party, which a literal segment would hide.
+            AddHandler(HTTPPath.Root + "v1/poi/RNs/{roamingNetworkId}/{parties}/{partyId}/{children}", PostCertificate, HTTPMethod.POST);
 
         }
 
@@ -228,10 +230,66 @@ namespace cloud.charging.open.RoamingHub
 
         #endregion
 
+        #region (private) PostCertificate(Request)
+
+        /// <summary>
+        /// POST /api/v1/poi/RNs/{roamingNetworkId}/CABs/{conformityAssessmentBodyId}/TSCs with a transparency software
+        /// certificate as POI 3 writes it: add it for a conformity assessment body without keys, signed by this hub in its
+        /// place. 201 with the commit; 400 where the certificate is invalid or the body has keys of its own, and so signs
+        /// its certificates itself; 404 where there is no such roaming network or body, 403 where another roaming network
+        /// operator operates it, 409 where it has the certificate already, 422 where its history refused the commit.
+        /// </summary>
+        private Task<HTTPResponse> PostCertificate(HTTPRequest Request)
+        {
+
+            if (!TryAuthorize(Request, Permission.Edit(HubAccess.POI), true, out var user, out var refused))
+                return Task.FromResult(refused);
+
+            var parameters = Request.ParsedURLParameters;
+
+            if (parameters.Length < 4 || parameters[1] != "CABs" || parameters[3] != "TSCs" || !RoamingNetwork_Id.TryParse(parameters[0], out var roamingNetworkId))
+                return Task.FromResult(ErrorJSON(Request, HTTPStatusCode.NotFound, "A certificate is added at .../RNs/{roamingNetworkId}/CABs/{conformityAssessmentBodyId}/TSCs."));
+
+            if (!TryParseJSONObject(Request, out var json, out var errorResponse))
+                return Task.FromResult(errorResponse);
+
+            var result = RoamingHub.AddTransparencySoftwareCertificate(roamingNetworkId, parameters[2], json);
+
+            if (!result.Success || result.Commit is null)
+                return Task.FromResult(
+                           ErrorJSON(Request,
+                                     result.Status switch {
+                                         RoamingNetworkPartyStatus.UnknownRoamingNetwork  => HTTPStatusCode.NotFound,
+                                         RoamingNetworkPartyStatus.NotOperatedHere        => HTTPStatusCode.Forbidden,
+                                         RoamingNetworkPartyStatus.Exists                 => HTTPStatusCode.Conflict,
+                                         RoamingNetworkPartyStatus.Refused                => HTTPStatusCode.UnprocessableEntity,
+                                         _                                                => HTTPStatusCode.BadRequest
+                                     },
+                                     result.Message)
+                       );
+
+            Log.Notice($"'{user.Id}' added the transparency software certificate '{json["@id"]}' of the conformity assessment body '{parameters[2]}' to the roaming network '{roamingNetworkId}', " +
+                       $"signed by this hub, '{RoamingHub.NetworkOperator.Id}', in the place of the body.",
+                       "poi", "web", "security");
+
+            return Task.FromResult(
+                       JSONResponse(Request,
+                                    HTTPStatusCode.Created,
+                                    new JObject(
+                                        new JProperty("message",   result.Message),
+                                        new JProperty("revision",  result.Commit.Revision),
+                                        new JProperty("commitId",  result.Commit.Id.ToString())
+                                    ))
+                   );
+
+        }
+
+        #endregion
+
         #region (private) PostParty(Request)
 
         /// <summary>
-        /// POST /api/v1/poi/RNs/{roamingNetworkId}/{CSOs | EMPs | GOs | POs}, the path the POI API lists them at, with
+        /// POST /api/v1/poi/RNs/{roamingNetworkId}/{CSOs | EMPs | GOs | POs | TSMs | CABs}, the path the POI API lists them at, with
         /// the party as POI 3 writes it, {"@id", "name"?, ..., "signingKeys", "identityKeys"}, its public keys: add it
         /// to a roaming network this hub operates, signed by this hub. Also .../{CSMs | EMMs} with a manufacturer of
         /// charging stations or of energy meters, {"@id", "name"?, "homepage"?, ...}, to the registry of the network.
@@ -239,7 +297,7 @@ namespace cloud.charging.open.RoamingHub
         /// <remarks>
         /// 202 with the change set that adds it, waiting for the signatures of its identity keys, as the proof that it
         /// holds them: {message, status: "pending", changeSetId, changeSet, missing}; 201 with the commit that added a
-        /// grid operator or a manufacturer without keys; 400 where it is no party or manufacturer this hub adds, 404
+        /// grid operator, a conformity assessment body or a manufacturer without keys; 400 where it is no party or manufacturer this hub adds, 404
         /// where there is no such roaming network, 403 where another roaming network operator operates it, 409 where it
         /// has that party or manufacturer already, 422 where its history refused the commit.
         /// </remarks>

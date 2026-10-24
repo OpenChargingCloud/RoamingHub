@@ -566,9 +566,10 @@ could not be written. Every commit the hub makes of a roaming network it
 operates is signed by its signing key, in the role `roamingNetworkOperator`.
 
 The hub adds the parties of a roaming network it operates - charging station
-operators, e-mobility providers, grid operators and parking operators - with a
+operators, e-mobility providers, grid operators, parking operators, transparency
+software manufacturers and conformity assessment bodies - with a
 change set it signs: `AddParty(roamingNetworkId, entityType, json)` in C#,
-`POST /api/v1/poi/RNs/{id}/CSOs` (or `EMPs`, `GOs`, `POs`) with the party as
+`POST /api/v1/poi/RNs/{id}/CSOs` (or `EMPs`, `GOs`, `POs`, `TSMs`, `CABs`) with the party as
 POI writes it - the path the POI API lists it at, `/poi/RNs/{id}/CSOs`, below
 `/api/v1` - `{"@id", "name"?, …, "signingKeys", "identityKeys"}`, the second
 form below the list, or `roamingNetworks <id> add chargingStationOperator
@@ -576,13 +577,13 @@ form below the list, or `roamingNetworks <id> add chargingStationOperator
 The party keeps its private keys: a key is the Base64 of its COSE key or a key
 as POI writes it, its identification calculated where it is not given, and a
 private key is refused, as it is private no more once it was sent. A grid
-operator not taking part comes without keys. The change set waits until the
+operator or a conformity assessment body not taking part comes without keys. The change set waits until the
 party signed it with each of its identity keys, as the proof that it holds them
 (SPECIFICATION.md of WWCP POI, section 4.1), with `POST
 /poi/RNs/{id}/history/changeSets/pending/{changeSetId}/signatures`, and is
 committed then. 202 with the change set waiting, `{message, status: "pending",
-changeSetId, changeSet, missing}`, 201 with the commit of a grid operator
-without keys, 400 where it
+changeSetId, changeSet, missing}`, 201 with the commit of a grid operator or a
+conformity assessment body without keys, 400 where it
 is no party this hub adds, 403 where another operator operates the network,
 404 where there is no such network, 409 where it has that party already, and
 422 where its history refused the commit, e.g. for a party with its charging
@@ -602,6 +603,20 @@ and meters naming them. Committed at once, 201; one naming identity keys waits
 for their signatures, 202, as a party does; 409 where it has that manufacturer
 already, the other answers as for a party; `poi:edit` as well. The POI API lists
 them at `/poi/RNs/{id}/CSMs` and `/poi/RNs/{id}/EMMs`.
+
+A transparency software manufacturer states its releases itself, and a
+conformity assessment body with keys its certificates, with change sets they
+sign and submit to the POI API. For a conformity assessment body without keys,
+which does not take part yet, the hub adds its certificates in its place:
+`AddTransparencySoftwareCertificate(roamingNetworkId, bodyId, json)` in C#, or
+`POST /api/v1/poi/RNs/{id}/CABs/{bodyId}/TSCs` with the certificate as POI
+writes it; 201 with the commit, 400 where the body has keys of its own or the
+certificate is invalid, e.g. under a legislation the body is not `notifiedFor`,
+409 where the network has it already; `poi:edit`. Such a certificate is a
+statement of the hub as the roaming network operator, not of the body. The POI
+API lists them at `/poi/RNs/{id}/TSMs` and `/poi/RNs/{id}/CABs`, their releases
+and certificates below them, `…/TSMs/{id}/TSs` and `…/CABs/{id}/TSCs`; the web
+interface has a section for each.
 
 A key of the operator is replaced by a new one in every roaming network it
 operates (`RoamingHub.RoamingNetworkOperator.Changes.cs`):

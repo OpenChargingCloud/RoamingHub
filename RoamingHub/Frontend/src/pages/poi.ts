@@ -43,6 +43,8 @@ export const sections = [
     { segment: 'EMPs',  label: 'E-mobility providers',            icon: 'fa-id-card'           },
     { segment: 'CSMs',  label: 'Charging station manufacturers',  icon: 'fa-industry'          },
     { segment: 'EMMs',  label: 'Energy meter manufacturers',      icon: 'fa-gauge-high'        },
+    { segment: 'TSMs',  label: 'Transparency software manufacturers',  icon: 'fa-laptop-code'  },
+    { segment: 'CABs',  label: 'Conformity assessment bodies',    icon: 'fa-stamp'             },
     { segment: 'POs',   label: 'Parking operators',               icon: 'fa-square-parking'    }
 ] as const;
 
@@ -467,8 +469,13 @@ export const partyKinds: ReadonlyArray<{ segment: PartySegment; label: string }>
     { segment: 'CSOs',  label: 'Charging station operator' },
     { segment: 'EMPs',  label: 'E-mobility provider'       },
     { segment: 'GOs',   label: 'Grid operator'             },
-    { segment: 'POs',   label: 'Parking operator'          }
+    { segment: 'POs',   label: 'Parking operator'          },
+    { segment: 'TSMs',  label: 'Transparency software manufacturer' },
+    { segment: 'CABs',  label: 'Conformity assessment body'         }
 ];
+
+/** The parties that may come without keys, not taking part (yet): the hub signs in their place. */
+const keylessKinds: ReadonlySet<PartySegment> = new Set<PartySegment>([ 'GOs', 'CABs' ]);
 
 /**
  * A new party of a roaming network this hub operates, for whoever may add one: a change set this hub signs. The
@@ -498,9 +505,9 @@ function newPartyCard(navigate: (path: string) => void): TemplateResult | typeof
             const added = await api.poi.addParty(roamingNetworkId, kind.segment, {
                 '@id':         field(form, 'id'),
                 name:          name ? { en: name } : undefined,
-                // A grid operator not taking part comes without keys: the hub signs in its place.
-                signingKeys:   signingKeys. length > 0 || kind.segment !== 'GOs' ? signingKeys  : undefined,
-                identityKeys:  identityKeys.length > 0 || kind.segment !== 'GOs' ? identityKeys : undefined
+                // A grid operator or a conformity assessment body not taking part comes without keys: the hub signs in its place.
+                signingKeys:   signingKeys. length > 0 || !keylessKinds.has(kind.segment) ? signingKeys  : undefined,
+                identityKeys:  identityKeys.length > 0 || !keylessKinds.has(kind.segment) ? identityKeys : undefined
             });
 
             form.reset();
@@ -758,6 +765,8 @@ export const poiProvidersPage:      Page = summaryPage('EMPs', 'Who drivers char
 export const poiManufacturersPage:  Page = summaryPage('CSMs', 'Who makes the charging stations.');
 export const poiMeterMakersPage:    Page = summaryPage('EMMs', 'Who makes the energy meters.');
 export const poiParkingPage:        Page = summaryPage('POs',  'Who runs the parking garages and spaces.');
+export const poiSoftwareMakersPage: Page = summaryPage('TSMs', 'Who makes the transparency software checking the meter values, with its releases.');
+export const poiAssessmentPage:     Page = summaryPage('CABs', 'Who certifies which transparency software checks the meters of which charging stations.');
 
 /** What an operator embeds and the API lists below it, e.g. /poi/RNs/rn1/GOs/DE*NET/GCPs: what of each a table shows. */
 export interface EmbeddedCollection {
@@ -802,6 +811,20 @@ export const energyMeterGroups: EmbeddedCollection = {
 
 /** What a grid operator embeds, each in a list of its own. */
 export const gridCollections: EmbeddedCollection[] = [ gridConnectionPoints, energyMeterTemplates, energyMeterGroups ];
+
+/** The releases of a transparency software manufacturer: one per version of a software. */
+export const transparencySoftwareReleases: EmbeddedCollection = {
+    segment: 'TSs',  field: 'transparencySoftware',  label: 'Releases',  one: 'Transparency software release',  icon: 'fa-code-branch',
+    head:    [ 'Version', 'Supported until' ],
+    cells:   release => [ String(release.version ?? ''), String(release.supportUntil ?? '') ]
+};
+
+/** The transparency software certificates a conformity assessment body issued: for a charging station model each. */
+export const transparencySoftwareCertificates: EmbeddedCollection = {
+    segment: 'TSCs',  field: 'transparencySoftwareCertificates',  label: 'Certificates',  one: 'Transparency software certificate',  icon: 'fa-certificate',
+    head:    [ 'Charging station model', 'Legislation' ],
+    cells:   certificate => [ `${String(certificate.chargingStationModel ?? '')} ${String(certificate.chargingStationModelVersion ?? '')}`.trim(), String(certificate.legislation ?? '') ]
+};
 
 /** What a parking operator embeds, each in a list of its own. */
 export const parkingCollections: EmbeddedCollection[] = [
@@ -889,8 +912,8 @@ export const operatorCollections: EmbeddedCollection[] = [
 /** The groups and the offers of an e-mobility provider, each in a list of its own: of members of any operator. */
 export const providerCollections: EmbeddedCollection[] = [ evseGroups, chargingStationGroups, chargingPoolGroups, chargingTariffOffers ];
 
-/** The operator or provider a page below it is of, from its URL: /poi/RNs/{RN_Id}/{CSOs|GOs|POs|EMPs}/{Id}/... */
-function operatorOf(url: URL, segment: 'CSOs' | 'GOs' | 'POs' | 'EMPs'): string {
+/** The party a page below it is of, from its URL: /poi/RNs/{RN_Id}/{CSOs|GOs|POs|EMPs|TSMs|CABs}/{Id}/... */
+function operatorOf(url: URL, segment: 'CSOs' | 'GOs' | 'POs' | 'EMPs' | 'TSMs' | 'CABs'): string {
     const found = new RegExp(`^/poi/RNs/[^/]+/${segment}/([^/]+)`).exec(fromURL(url.pathname));
     return found ? decodeURIComponent(found[1]!) : '';
 }
@@ -901,7 +924,7 @@ export function gridOperatorOf(url: URL): string {
 }
 
 /** All of what an operator embeds, beyond the first its page shows, searched and paged: each leading to its page. */
-function embeddedListPage(parent:      'CSOs' | 'GOs' | 'POs' | 'EMPs',
+function embeddedListPage(parent:      'CSOs' | 'GOs' | 'POs' | 'EMPs' | 'TSMs' | 'CABs',
                           collection:  EmbeddedCollection,
                           subtitle:    string): Page {
 
@@ -932,6 +955,12 @@ export const poiGridEnergyMeterTemplatesPage: Page = embeddedListPage('GOs', ene
 /** The groups of the energy meters of the grid connection points of a grid operator. */
 export const poiGridEnergyMeterGroupsPage: Page = embeddedListPage('GOs', energyMeterGroups, 'The groups of the energy meters of the grid connection points of a grid operator.');
 
+/** The releases of a transparency software manufacturer, all of them. */
+export const poiReleasesPage: Page = embeddedListPage('TSMs', transparencySoftwareReleases, 'The releases of a transparency software manufacturer.');
+
+/** The certificates of a conformity assessment body, all of them. */
+export const poiCertificatesPage: Page = embeddedListPage('CABs', transparencySoftwareCertificates, 'The transparency software certificates a conformity assessment body issued.');
+
 /** The groups and the offers of an e-mobility provider, a list each. */
 export const poiProviderListPages: Record<string, Page> = Object.fromEntries(
     providerCollections.map(collection => [ `${poiHome}/:rn/EMPs/:emp/${collection.segment}`,
@@ -960,6 +989,10 @@ export const poiListPages: Record<string, Page> = {
     [`${poiHome}/:rn/CSMs`]:            poiManufacturersPage,
     [`${poiHome}/:rn/EMMs`]:            poiMeterMakersPage,
     [`${poiHome}/:rn/POs`]:             poiParkingPage,
+    [`${poiHome}/:rn/TSMs`]:            poiSoftwareMakersPage,
+    [`${poiHome}/:rn/CABs`]:            poiAssessmentPage,
+    [`${poiHome}/:rn/TSMs/:tsm/TSs`]:   poiReleasesPage,
+    [`${poiHome}/:rn/CABs/:cab/TSCs`]:  poiCertificatesPage,
     [`${poiHome}/:rn/GOs/:go/GCPs`]:    poiGridConnectionPointsPage,
     [`${poiHome}/:rn/GOs/:go/EMTs`]:    poiGridEnergyMeterTemplatesPage,
     [`${poiHome}/:rn/GOs/:go/EMGs`]:    poiGridEnergyMeterGroupsPage,

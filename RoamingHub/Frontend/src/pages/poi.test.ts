@@ -9,7 +9,7 @@ import { asked, field, open, refused, submit, type, until, type Asked } from '..
 import { strict as assert }  from 'node:assert';
 import { describe, it }      from 'node:test';
 
-const { addressLine, gridOperatorOf, keysOf, listPathOf, poiChargingPoolsPage, poiGridConnectionPointsPage, poiGridEnergyMeterGroupsPage, poiGridEnergyMeterTemplatesPage, poiListPages, poiNetworksPage, poiOperatorListPages, poiOperatorsPage, poiParkingListPages, poiProviderListPages, queryOf, roamingNetworkOf } = await import('./poi.ts');
+const { addressLine, gridOperatorOf, keysOf, listPathOf, poiCertificatesPage, poiChargingPoolsPage, poiGridConnectionPointsPage, poiReleasesPage, poiGridEnergyMeterGroupsPage, poiGridEnergyMeterTemplatesPage, poiListPages, poiNetworksPage, poiOperatorListPages, poiOperatorsPage, poiParkingListPages, poiProviderListPages, queryOf, roamingNetworkOf } = await import('./poi.ts');
 
 
 /** A part of a list, as the POI API answers: the entries, with the counts in the headers. */
@@ -59,6 +59,13 @@ function poiAPI({ path, query }: Asked): unknown {
     if (path === '/poi/RNs/rn1/GOs/DE*NET/GCPs')
         return listOf([ { '@id': 'GCP1', name: { de: 'Netzanschluss 1' }, voltageLevel: 'LowVoltage',
                           address: { street: 'Netzweg', houseNumber: '1', postalCode: '07743', city: { de: 'Jena' }, country: 'DEU' } } ], 1);
+
+    if (path === '/poi/RNs/rn1/TSMs/GraphDefined/TSs')
+        return listOf([ { '@id': 'chargy-1.5.0', name: { en: 'Chargy' }, version: '1.5.0', supportUntil: '2031-12-31T23:59:59.999Z' } ], 1);
+
+    if (path === '/poi/RNs/rn1/CABs/PTB/TSCs')
+        return listOf([ { '@id': 'PTB-2026-0042', chargingStationModel: 'GD-DC300', chargingStationModelVersion: '1.0', legislation: 'MID',
+                          verifiedTransparencySoftwareIds: [ 'chargy-1.5.0' ], compatibleTransparencySoftwareIds: [] } ], 1);
 
     if (path === '/poi/RNs/rn1/GOs/DE*NET/EMTs')
         return listOf([ { '@id': 'net-grid-meters', name: { en: 'Grid meters' }, manufacturerId: 'ZAP', modelId: 'ZAP-1' } ], 1);
@@ -211,6 +218,29 @@ describe('the points of interest', () => {
                          [ 'GCP1', 'Netzanschluss 1', 'LowVoltage', 'Netzweg 1, 07743 Jena, DEU' ]);
         assert.equal(root.querySelector<HTMLAnchorElement>('tbody a')!.getAttribute('href'), '/poi/RNs/rn1/GOs/DE*NET/GCPs/GCP1');
         assert.equal(root.querySelector('.poi-sections a.active')!.textContent!.trim(), 'Grid operators');
+
+    });
+
+    it('list the releases of a transparency software manufacturer and the certificates of a conformity assessment body, each leading to its page', async () => {
+
+        assert.equal(poiListPages['/poi/RNs/:rn/TSMs/:tsm/TSs'],   poiReleasesPage);
+        assert.equal(poiListPages['/poi/RNs/:rn/CABs/:cab/TSCs'],  poiCertificatesPage);
+
+        const releases = await open(poiReleasesPage, '/poi/RNs/rn1/TSMs/GraphDefined/TSs', null, poiAPI, root => root.querySelector('tbody') !== null);
+
+        assert.equal(releases.querySelector('h1')!.textContent!.trim(), 'Releases of GraphDefined');
+        assert.deepEqual([ ...releases.querySelectorAll('tbody tr td') ].map(cell => cell.textContent!.trim()),
+                         [ 'chargy-1.5.0', 'Chargy', '1.5.0', '2031-12-31T23:59:59.999Z' ]);
+        assert.equal(releases.querySelector<HTMLAnchorElement>('tbody a')!.getAttribute('href'), '/poi/RNs/rn1/TSMs/GraphDefined/TSs/chargy-1.5.0');
+        assert.equal(releases.querySelector('.poi-sections a.active')!.textContent!.trim(), 'Transparency software manufacturers');
+
+        const certificates = await open(poiCertificatesPage, '/poi/RNs/rn1/CABs/PTB/TSCs', null, poiAPI, root => root.querySelector('tbody') !== null);
+
+        assert.equal(certificates.querySelector('h1')!.textContent!.trim(), 'Certificates of PTB');
+        assert.deepEqual([ ...certificates.querySelectorAll('tbody tr td') ].map(cell => cell.textContent!.trim()),
+                         [ 'PTB-2026-0042', '', 'GD-DC300 1.0', 'MID' ]);
+        assert.equal(certificates.querySelector<HTMLAnchorElement>('tbody a')!.getAttribute('href'), '/poi/RNs/rn1/CABs/PTB/TSCs/PTB-2026-0042');
+        assert.equal(certificates.querySelector('.poi-sections a.active')!.textContent!.trim(), 'Conformity assessment bodies');
 
     });
 
@@ -533,6 +563,47 @@ describe('a new party of a roaming network', () => {
 
         assert.equal(post.path, '/poi/RNs/QA/GOs');
         assert.deepEqual(post.body, { '@id': 'DE*NET' });
+
+    });
+
+    it('adds a conformity assessment body not taking part without keys, and a transparency software manufacturer with them', async () => {
+
+        const root = await open(poiNetworksPage, '/poi/RNs', [ 'poi:edit' ],
+                                adding(() => ({ message: 'added', revision: 1, commitId: 'c1' })),
+                                listed);
+
+        type(field(root, '#party-form', 'roamingNetwork'),  'QA');
+        type(field(root, '#party-form', 'id'),              'BSI');
+
+        const kind = field<HTMLSelectElement>(root, '#party-form', 'kind');
+        kind.value = 'CABs';
+        kind.dispatchEvent(new Event('change', { bubbles: true }));
+
+        submit(root, '#party-form');
+
+        await until(() => asked.some(one => one.method === 'POST'), 'the hub was not asked');
+
+        const post = asked.find(one => one.method === 'POST')!;
+
+        assert.equal(post.path, '/poi/RNs/QA/CABs');
+        assert.deepEqual(post.body, { '@id': 'BSI' });
+
+        // A transparency software manufacturer comes with its keys, even when none were typed in: the hub refuses it then.
+        asked.length = 0;
+
+        type(field(root, '#party-form', 'roamingNetwork'),  'QA');
+        type(field(root, '#party-form', 'id'),              'GraphDefined');
+        kind.value = 'TSMs';
+        kind.dispatchEvent(new Event('change', { bubbles: true }));
+
+        submit(root, '#party-form');
+
+        await until(() => asked.some(one => one.method === 'POST'), 'the hub was not asked');
+
+        const software = asked.find(one => one.method === 'POST')!;
+
+        assert.equal(software.path, '/poi/RNs/QA/TSMs');
+        assert.deepEqual(software.body, { '@id': 'GraphDefined', signingKeys: [], identityKeys: [] });
 
     });
 

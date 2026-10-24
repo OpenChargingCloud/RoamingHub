@@ -309,7 +309,7 @@ export interface RoamingNetworkMade {
 }
 
 /** The parties of a roaming network the hub adds: the segment the POI API lists them at, which is the last one of where a party is added. */
-export type PartySegment = 'CSOs' | 'EMPs' | 'GOs' | 'POs';
+export type PartySegment = 'CSOs' | 'EMPs' | 'GOs' | 'POs' | 'TSMs' | 'CABs';
 
 /** The manufacturers the hub adds to the registries of a roaming network: the segment the POI API lists them at, which is the last one of where one is added. */
 export type ManufacturerSegment = 'CSMs' | 'EMMs';
@@ -321,7 +321,7 @@ export interface ManufacturerSpec {
     homepage?:  string;
 }
 
-/** A party to be added: what names it, and its public keys. A grid operator not taking part comes without keys. */
+/** A party to be added: what names it, and its public keys. A grid operator or a conformity assessment body not taking part comes without keys. */
 export interface PartySpec {
     '@id':          string;
     name?:          Record<string, string>;

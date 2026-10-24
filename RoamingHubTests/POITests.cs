@@ -651,6 +651,124 @@ namespace cloud.charging.open.RoamingHub.Tests
 
         #endregion
 
+        #region TheHubAddsTransparencySoftwareManufacturersAndConformityAssessmentBodies()
+
+        /// <summary>
+        /// Both are parties: the hub adds them as the roaming network operator. The manufacturer GraphDefined, with its
+        /// keys, is added once its identity key signed, and states its release itself; the BSI, without keys, is added at
+        /// once, and the hub adds its certificate in its place; the PTB, with keys, signs its certificates itself, so the
+        /// hub adds none of it.
+        /// </summary>
+        [Test]
+        public async Task TheHubAddsTransparencySoftwareManufacturersAndConformityAssessmentBodies()
+        {
+
+            await MadeWithQAC();
+
+            using var anybody      = Anonymous();
+            using var admin        = await SignedIn();
+
+            var softwareKey        = NewKey(COSECurve.P256);
+            var softwareIdentity   = NewKey(COSECurve.P521);
+            var ptbKey             = NewKey(COSECurve.P256);
+            var ptbIdentity        = NewKey(COSECurve.P521);
+
+            // A party with keys, added once it signed the change set with its identity key, as the proof that it holds it.
+            async Task<String> AddedWithKeys(String Segment, String Id, ECPrivateKeyParameters SigningKey, ECPrivateKeyParameters IdentityKey)
+            {
+
+                var asked      = await Post(admin,
+                                            new JObject(new JProperty("@id",           Id),
+                                                        new JProperty("signingKeys",   new JArray(POIPublicKey.From(SigningKey). ToJSON())),
+                                                        new JProperty("identityKeys",  new JArray(POIPublicKey.From(IdentityKey).ToJSON()))),
+                                            $"{NewPath}/QA/{Segment}");
+
+                var askedText  = await asked.Content.ReadAsStringAsync();
+                var askedJSON  = JObject.Load(new Newtonsoft.Json.JsonTextReader(new StringReader(askedText)) { DateParseHandling = Newtonsoft.Json.DateParseHandling.None });
+
+                Assert.That(asked.StatusCode, Is.EqualTo(HttpStatusCode.Accepted), askedText);
+                Assert.That(RoamingNetworkChangeSet.TryParse((JObject) askedJSON["changeSet"]!, out var changeSet, out var error), Is.True, error);
+
+                var proof      = changeSet!.Sign(IdentityKey, POIPublicKey.From(IdentityKey).Id, COSEAlgorithm.ES512).Signatures[^1];
+                var signed     = await Post(anybody,
+                                            new JObject(new JProperty("signatures", new JArray(proof.ToJSON()))),
+                                            $"poi/RNs/QA/history/changeSets/pending/{changeSet.Id}/signatures");
+
+                return JObject.Parse(await signed.Content.ReadAsStringAsync())["status"]?.Value<String>() ?? "";
+
+            }
+
+            var softwareMaker      = await AddedWithKeys("TSMs", "GraphDefined", softwareKey, softwareIdentity);
+            var ptb                = await AddedWithKeys("CABs", "PTB",          ptbKey,      ptbIdentity);
+
+            // A transparency software manufacturer comes with its keys; a conformity assessment body not taking part without.
+            var softwareWithout    = await Post(admin, new JObject(new JProperty("@id", "Nobody")), $"{NewPath}/QA/TSMs");
+            var bsi                = await Post(admin, new JObject(new JProperty("@id",          "BSI"),
+                                                                   new JProperty("notifiedFor",  new JArray("CRA"))),
+                                                $"{NewPath}/QA/CABs");
+
+            // GraphDefined states its release itself.
+            var release            = new TransparencySoftware(TransparencySoftware_Id.Parse("chargy-1.5.0"),
+                                                              ImmutableI18NString.Create(Languages.en, "Chargy"),
+                                                              TransparencySoftwareVersion.Parse("1.5.0"),
+                                                              [ org.GraphDefined.Vanaheimr.Hermod.OpenSourceLicense.AGPL3 ]);
+
+            var addRelease         = await Commit(anybody, Head().CreateChangeSet([ RoamingNetworkChange.Add(release, TransparencySoftwareManufacturer_Id.Parse("GraphDefined")) ]).
+                                                                  Sign(softwareKey, POIPublicKey.From(softwareKey).Id, COSEAlgorithm.ES256));
+
+            // The hub adds the certificate of the BSI in its place, not one of the PTB, which signs its own.
+            JObject Certificate(String Id, String Legislation)
+                => new (new JProperty("@id",                                Id),
+                        new JProperty("chargingStationModel",               "Wallbox-22"),
+                        new JProperty("chargingStationModelVersion",        "1.0"),
+                        new JProperty("verifiedTransparencySoftwareIds",    new JArray("chargy-1.5.0")),
+                        new JProperty("compatibleTransparencySoftwareIds",  new JArray()),
+                        new JProperty("legislation",                        Legislation));
+
+            var bsiCertificate     = await Post(admin, Certificate("BSI-2026-1", "CRA"), $"{NewPath}/QA/CABs/BSI/TSCs");
+            var bsiAgain           = await Post(admin, Certificate("BSI-2026-1", "CRA"), $"{NewPath}/QA/CABs/BSI/TSCs");
+            var notNotified        = await Post(admin, Certificate("BSI-2026-2", "MID"), $"{NewPath}/QA/CABs/BSI/TSCs");
+            var ptbCertificate     = await Post(admin, Certificate("PTB-2026-1", "MID"), $"{NewPath}/QA/CABs/PTB/TSCs");
+            var byAnybody          = await Post(anybody, Certificate("BSI-2026-3", "CRA"), $"{NewPath}/QA/CABs/BSI/TSCs");
+
+            var bsiText            = await bsi.           Content.ReadAsStringAsync();
+            var bsiCertificateText = await bsiCertificate.Content.ReadAsStringAsync();
+            var notNotifiedText    = await notNotified.   Content.ReadAsStringAsync();
+            var ptbCertificateText = await ptbCertificate.Content.ReadAsStringAsync();
+
+            var makers             = JArray. Parse(await anybody.GetStringAsync("poi/RNs/QA/TSMs"));
+            var releases           = JArray. Parse(await anybody.GetStringAsync("poi/RNs/QA/TSMs/GraphDefined/TSs"));
+            var served             = JObject.Parse(await anybody.GetStringAsync("poi/RNs/QA/CABs/BSI/TSCs/BSI-2026-1"));
+            var bodies             = JArray. Parse(await anybody.GetStringAsync("poi/RNs/QA/CABs"));
+
+            Assert.Multiple(() => {
+
+                Assert.That(softwareMaker,                                                     Is.EqualTo("committed"));
+                Assert.That(ptb,                                                               Is.EqualTo("committed"));
+                Assert.That(softwareWithout.StatusCode,                                        Is.EqualTo(HttpStatusCode.UnprocessableEntity).Or.EqualTo(HttpStatusCode.BadRequest));
+                Assert.That(bsi.StatusCode,                                                    Is.EqualTo(HttpStatusCode.Created), bsiText);
+
+                Assert.That(addRelease.StatusCode,                                             Is.EqualTo(HttpStatusCode.Created), addRelease.Text);
+                Assert.That(releases.Select(entry => entry["@id"]?.Value<String>()),           Is.EqualTo(new[] { "chargy-1.5.0" }));
+                Assert.That(makers.  Select(entry => entry["@id"]?.Value<String>()),           Is.EqualTo(new[] { "GraphDefined" }));
+
+                Assert.That(bsiCertificate.StatusCode,                                         Is.EqualTo(HttpStatusCode.Created), bsiCertificateText);
+                Assert.That(bsiAgain.StatusCode,                                               Is.EqualTo(HttpStatusCode.Conflict));
+                Assert.That(notNotified.StatusCode,                                            Is.EqualTo(HttpStatusCode.BadRequest), notNotifiedText);
+                Assert.That(notNotifiedText,                                                   Does.Contain("not notified for"));
+                Assert.That(ptbCertificate.StatusCode,                                         Is.EqualTo(HttpStatusCode.BadRequest), ptbCertificateText);
+                Assert.That(ptbCertificateText,                                                Does.Contain("signs its certificates itself"));
+                Assert.That(byAnybody.StatusCode,                                              Is.AnyOf(HttpStatusCode.Unauthorized, HttpStatusCode.Forbidden));
+
+                Assert.That(served["legislation"]?.Value<String>(),                            Is.EqualTo("CRA"));
+                Assert.That(bodies.Select(entry => entry["@id"]?.Value<String>()),             Is.EqualTo(new[] { "BSI", "PTB" }));
+
+            });
+
+        }
+
+        #endregion
+
         #region AnAppScansTheTrustAnchorAndChecksAStationProof()
 
         /// <summary>

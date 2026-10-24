@@ -881,7 +881,9 @@ namespace cloud.charging.open.RoamingHub
             { "CSOs",  nameof(ChargingStationOperator) },
             { "EMPs",  nameof(EMobilityProvider)       },
             { "GOs",   nameof(GridOperator)            },
-            { "POs",   nameof(ParkingOperator)         }
+            { "POs",   nameof(ParkingOperator)         },
+            { "TSMs",  nameof(TransparencySoftwareManufacturer) },
+            { "CABs",  nameof(ConformityAssessmentBody) }
         };
 
         /// <summary>
@@ -943,16 +945,18 @@ namespace cloud.charging.open.RoamingHub
         #region AddParty(RoamingNetworkId, EntityType, JSON)
 
         /// <summary>
-        /// Add a party - a charging station operator, an e-mobility provider, a grid operator or a parking operator - to
-        /// a roaming network this hub operates: a change set this hub signs as its roaming network operator, which waits
-        /// for the signatures of the identity keys of the party, as the proof that it holds them, and is committed once
-        /// they came (POST ~/poi/RNs/{RN_Id}/history/changeSets/pending/{changeSetId}/signatures); one of a grid operator
-        /// without keys is committed at once.
+        /// Add a party - a charging station operator, an e-mobility provider, a grid operator, a parking operator, a
+        /// transparency software manufacturer or a conformity assessment body - to a roaming network this hub operates: a
+        /// change set this hub signs as its roaming network operator, which waits for the signatures of the identity keys of
+        /// the party, as the proof that it holds them, and is committed once they came
+        /// (POST ~/poi/RNs/{RN_Id}/history/changeSets/pending/{changeSetId}/signatures); one of a grid operator or a
+        /// conformity assessment body without keys is committed at once.
         /// </summary>
         /// <remarks>
         /// The party is given as POI 3 writes it, without anything it holds: {"@id", "name"?, ..., "signingKeys",
         /// "identityKeys"}, its keys the public ones, each as POI 3 writes it or the Base64 of its COSE key alone.
-        /// A grid operator may come without keys: it does not take part, and this hub signs in its place.
+        /// A grid operator or a conformity assessment body may come without keys: it does not take part, and this hub signs
+        /// in its place, e.g. the certificates of the body (AddTransparencySoftwareCertificate).
         /// Its data is its own to add afterwards, with change sets it signs.
         /// </remarks>
         /// <param name="RoamingNetworkId">The roaming network.</param>
@@ -993,7 +997,7 @@ namespace cloud.charging.open.RoamingHub
 
                 #region Its keys: public ones only
 
-                var withoutKeys = EntityType == nameof(GridOperator) &&
+                var withoutKeys = EntityType is nameof(GridOperator) or nameof(ConformityAssessmentBody) &&
                                   party[POIPartyKeys.SigningKeysProperty]  is null &&
                                   party[POIPartyKeys.IdentityKeysProperty] is null;
 
@@ -1106,6 +1110,89 @@ namespace cloud.charging.open.RoamingHub
 
             static RoamingNetworkPartyAddition Invalid(String Message)
                 => new (RoamingNetworkPartyStatus.Invalid, Message);
+
+        }
+
+        #endregion
+
+        #region AddTransparencySoftwareCertificate(RoamingNetworkId, ConformityAssessmentBodyId, JSON)
+
+        /// <summary>
+        /// Add a transparency software certificate of a conformity assessment body that does not take part, without keys,
+        /// to a roaming network this hub operates: this hub signs it in the place of the body, as its roaming network
+        /// operator, and commits it at once. A body with keys signs its certificates itself, with change sets it submits.
+        /// </summary>
+        /// <remarks>
+        /// The certificate is given as POI 3 writes it: {"@id", "chargingStationModel", "chargingStationModelVersion",
+        /// "verifiedTransparencySoftwareIds", "compatibleTransparencySoftwareIds", "legislation"?, ...}. It is a statement of
+        /// the roaming network operator then, not of the body, until the body gets keys.
+        /// </remarks>
+        /// <param name="RoamingNetworkId">The roaming network.</param>
+        /// <param name="ConformityAssessmentBodyId">The conformity assessment body that issued it.</param>
+        /// <param name="JSON">The certificate.</param>
+        public RoamingNetworkPartyAddition AddTransparencySoftwareCertificate(RoamingNetwork_Id  RoamingNetworkId,
+                                                                              String             ConformityAssessmentBodyId,
+                                                                              JObject            JSON)
+        {
+
+            lock (networkOperatorLock)
+            {
+
+                if (!POI.TryGetRoamingNetworkHistory(RoamingNetworkId, out var history))
+                    return new (RoamingNetworkPartyStatus.UnknownRoamingNetwork, $"This hub serves no roaming network '{RoamingNetworkId}'.");
+
+                var network = history.Head.RoamingNetwork;
+
+                if (!NetworkOperator.Operates(network))
+                    return new (RoamingNetworkPartyStatus.NotOperatedHere,
+                                $"The roaming network '{RoamingNetworkId}' is operated by " +
+                                (network.Operator is not null ? $"'{network.Operator.Id}'" : "nobody") +
+                                $", not by this hub, '{NetworkOperator.Id}'.");
+
+                if (!ConformityAssessmentBody_Id.TryParse(ConformityAssessmentBodyId, out var bodyId) ||
+                    !network.TryGetConformityAssessmentBodyById(bodyId, out var body))
+                {
+                    return new (RoamingNetworkPartyStatus.UnknownRoamingNetwork, $"The roaming network '{RoamingNetworkId}' has no conformity assessment body '{ConformityAssessmentBodyId}'.");
+                }
+
+                if (!body.SigningKeys.IsDefaultOrEmpty)
+                    return new (RoamingNetworkPartyStatus.Invalid,
+                                $"The conformity assessment body '{body.Id}' takes part, with keys of its own: it signs its certificates itself, with change sets it submits.");
+
+                if (!TransparencySoftwareCertificate.TryParse(JSON, out var certificate, out var parseError))
+                    return new (RoamingNetworkPartyStatus.Invalid, $"The certificate can not be added: {parseError}");
+
+                if (network.TryGetTransparencySoftwareCertificateById(certificate.Id, out _))
+                    return new (RoamingNetworkPartyStatus.Exists, $"The roaming network '{RoamingNetworkId}' has the transparency software certificate '{certificate.Id}' already.");
+
+                RoamingNetworkChangeSet changeSet;
+
+                try
+                {
+                    changeSet = NetworkOperator.Sign(
+                                    network,
+                                    network.CreateChangeSet(
+                                        [ RoamingNetworkChange.Add(certificate, body.Id) ],
+                                        Description: new ImmutableI18NString(I18NString.Create(Languages.en, $"The transparency software certificate '{certificate.Id}' of the conformity assessment body '{body.Id}', signed in its place by its roaming network operator '{NetworkOperator.Id}'."))
+                                    )
+                                );
+                }
+                catch (Exception e)
+                {
+                    return new (RoamingNetworkPartyStatus.Invalid, $"The certificate '{certificate.Id}' can not be added: {e.Message}");
+                }
+
+                var result = history.Commit(changeSet);
+
+                if (!result.IsCommitted || result.Commit is null)
+                    return new (RoamingNetworkPartyStatus.Refused, $"The certificate '{certificate.Id}' was not added: {result.ErrorResponse}");
+
+                return new (RoamingNetworkPartyStatus.Added,
+                            $"The transparency software certificate '{certificate.Id}' of the conformity assessment body '{body.Id}' was added to the roaming network '{RoamingNetworkId}', " +
+                            $"at revision {result.Commit.Revision}, commit {result.Commit.Id}, signed by this hub in the place of the body. Energy meters may name it now.",
+                            result.Commit);
+
+            }
 
         }
 

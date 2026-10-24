@@ -4,7 +4,7 @@ import type { Page } from '@node/router';
 import { reloadButton, shell } from '@node/shell';
 import { errorMessage, formatValue, humanizeKey } from '@node/ui';
 import { html, nothing, render, type TemplateResult } from '@node/view';
-import { addressLine, entityURL, evseCountOf, gridCollections, networkPath, operatorCollections, parkingCollections, providerCollections, poiHome, roamingNetworkOf, sections, sectionsView, type EmbeddedCollection } from './poi';
+import { addressLine, entityURL, evseCountOf, gridCollections, networkPath, operatorCollections, parkingCollections, providerCollections, poiHome, roamingNetworkOf, sections, sectionsView, transparencySoftwareCertificates, transparencySoftwareReleases, type EmbeddedCollection } from './poi';
 import { loadOffers, localTimeOf, nextRefresh, offersView, timeOf, type Offers, type OffersShown } from './poiOffers';
 import { loadOrigins, templateSegments, type Origin, type Origins } from './poiOrigins';
 import { loadTrustAnchor, trustAnchorCard, type TrustAnchor } from './poiTrustAnchor';
@@ -166,6 +166,14 @@ const kinds: Record<string, Kind> = {
               parameters: { without: providerCollections.map(collection => collection.field).join(',') } },
     CSMs:   { label: 'Charging station manufacturer',  icon: 'fa-industry'         },
     EMMs:   { label: 'Energy meter manufacturer',      icon: 'fa-gauge-high'       },
+    TSMs:   { label: 'Transparency software manufacturer',  icon: 'fa-laptop-code',
+              children:   [ listedChildren(transparencySoftwareReleases) ],
+              parameters: { without: transparencySoftwareReleases.field } },
+    TSs:    { label: transparencySoftwareReleases.one,  icon: transparencySoftwareReleases.icon },
+    CABs:   { label: 'Conformity assessment body',     icon: 'fa-stamp',
+              children:   [ listedChildren(transparencySoftwareCertificates) ],
+              parameters: { without: transparencySoftwareCertificates.field } },
+    TSCs:   { label: transparencySoftwareCertificates.one,  icon: transparencySoftwareCertificates.icon },
     POs:    { label: 'Parking operator',               icon: 'fa-square-parking',
               children:   parkingCollections.map(collection => listedChildren(collection)),
               parameters: { without: parkingCollections.map(collection => collection.field).join(',') } },
@@ -210,7 +218,7 @@ const located: Record<string, string> = {
 };
 
 /** What a roaming network holds, each with a list of its own: left out of its page, which counts them. */
-export const networkHolds = [ 'chargingStationManufacturers', 'chargingStationOperators', 'eMobilityProviders', 'energyMeterManufacturers', 'gridOperators', 'parkingOperators' ];
+export const networkHolds = [ 'chargingStationManufacturers', 'chargingStationOperators', 'conformityAssessmentBodies', 'eMobilityProviders', 'energyMeterManufacturers', 'gridOperators', 'parkingOperators', 'transparencySoftwareManufacturers' ];
 
 /** Not drawn as fields: what says how to read the JSON, not what the entity is. */
 const notAField = new Set([ '@context' ]);
@@ -951,6 +959,10 @@ export const poiEntityPages: Record<string, Page> = {
     ...Object.fromEntries(providerCollections.map(collection => [ `${network}/EMPs/:emp/${collection.segment}/:id`, entityPage(collection.segment) ])),
     [`${network}/CSMs/:csm`]:        entityPage('CSMs'),
     [`${network}/EMMs/:emm`]:        entityPage('EMMs'),
+    [`${network}/TSMs/:tsm`]:        entityPage('TSMs'),
+    [`${network}/TSMs/:tsm/TSs/:id`]:   entityPage('TSs'),
+    [`${network}/CABs/:cab`]:        entityPage('CABs'),
+    [`${network}/CABs/:cab/TSCs/:id`]:  entityPage('TSCs'),
     ...Object.fromEntries(operatorCollections.map(collection => [ `${operator}/${collection.segment}/:id`, entityPage(collection.segment) ])),
     [parkingOperator]:               entityPage('POs'),
     ...Object.fromEntries(parkingCollections.map(collection => [ `${parkingOperator}/${collection.segment}/:id`, entityPage(collection.segment) ]))
