@@ -32,8 +32,8 @@ namespace cloud.charging.open.RoamingHub
 
     /// <summary>
     /// The part of the JSON API that is about the points of interest: the roaming network operator this hub is,
-    /// its keys replaced and its name changed, a new roaming network, and the parties this hub adds to the roaming
-    /// networks it operates.
+    /// its keys replaced and its name changed, a new roaming network, and the parties and manufacturers this hub adds to
+    /// the roaming networks it operates.
     /// </summary>
     /// <remarks>
     /// Only that: reading the roaming networks is the POI API's, below "/poi", public as it is; and what is in them
@@ -233,14 +233,15 @@ namespace cloud.charging.open.RoamingHub
         /// <summary>
         /// POST /api/v1/poi/RNs/{roamingNetworkId}/{CSOs | EMPs | GOs | POs}, the path the POI API lists them at, with
         /// the party as POI 3 writes it, {"@id", "name"?, ..., "signingKeys", "identityKeys"}, its public keys: add it
-        /// to a roaming network this hub operates, signed by this hub.
+        /// to a roaming network this hub operates, signed by this hub. Also .../{CSMs | EMMs} with a manufacturer of
+        /// charging stations or of energy meters, {"@id", "name"?, "homepage"?, ...}, to the registry of the network.
         /// </summary>
         /// <remarks>
         /// 202 with the change set that adds it, waiting for the signatures of its identity keys, as the proof that it
         /// holds them: {message, status: "pending", changeSetId, changeSet, missing}; 201 with the commit that added a
-        /// grid operator without keys; 400 where it is no party this hub adds, 404 where there is no such
-        /// roaming network, 403 where another roaming network operator operates it, 409 where it has that party
-        /// already, 422 where its history refused the commit.
+        /// grid operator or a manufacturer without keys; 400 where it is no party or manufacturer this hub adds, 404
+        /// where there is no such roaming network, 403 where another roaming network operator operates it, 409 where it
+        /// has that party or manufacturer already, 422 where its history refused the commit.
         /// </remarks>
         private Task<HTTPResponse> PostParty(HTTPRequest Request)
         {
@@ -250,21 +251,26 @@ namespace cloud.charging.open.RoamingHub
 
             var parameters = Request.ParsedURLParameters;
 
+            var isManufacturer = parameters.Length >= 2 && RoamingHub.ManufacturerTypes.ContainsKey(parameters[1]);
+
             if (parameters.Length < 2 ||
                 !RoamingNetwork_Id.TryParse(parameters[0], out var roamingNetworkId) ||
-                !RoamingHub.PartyTypes.TryGetValue(parameters[1], out var entityType))
+                !(isManufacturer ? RoamingHub.ManufacturerTypes : RoamingHub.PartyTypes).TryGetValue(parameters[1], out var entityType))
             {
                 return Task.FromResult(
                            ErrorJSON(Request,
                                      HTTPStatusCode.NotFound,
-                                     $"A party is added at .../RNs/{{roamingNetworkId}}/{{{String.Join(" | ", RoamingHub.PartyTypes.Keys)}}}.")
+                                     $"A party is added at .../RNs/{{roamingNetworkId}}/{{{String.Join(" | ", RoamingHub.PartyTypes.Keys)}}}, " +
+                                     $"a manufacturer at .../RNs/{{roamingNetworkId}}/{{{String.Join(" | ", RoamingHub.ManufacturerTypes.Keys)}}}.")
                        );
             }
 
             if (!TryParseJSONObject(Request, out var json, out var errorResponse))
                 return Task.FromResult(errorResponse);
 
-            var result = RoamingHub.AddParty(roamingNetworkId, entityType, json);
+            var result = isManufacturer
+                             ? RoamingHub.AddManufacturer(roamingNetworkId, entityType, json)
+                             : RoamingHub.AddParty       (roamingNetworkId, entityType, json);
 
             // Waiting for the signatures of its identity keys, as the proof that it holds them.
             if (result.Status == RoamingNetworkPartyStatus.Pending && result.ChangeSet is not null)

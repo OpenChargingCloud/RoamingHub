@@ -120,12 +120,12 @@ function poiAPI({ path, query }: Asked): unknown {
         return listOf([ { '@id': 'rn1', name: { en: 'Roaming Network 1' }, description: { en: 'The first one.' } } ], 1);
 
     // The roaming network without what it holds: what it says of itself, with the ETags of all of it.
-    if (path === '/poi/RNs/rn1' && query.get('without') === 'chargingStationManufacturers,chargingStationOperators,eMobilityProviders,gridOperators,parkingOperators')
+    if (path === '/poi/RNs/rn1' && query.get('without') === 'chargingStationManufacturers,chargingStationOperators,eMobilityProviders,energyMeterManufacturers,gridOperators,parkingOperators')
         return entityOf({ '@context': 'https://open.charging.cloud/contexts/POI3/roamingNetwork', '@id': 'rn1',
                           name: { en: 'Roaming Network 1' }, description: { en: 'The first one.' }, dataSource: 'https://data.example',
                           eTags: [ [ 'json', 'sha256', 'hex', 'abc' ], [ 'cbor', 'sha256', 'hex', 'def' ] ] }, '"json:sha256:hex:slim"');
 
-    const counts: Record<string, number> = { CPs: 42, CSOs: 3, GOs: 1, EMPs: 2, CSMs: 0, POs: 0 };
+    const counts: Record<string, number> = { CPs: 42, CSOs: 3, GOs: 1, EMPs: 2, CSMs: 0, EMMs: 1, POs: 0 };
     const list = /^\/poi\/RNs\/rn1\/([A-Za-z]+)$/.exec(path);
 
     // What a driver's app scans: the identity key of the operator of rn1.
@@ -596,14 +596,14 @@ describe('the single things of the points of interest', () => {
 
     });
 
-    it('show an energy meter template below its grid operator, its manufacturer leading to no charging station manufacturer', async () => {
+    it('show an energy meter template below its grid operator, its manufacturer leading to the energy meter manufacturer', async () => {
 
         const root = await open(meterTemplatePage, '/poi/RNs/rn1/GOs/DE*NET/EMTs/net-grid-meters', null, poiAPI, root => root.querySelector('.poi-entity') !== null);
 
         assert.equal(root.querySelector('h1')!.textContent!.trim(), 'Grid meters');
         assert.match(root.querySelector('.page-head')!.textContent!, /Energy meter template net-grid-meters/);
         assert.equal(value(root, 'Manufacturer ID')!.textContent!.trim(),        'ZAP');
-        assert.equal(value(root, 'Manufacturer ID')!.querySelector('a'),         null);
+        assert.equal(value(root, 'Manufacturer ID')!.querySelector('a')!.getAttribute('href'), '/poi/RNs/rn1/EMMs/ZAP');
 
         assert.deepEqual([ ...root.querySelectorAll<HTMLAnchorElement>('.poi-path a') ].map(link => link.getAttribute('href')),
                          [ '/poi/RNs', '/poi/RNs/rn1', '/poi/RNs/rn1/GOs', '/poi/RNs/rn1/GOs/DE*NET' ]);
@@ -624,8 +624,8 @@ describe('the single things of the points of interest', () => {
                          [ '/poi/RNs/rn1/GOs/DE*NET/EMTs/net-grid-meters' ]);
         assert.equal(nestedValue(root, 'Energy meter', 'Role')!.querySelector('.poi-origin'),                              null);
 
-        // The manufacturer of an energy meter is no charging station manufacturer.
-        assert.equal(nestedValue(root, 'Energy meter', 'Manufacturer ID')!.querySelector('code')!.closest('a'),           null);
+        // The manufacturer of an energy meter is an energy meter manufacturer, no charging station manufacturer.
+        assert.equal(nestedValue(root, 'Energy meter', 'Manufacturer ID')!.querySelector('code')!.closest('a')?.getAttribute('href'),  '/poi/RNs/rn1/EMMs/ZAP');
 
         // Asked as it is given, and for the energy meter templates of its grid operator.
         assert.ok(asked.some(one => one.path === '/poi/RNs/rn1/GOs/DE*NET/GCPs/GCP1' && one.query.get('view') === 'stored'));

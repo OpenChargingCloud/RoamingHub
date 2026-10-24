@@ -9,7 +9,7 @@ import { asked, field, open, refused, submit, type, until, type Asked } from '..
 import { strict as assert }  from 'node:assert';
 import { describe, it }      from 'node:test';
 
-const { addressLine, gridOperatorOf, keysOf, poiChargingPoolsPage, poiGridConnectionPointsPage, poiGridEnergyMeterGroupsPage, poiGridEnergyMeterTemplatesPage, poiListPages, poiNetworksPage, poiOperatorListPages, poiOperatorsPage, poiParkingListPages, poiProviderListPages, queryOf, roamingNetworkOf } = await import('./poi.ts');
+const { addressLine, gridOperatorOf, keysOf, listPathOf, poiChargingPoolsPage, poiGridConnectionPointsPage, poiGridEnergyMeterGroupsPage, poiGridEnergyMeterTemplatesPage, poiListPages, poiNetworksPage, poiOperatorListPages, poiOperatorsPage, poiParkingListPages, poiProviderListPages, queryOf, roamingNetworkOf } = await import('./poi.ts');
 
 
 /** A part of a list, as the POI API answers: the entries, with the counts in the headers. */
@@ -356,6 +356,84 @@ describe('a new roaming network', () => {
 
         assert.match(root.querySelector('#network-error')!.textContent!, /serves a roaming network 'QA' already/);
         assert.equal(field(root, '#network-form', 'id').value, 'QA');
+
+    });
+
+});
+
+
+describe('a new manufacturer of a roaming network', () => {
+
+    it('goes, once added, to the list of its kind, as a new party does', () => {
+        assert.equal(listPathOf('QA', 'EMMs'),       '/poi/RNs/QA/EMMs');
+        assert.equal(listPathOf('Q A', 'CSOs'),      '/poi/RNs/Q%20A/CSOs');
+    });
+
+    /** The stand-in POI API, and the hub adding a manufacturer as it is asked to - or saying why not. */
+    function adding(answer: (one: Asked) => unknown) {
+        return (one: Asked): unknown => one.method === 'POST' && one.path.startsWith('/poi/RNs/')
+                                            ? answer(one)
+                                            : poiAPI(one);
+    }
+
+    const listed = (root: HTMLElement) => root.querySelector('tbody') !== null;
+
+    it('is offered below the list to whoever may add one, and to nobody else', async () => {
+
+        const viewer   = await open(poiNetworksPage, '/poi/RNs', [ 'peers:read' ],  poiAPI, listed);
+        assert.equal(viewer.querySelector('#manufacturer-form'), null, 'offered to somebody who may not add one');
+
+        const admin    = await open(poiNetworksPage, '/poi/RNs', [ 'poi:edit' ],    poiAPI, listed);
+        assert.ok(admin.querySelector('#manufacturer-form'), 'not offered to whoever may add one');
+
+    });
+
+    it('is asked for at the list of its kind, with its name and homepage, and the form emptied once it is added', async () => {
+
+        const root = await open(poiNetworksPage, '/poi/RNs', [ 'poi:edit' ],
+                                adding(() => ({ message: 'added', revision: 2, commitId: 'c2' })),
+                                listed);
+
+        type(field(root, '#manufacturer-form', 'roamingNetwork'),  'QA');
+        type(field(root, '#manufacturer-form', 'id'),              'SAALE');
+        type(field(root, '#manufacturer-form', 'name'),            'Saale Metering');
+        type(field(root, '#manufacturer-form', 'homepage'),        'https://saale-metering.example');
+
+        const kind = field<HTMLSelectElement>(root, '#manufacturer-form', 'kind');
+        kind.value = 'EMMs';
+        kind.dispatchEvent(new Event('change', { bubbles: true }));
+
+        submit(root, '#manufacturer-form');
+
+        await until(() => asked.some(one => one.method === 'POST'), 'the hub was not asked');
+        await until(() => field(root, '#manufacturer-form', 'id').value === '', 'the form was not emptied');
+
+        const post = asked.find(one => one.method === 'POST')!;
+
+        assert.equal(post.path, '/poi/RNs/QA/EMMs');
+        assert.deepEqual(post.body, {
+                             '@id':     'SAALE',
+                             name:      { en: 'Saale Metering' },
+                             homepage:  'https://saale-metering.example'
+                         });
+
+    });
+
+    it('says why the hub did not add it, and keeps what was typed in', async () => {
+
+        const root = await open(poiNetworksPage, '/poi/RNs', [ 'poi:edit' ],
+                                adding(() => refused(409, "The roaming network 'QA' has the ChargingStationManufacturer 'GraphDefined' already.")),
+                                listed);
+
+        type(field(root, '#manufacturer-form', 'roamingNetwork'),  'QA');
+        type(field(root, '#manufacturer-form', 'id'),              'GraphDefined');
+
+        submit(root, '#manufacturer-form');
+
+        await until(() => root.querySelector('#manufacturer-error')!.textContent !== '', 'nothing was said');
+
+        assert.match(root.querySelector('#manufacturer-error')!.textContent!, /has the ChargingStationManufacturer 'GraphDefined' already/);
+        assert.equal(field(root, '#manufacturer-form', 'id').value, 'GraphDefined');
 
     });
 

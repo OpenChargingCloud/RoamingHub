@@ -165,6 +165,7 @@ const kinds: Record<string, Kind> = {
               children:   providerCollections.map(collection => listedChildren(collection)),
               parameters: { without: providerCollections.map(collection => collection.field).join(',') } },
     CSMs:   { label: 'Charging station manufacturer',  icon: 'fa-industry'         },
+    EMMs:   { label: 'Energy meter manufacturer',      icon: 'fa-gauge-high'       },
     POs:    { label: 'Parking operator',               icon: 'fa-square-parking',
               children:   parkingCollections.map(collection => listedChildren(collection)),
               parameters: { without: parkingCollections.map(collection => collection.field).join(',') } },
@@ -209,7 +210,7 @@ const located: Record<string, string> = {
 };
 
 /** What a roaming network holds, each with a list of its own: left out of its page, which counts them. */
-export const networkHolds = [ 'chargingStationManufacturers', 'chargingStationOperators', 'eMobilityProviders', 'gridOperators', 'parkingOperators' ];
+export const networkHolds = [ 'chargingStationManufacturers', 'chargingStationOperators', 'eMobilityProviders', 'energyMeterManufacturers', 'gridOperators', 'parkingOperators' ];
 
 /** Not drawn as fields: what says how to read the JSON, not what the entity is. */
 const notAField = new Set([ '@context' ]);
@@ -323,11 +324,11 @@ function valueView(key: string, value: unknown, steps: Step[], within?: string):
                         <span class="muted"><code>${point['@id']}</code> of <code>${point.gridOperatorId}</code></span>`;
     }
 
-    // The manufacturer of a charging station; the one of an energy meter, also as its template gives it, has no page.
+    // The manufacturer of a charging station, or of an energy meter, also as its template gives it.
     const ofMeter = (within !== undefined && meterFields.has(within)) || steps.at(-1)?.segment === 'EMTs';
 
-    if (key === 'manufacturerId' && typeof value === 'string' && !ofMeter)
-        return html`<a href=${entityURL(`${network}/CSMs/${encodeURIComponent(value)}`)}><code>${value}</code></a>`;
+    if (key === 'manufacturerId' && typeof value === 'string')
+        return html`<a href=${entityURL(`${network}/${ofMeter ? 'EMMs' : 'CSMs'}/${encodeURIComponent(value)}`)}><code>${value}</code></a>`;
 
     // What a thing of an operator names of it: a tariff, pools, groups, a garage, sensors, products, spaces; and the
     // templates a member names, of its kind, or of an energy meter in it.
@@ -949,6 +950,7 @@ export const poiEntityPages: Record<string, Page> = {
     [`${network}/EMPs/:emp`]:        entityPage('EMPs'),
     ...Object.fromEntries(providerCollections.map(collection => [ `${network}/EMPs/:emp/${collection.segment}/:id`, entityPage(collection.segment) ])),
     [`${network}/CSMs/:csm`]:        entityPage('CSMs'),
+    [`${network}/EMMs/:emm`]:        entityPage('EMMs'),
     ...Object.fromEntries(operatorCollections.map(collection => [ `${operator}/${collection.segment}/:id`, entityPage(collection.segment) ])),
     [parkingOperator]:               entityPage('POs'),
     ...Object.fromEntries(parkingCollections.map(collection => [ `${parkingOperator}/${collection.segment}/:id`, entityPage(collection.segment) ]))

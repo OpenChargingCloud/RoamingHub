@@ -1,4 +1,4 @@
-import { api, type PartySegment, type PublicKey } from '../api/client';
+import { api, type ManufacturerSegment, type PartySegment, type PublicKey } from '../api/client';
 import { poiBase, poiList, poiURL, textOf, type Address, type ChargingPool, type Entity, type ListPart, type Query, type Summary } from '../api/poi';
 import { auth } from '../auth';
 import { fromURL, toURL } from '@node/basePath';
@@ -42,6 +42,7 @@ export const sections = [
     { segment: 'GOs',   label: 'Grid operators',                  icon: 'fa-bolt'              },
     { segment: 'EMPs',  label: 'E-mobility providers',            icon: 'fa-id-card'           },
     { segment: 'CSMs',  label: 'Charging station manufacturers',  icon: 'fa-industry'          },
+    { segment: 'EMMs',  label: 'Energy meter manufacturers',      icon: 'fa-gauge-high'        },
     { segment: 'POs',   label: 'Parking operators',               icon: 'fa-square-parking'    }
 ] as const;
 
@@ -50,6 +51,11 @@ export type Segment = typeof sections[number]['segment'];
 /** The page of a roaming network, or of an entity below it, by its path below /poi: /RNs/rn1/CSOs/DE*GEF. */
 export function entityURL(path: string): string {
     return toURL(`${poiBase}${path}`);
+}
+
+/** The path of a list of a roaming network, as the router takes it: /poi/RNs/rn1/CSOs. */
+export function listPathOf(roamingNetworkId: string, segment: string): string {
+    return `${poiHome}/${encodeURIComponent(roamingNetworkId)}/${segment}`;
 }
 
 /** The path of a roaming network below /poi. */
@@ -507,7 +513,7 @@ function newPartyCard(navigate: (path: string) => void): TemplateResult | typeof
                 return;
             }
 
-            navigate(`${networkPath(roamingNetworkId)}/${kind.segment}`);
+            navigate(listPathOf(roamingNetworkId, kind.segment));
 
         }
         catch (problem)
@@ -580,6 +586,104 @@ function newPartyCard(navigate: (path: string) => void): TemplateResult | typeof
 
 }
 
+/** The manufacturers this hub adds to the registries of a roaming network, by the segment the POI API lists them at. */
+export const manufacturerKinds: ReadonlyArray<{ segment: ManufacturerSegment; label: string }> = [
+    { segment: 'CSMs',  label: 'Charging station manufacturer' },
+    { segment: 'EMMs',  label: 'Energy meter manufacturer'     }
+];
+
+/**
+ * A new manufacturer in the registries of a roaming network this hub operates, for whoever may add one: a change set
+ * this hub signs, committed at once. The charging stations and energy meters of its parties may name it then. Added, the
+ * page goes to the list of its kind.
+ */
+function newManufacturerCard(navigate: (path: string) => void): TemplateResult | typeof nothing {
+
+    if (!auth.can('poi', 'edit'))
+        return nothing;
+
+    async function add(form: HTMLFormElement): Promise<void> {
+
+        const error  = must<HTMLElement>(form, '#manufacturer-error');
+        error.textContent = '';
+
+        try
+        {
+
+            const roamingNetworkId  = field(form, 'roamingNetwork');
+            const kind              = manufacturerKinds.find(entry => entry.segment === field(form, 'kind')) ?? manufacturerKinds[0];
+            const name              = field(form, 'name');
+            const homepage          = field(form, 'homepage');
+
+            await api.poi.addManufacturer(roamingNetworkId, kind.segment, {
+                '@id':     field(form, 'id'),
+                name:      name     ? { en: name } : undefined,
+                homepage:  homepage ? homepage     : undefined
+            });
+
+            form.reset();
+
+            navigate(listPathOf(roamingNetworkId, kind.segment));
+
+        }
+        catch (problem)
+        {
+            error.textContent = errorMessage(problem);
+        }
+
+    }
+
+    return html`
+        <section class="card wide poi-new-manufacturer">
+
+            <h2><i class="fa-solid fa-industry"></i> New manufacturer of a roaming network</h2>
+
+            <p class="hint">
+                Added by this hub as the operator of the roaming network to its registry of charging station or energy
+                meter manufacturers, with a change set it signs. The charging stations and energy meters of its parties
+                name a manufacturer of the network only.
+            </p>
+
+            <form id="manufacturer-form" class="form-stack"
+                  @submit=${(event: SubmitEvent) => { event.preventDefault(); void add(event.currentTarget as HTMLFormElement); }}>
+
+                <div class="form-grid">
+
+                    <label>Roaming network
+                        <input type="text" name="roamingNetwork" placeholder="QA" maxlength="64" required autocomplete="off" />
+                    </label>
+
+                    <label>Manufacturer of
+                        <select name="kind">
+                            ${manufacturerKinds.map(kind => html`<option value=${kind.segment}>${kind.label}</option>`)}
+                        </select>
+                    </label>
+
+                    <label>Identification
+                        <input type="text" name="id" placeholder="ACME" maxlength="64" required autocomplete="off" />
+                    </label>
+
+                    <label>Name
+                        <input type="text" name="name" placeholder="ACME Chargers" maxlength="100" />
+                    </label>
+
+                    <label>Homepage
+                        <input type="url" name="homepage" placeholder="https://acme.example" maxlength="200" />
+                    </label>
+
+                </div>
+
+                <div class="form-actions">
+                    <button type="submit" class="btn primary">Add the manufacturer</button>
+                    <span id="manufacturer-error" class="form-error" role="alert"></span>
+                </div>
+
+            </form>
+
+        </section>`;
+
+}
+
 /** The roaming networks this hub serves, each leading to its page; and a new one, for whoever may make it. */
 export const poiNetworksPage: Page = listPage<Summary>({
     title:        () => 'Roaming networks',
@@ -594,7 +698,7 @@ export const poiNetworksPage: Page = listPage<Summary>({
             <td>${textOf(entry.name)}</td>
             <td class="muted">${textOf(entry.description)}</td>
         </tr>`,
-    below:        navigate => html`${newNetworkCard(navigate)}${newPartyCard(navigate)}`
+    below:        navigate => html`${newNetworkCard(navigate)}${newPartyCard(navigate)}${newManufacturerCard(navigate)}`
 });
 
 /** The charging pools of every operator of a roaming network: what the points of interest are about. */
@@ -652,6 +756,7 @@ export const poiOperatorsPage:      Page = summaryPage('CSOs', 'Who runs the cha
 export const poiGridOperatorsPage:  Page = summaryPage('GOs',  'Who runs the grids the charging pools are connected to.');
 export const poiProvidersPage:      Page = summaryPage('EMPs', 'Who drivers charge with.');
 export const poiManufacturersPage:  Page = summaryPage('CSMs', 'Who makes the charging stations.');
+export const poiMeterMakersPage:    Page = summaryPage('EMMs', 'Who makes the energy meters.');
 export const poiParkingPage:        Page = summaryPage('POs',  'Who runs the parking garages and spaces.');
 
 /** What an operator embeds and the API lists below it, e.g. /poi/RNs/rn1/GOs/DE*NET/GCPs: what of each a table shows. */
@@ -853,6 +958,7 @@ export const poiListPages: Record<string, Page> = {
     [`${poiHome}/:rn/GOs`]:             poiGridOperatorsPage,
     [`${poiHome}/:rn/EMPs`]:            poiProvidersPage,
     [`${poiHome}/:rn/CSMs`]:            poiManufacturersPage,
+    [`${poiHome}/:rn/EMMs`]:            poiMeterMakersPage,
     [`${poiHome}/:rn/POs`]:             poiParkingPage,
     [`${poiHome}/:rn/GOs/:go/GCPs`]:    poiGridConnectionPointsPage,
     [`${poiHome}/:rn/GOs/:go/EMTs`]:    poiGridEnergyMeterTemplatesPage,

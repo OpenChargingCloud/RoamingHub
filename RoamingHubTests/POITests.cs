@@ -42,6 +42,7 @@ using ChargingStationOperator  = cloud.charging.open.protocols.WWCP.POI.Charging
 using ChargingPool             = cloud.charging.open.protocols.WWCP.POI.ChargingPool;
 using ChargingStation          = cloud.charging.open.protocols.WWCP.POI.ChargingStation;
 using EVSE                     = cloud.charging.open.protocols.WWCP.POI.EVSE;
+using POIEnergyMeter           = cloud.charging.open.protocols.WWCP.POI.EnergyMeter;
 
 #endregion
 
@@ -550,6 +551,99 @@ namespace cloud.charging.open.RoamingHub.Tests
                 Assert.That(served["chargingStations"]?[0]?["EVSEs"]?.Count(),                        Is.EqualTo(2));
                 Assert.That(RoamingHub.Log.Recent(100, Tag: "commit").Select(entry => entry.Message),
                             Has.Some.Contains("The roaming network 'QA' is at revision 2"));
+
+            });
+
+        }
+
+        #endregion
+
+        #region TheHubAddsManufacturersTheStationsAndMetersOfAnOperatorName()
+
+        /// <summary>
+        /// A charging station naming a manufacturer and an energy meter naming its own are refused until the hub added both
+        /// to the registries of the roaming network, committed at once, signed by the hub; then DE*QAC adds them. The same
+        /// manufacturer again is a conflict, one naming an identity key waits for its signature, and nobody signed in adds
+        /// none.
+        /// </summary>
+        [Test]
+        public async Task TheHubAddsManufacturersTheStationsAndMetersOfAnOperatorName()
+        {
+
+            await MadeWithQAC();
+
+            using var anybody     = Anonymous();
+            using var admin       = await SignedIn();
+
+            var pool              = new ChargingPool(
+                                        ChargingPool_Id.Parse("DE*QAC*P1"),
+                                        ChargingStations:  [
+                                            new ChargingStation(
+                                                ChargingStation_Id.Parse("DE*QAC*S1"),
+                                                ManufacturerId:  ChargingStationManufacturer_Id.Parse("ACME"),
+                                                EVSEs: [
+                                                    new EVSE(EVSE_Id.Parse("DE*QAC*E1*1"),
+                                                             MaxPower:     Watt.FromW(11000),
+                                                             EnergyMeter:  new POIEnergyMeter(EnergyMeter_Id.Parse("DE*QAC*M1*1"),
+                                                                                              ManufacturerId:  EnergyMeterManufacturer_Id.Parse("METERS")))
+                                                ]
+                                            )
+                                        ]
+                                    );
+
+            RoamingNetworkChangeSet AddPool()
+                => Head().CreateChangeSet([ RoamingNetworkChange.Add(pool) ]).
+                          Sign(csoSigningKey, POIPublicKey.From(csoSigningKey).Id, COSEAlgorithm.ES256);
+
+            // Neither manufacturer is one of QA yet: no change set naming them is made.
+            var poolBefore        = Assert.Throws<ArgumentException>(() => AddPool());
+
+            var byAnybody         = await Post(anybody, new JObject(new JProperty("@id", "ACME")), $"{NewPath}/QA/CSMs");
+
+            var stationMaker      = await Post(admin, new JObject(new JProperty("@id",       "ACME"),
+                                                                  new JProperty("name",      new JObject(new JProperty("en", "ACME Chargers"))),
+                                                                  new JProperty("homepage",  "https://acme.example")),
+                                           $"{NewPath}/QA/CSMs");
+
+            var meterMaker        = await Post(admin, new JObject(new JProperty("@id",       "METERS"),
+                                                                  new JProperty("name",      new JObject(new JProperty("en", "Example Meters")))),
+                                           $"{NewPath}/QA/EMMs");
+
+            var again             = await Post(admin, new JObject(new JProperty("@id", "acme")), $"{NewPath}/QA/CSMs");
+            var unknownKind       = await Post(admin, new JObject(new JProperty("@id", "ACME")), $"{NewPath}/QA/XYZs");
+
+            // A manufacturer naming an identity key signs its change set as the proof that it holds it, as a party does.
+            var meterIdentityKey  = NewKey(COSECurve.P521);
+            var withKey           = await Post(admin, new JObject(new JProperty("@id",           "KEYED"),
+                                                                  new JProperty("identityKeys",  new JArray(POIPublicKey.From(meterIdentityKey).ToJSON()))),
+                                           $"{NewPath}/QA/EMMs");
+
+            var poolAfter         = await Commit(anybody, AddPool());
+
+            var stationMakerText  = await stationMaker.Content.ReadAsStringAsync();
+            var meterMakerText    = await meterMaker.  Content.ReadAsStringAsync();
+            var unknownKindText   = await unknownKind. Content.ReadAsStringAsync();
+            var withKeyText       = await withKey.     Content.ReadAsStringAsync();
+            var meterMakers       = JArray. Parse(await anybody.GetStringAsync("poi/RNs/QA/EMMs"));
+            var served            = JObject.Parse(await anybody.GetStringAsync("poi/RNs/QA/CSMs/ACME"));
+
+            Assert.Multiple(() => {
+
+                Assert.That(poolBefore?.Message,                                                      Does.Contain("The manufacturer 'ACME' of the charging station 'DE*QAC*S1' is unknown"));
+                Assert.That(byAnybody.StatusCode,                                                     Is.AnyOf(HttpStatusCode.Unauthorized, HttpStatusCode.Forbidden));
+
+                Assert.That(stationMaker.StatusCode,                                                  Is.EqualTo(HttpStatusCode.Created), stationMakerText);
+                Assert.That(JObject.Parse(stationMakerText)["commitId"]?.Value<String>(),             Is.Not.Null.And.Not.Empty);
+                Assert.That(meterMaker.StatusCode,                                                    Is.EqualTo(HttpStatusCode.Created), meterMakerText);
+                Assert.That(again.StatusCode,                                                         Is.EqualTo(HttpStatusCode.Conflict));
+                Assert.That(unknownKind.StatusCode,                                                   Is.EqualTo(HttpStatusCode.NotFound));
+                Assert.That(unknownKindText,                                                          Does.Contain("CSMs | EMMs"));
+                Assert.That(withKey.StatusCode,                                                       Is.EqualTo(HttpStatusCode.Accepted), withKeyText);
+                Assert.That(JObject.Parse(withKeyText)["status"]?.Value<String>(),                    Is.EqualTo("pending"));
+
+                Assert.That(poolAfter.StatusCode,                                                     Is.EqualTo(HttpStatusCode.Created), poolAfter.Text);
+                Assert.That(served["homepage"]?.Value<String>(),                                      Is.EqualTo("https://acme.example"));
+                Assert.That(meterMakers.Select(entry => entry["@id"]?.Value<String>()),               Is.EqualTo(new[] { "METERS" }));
 
             });
 

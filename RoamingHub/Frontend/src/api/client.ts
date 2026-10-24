@@ -311,6 +311,16 @@ export interface RoamingNetworkMade {
 /** The parties of a roaming network the hub adds: the segment the POI API lists them at, which is the last one of where a party is added. */
 export type PartySegment = 'CSOs' | 'EMPs' | 'GOs' | 'POs';
 
+/** The manufacturers the hub adds to the registries of a roaming network: the segment the POI API lists them at, which is the last one of where one is added. */
+export type ManufacturerSegment = 'CSMs' | 'EMMs';
+
+/** A manufacturer to be added: what names it, and its homepage. */
+export interface ManufacturerSpec {
+    '@id':      string;
+    name?:      Record<string, string>;
+    homepage?:  string;
+}
+
 /** A party to be added: what names it, and its public keys. A grid operator not taking part comes without keys. */
 export interface PartySpec {
     '@id':          string;
@@ -426,13 +436,16 @@ export const api = {
     /** Every party that has been at either end of a call. */
     trafficPeers: () => request<{ peers: string[] }>('GET', '/traffic/peers'),
 
-    /** The points of interest: a new roaming network operated by this hub, and a new party of one. */
+    /** The points of interest: a new roaming network operated by this hub, a new party of one, and a new manufacturer in its registries. */
     poi: {
 
         create:    (spec: RoamingNetworkSpec) => request<RoamingNetworkMade>('POST', '/poi/RNs', spec),
 
         addParty:  (roamingNetworkId: string, segment: PartySegment, spec: PartySpec) =>
-                       request<PartyAdded>('POST', `/poi/RNs/${encodeURIComponent(roamingNetworkId)}/${segment}`, spec)
+                       request<PartyAdded>('POST', `/poi/RNs/${encodeURIComponent(roamingNetworkId)}/${segment}`, spec),
+
+        addManufacturer:  (roamingNetworkId: string, segment: ManufacturerSegment, spec: ManufacturerSpec) =>
+                              request<PartyAdded>('POST', `/poi/RNs/${encodeURIComponent(roamingNetworkId)}/${segment}`, spec)
 
     }
 

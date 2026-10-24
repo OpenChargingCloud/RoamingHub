@@ -801,7 +801,7 @@ namespace cloud.charging.open.RoamingHub
 
 
     /// <summary>
-    /// What became of a party to be added to a roaming network.
+    /// What became of a party or a manufacturer to be added to a roaming network.
     /// </summary>
     public enum RoamingNetworkPartyStatus
     {
@@ -819,7 +819,7 @@ namespace cloud.charging.open.RoamingHub
         Pending,
 
         /// <summary>
-        /// Not added: what was asked for is no party this hub adds.
+        /// Not added: what was asked for is no party or manufacturer this hub adds.
         /// </summary>
         Invalid,
 
@@ -834,7 +834,7 @@ namespace cloud.charging.open.RoamingHub
         NotOperatedHere,
 
         /// <summary>
-        /// Not added: the roaming network has a party of that type and identification already.
+        /// Not added: the roaming network has a party or a manufacturer of that type and identification already.
         /// </summary>
         Exists,
 
@@ -846,7 +846,7 @@ namespace cloud.charging.open.RoamingHub
     }
 
     /// <summary>
-    /// What became of a party to be added, why, and the commit that added it.
+    /// What became of a party or a manufacturer to be added, why, and the commit that added it.
     /// </summary>
     /// <param name="Status">What became of it.</param>
     /// <param name="Message">What to tell whoever asked for it.</param>
@@ -882,6 +882,16 @@ namespace cloud.charging.open.RoamingHub
             { "EMPs",  nameof(EMobilityProvider)       },
             { "GOs",   nameof(GridOperator)            },
             { "POs",   nameof(ParkingOperator)         }
+        };
+
+        /// <summary>
+        /// The manufacturers this hub adds to the registries of the roaming networks it operates: their entity type, by
+        /// the segment the POI API lists them at below a roaming network, ~/RNs/{id}/CSMs and ~/RNs/{id}/EMMs, which is the
+        /// last segment of the path they are added at below /api/v1/poi as well.
+        /// </summary>
+        public static readonly IReadOnlyDictionary<String, String> ManufacturerTypes = new Dictionary<String, String>(StringComparer.Ordinal) {
+            { "CSMs",  nameof(ChargingStationManufacturer) },
+            { "EMMs",  nameof(EnergyMeterManufacturer)     }
         };
 
         /// <summary>
@@ -1006,45 +1016,152 @@ namespace cloud.charging.open.RoamingHub
                 if (network.TryGetParty(new POIPartyId(EntityType, id), out _))
                     return new (RoamingNetworkPartyStatus.Exists, $"The roaming network '{RoamingNetworkId}' has a {EntityType} '{id}' already.");
 
-                RoamingNetworkChangeSet changeSet;
-
-                try
-                {
-                    changeSet = NetworkOperator.Sign(
-                                    network,
-                                    network.CreateChangeSet(
-                                        [ RoamingNetworkChange.Add(EntityType, id, party) ],
-                                        Description: new ImmutableI18NString(I18NString.Create(Languages.en, $"The {EntityType} '{id}' added by its roaming network operator '{NetworkOperator.Id}'."))
-                                    )
-                                );
-                }
-                catch (Exception e)
-                {
-                    return Invalid($"The {EntityType} '{id}' can not be added: {e.Message}");
-                }
-
-                // It waits for the signatures of the identity keys of the party; one without any is committed now.
-                var result = history.CoSign(changeSet);
-
-                if (result.Status == RoamingNetworkCoSigningStatus.Pending)
-                    return new (RoamingNetworkPartyStatus.Pending,
-                                $"The {EntityType} '{id}' is added to the roaming network '{RoamingNetworkId}' once it signed the change set '{changeSet.Id}' with each of its identity keys, " +
-                                $"as the proof that it holds them: POST /poi/RNs/{RoamingNetworkId}/history/changeSets/pending/{changeSet.Id}/signatures. Signed by this hub, it waits until then.",
-                                ChangeSet:  result.ChangeSet ?? changeSet,
-                                Missing:    result.Missing);
-
-                if (!result.IsCommitted || result.Commit is null)
-                    return new (RoamingNetworkPartyStatus.Refused, $"The {EntityType} '{id}' was not added: {result.ErrorResponse}");
-
-                return new (RoamingNetworkPartyStatus.Added,
-                            $"The {EntityType} '{id}' was added to the roaming network '{RoamingNetworkId}', at revision {result.Commit.Revision}, commit {result.Commit.Id}. " +
-                            $"It adds its data now, with change sets it signs.",
-                            result.Commit);
+                return SignedAndCoSigned(history, network, EntityType, id, party, " It adds its data now, with change sets it signs.");
 
             }
 
             static RoamingNetworkPartyAddition Invalid(String Message)
                 => new (RoamingNetworkPartyStatus.Invalid, Message);
+
+        }
+
+        #endregion
+
+        #region AddManufacturer(RoamingNetworkId, EntityType, JSON)
+
+        /// <summary>
+        /// Add a manufacturer - of charging stations or of energy meters - to the registry of a roaming network this hub
+        /// operates, so that the charging stations and energy meters of its parties can name it (manufacturerId): a change
+        /// set this hub signs as its roaming network operator, committed at once; one naming identity keys waits for their
+        /// signatures, as the proof that the manufacturer holds them, as the one of a party does.
+        /// </summary>
+        /// <remarks>
+        /// The manufacturer is given as POI 3 writes it: {"@id", "name"?, "homepage"?, ...}, its keys, if any, the public
+        /// ones, each as POI 3 writes it or the Base64 of its COSE key alone. Unlike a party, it signs no change sets: the
+        /// registry is the roaming network operator's, which changes it.
+        /// </remarks>
+        /// <param name="RoamingNetworkId">The roaming network.</param>
+        /// <param name="EntityType">The entity type of the manufacturer, ChargingStationManufacturer or EnergyMeterManufacturer.</param>
+        /// <param name="JSON">The manufacturer.</param>
+        public RoamingNetworkPartyAddition AddManufacturer(RoamingNetwork_Id  RoamingNetworkId,
+                                                           String             EntityType,
+                                                           JObject            JSON)
+        {
+
+            lock (networkOperatorLock)
+            {
+
+                #region What it must be
+
+                if (!ManufacturerTypes.Values.Contains(EntityType))
+                    return Invalid($"A manufacturer is one of {String.Join(", ", ManufacturerTypes.Values)}, not '{EntityType}'.");
+
+                if (!POI.TryGetRoamingNetworkHistory(RoamingNetworkId, out var history))
+                    return new (RoamingNetworkPartyStatus.UnknownRoamingNetwork, $"This hub serves no roaming network '{RoamingNetworkId}'.");
+
+                var network = history.Head.RoamingNetwork;
+
+                if (!NetworkOperator.Operates(network))
+                    return new (RoamingNetworkPartyStatus.NotOperatedHere,
+                                $"The roaming network '{RoamingNetworkId}' is operated by " +
+                                (network.Operator is not null ? $"'{network.Operator.Id}'" : "nobody") +
+                                $", not by this hub, '{NetworkOperator.Id}': its operator adds its manufacturers.");
+
+                if (JSON["@id"] is not JValue { Type: JTokenType.String } idJSON || String.IsNullOrWhiteSpace(idJSON.Value<String>()))
+                    return Invalid($"The {EntityType} needs an identification, '@id'.");
+
+                var id               = idJSON.Value<String>()!.Trim();
+                var manufacturer     = (JObject) JSON.DeepClone();
+                manufacturer["@id"]  = id;
+
+                #endregion
+
+                #region Its keys, if any: public ones only
+
+                foreach (var (property, kind) in new[] { (POIPartyKeys.SigningKeysProperty, "signing key"), (POIPartyKeys.IdentityKeysProperty, "identity key") })
+                {
+
+                    if (manufacturer[property] is null)
+                        continue;
+
+                    if (!TryParsePublicKeys(manufacturer[property], kind, out var keys, out var keysError))
+                        return Invalid($"The {EntityType} '{id}' can not be added: {keysError}");
+
+                    manufacturer[property] = new JArray(keys.Select(key => key.ToJSON(Embedded: true)));
+
+                }
+
+                #endregion
+
+                var exists = EntityType == nameof(ChargingStationManufacturer)
+                                 ? ChargingStationManufacturer_Id.TryParse(id, out var chargingStationManufacturerId) && network.TryGetChargingStationManufacturerById(chargingStationManufacturerId, out _)
+                                 : EnergyMeterManufacturer_Id.    TryParse(id, out var energyMeterManufacturerId)     && network.TryGetEnergyMeterManufacturerById    (energyMeterManufacturerId,     out _);
+
+                if (exists)
+                    return new (RoamingNetworkPartyStatus.Exists, $"The roaming network '{RoamingNetworkId}' has the {EntityType} '{id}' already.");
+
+                return SignedAndCoSigned(history, network, EntityType, id, manufacturer, " Charging stations and energy meters may name it now.");
+
+            }
+
+            static RoamingNetworkPartyAddition Invalid(String Message)
+                => new (RoamingNetworkPartyStatus.Invalid, Message);
+
+        }
+
+        #endregion
+
+        #region (private) SignedAndCoSigned(History, Network, EntityType, Id, Entity, Then)
+
+        /// <summary>
+        /// The change set adding the given party or manufacturer, signed by this hub as the roaming network operator, while
+        /// the operator is locked: committed at once, or waiting for the signatures of the identity keys it names, as the
+        /// proof that it holds them.
+        /// </summary>
+        /// <param name="Then">What to tell once it was added.</param>
+        private RoamingNetworkPartyAddition SignedAndCoSigned(RoamingNetworkHistory  History,
+                                                              RoamingNetwork         Network,
+                                                              String                 EntityType,
+                                                              String                 Id,
+                                                              JObject                Entity,
+                                                              String                 Then)
+        {
+
+            var roamingNetworkId = Network.Id;
+
+            RoamingNetworkChangeSet changeSet;
+
+            try
+            {
+                changeSet = NetworkOperator.Sign(
+                                Network,
+                                Network.CreateChangeSet(
+                                    [ RoamingNetworkChange.Add(EntityType, Id, Entity) ],
+                                    Description: new ImmutableI18NString(I18NString.Create(Languages.en, $"The {EntityType} '{Id}' added by its roaming network operator '{NetworkOperator.Id}'."))
+                                )
+                            );
+            }
+            catch (Exception e)
+            {
+                return new (RoamingNetworkPartyStatus.Invalid, $"The {EntityType} '{Id}' can not be added: {e.Message}");
+            }
+
+            // It waits for the signatures of the identity keys it names; one without any is committed now.
+            var result = History.CoSign(changeSet);
+
+            if (result.Status == RoamingNetworkCoSigningStatus.Pending)
+                return new (RoamingNetworkPartyStatus.Pending,
+                            $"The {EntityType} '{Id}' is added to the roaming network '{roamingNetworkId}' once it signed the change set '{changeSet.Id}' with each of its identity keys, " +
+                            $"as the proof that it holds them: POST /poi/RNs/{roamingNetworkId}/history/changeSets/pending/{changeSet.Id}/signatures. Signed by this hub, it waits until then.",
+                            ChangeSet:  result.ChangeSet ?? changeSet,
+                            Missing:    result.Missing);
+
+            if (!result.IsCommitted || result.Commit is null)
+                return new (RoamingNetworkPartyStatus.Refused, $"The {EntityType} '{Id}' was not added: {result.ErrorResponse}");
+
+            return new (RoamingNetworkPartyStatus.Added,
+                        $"The {EntityType} '{Id}' was added to the roaming network '{roamingNetworkId}', at revision {result.Commit.Revision}, commit {result.Commit.Id}." + Then,
+                        result.Commit);
 
         }
 
