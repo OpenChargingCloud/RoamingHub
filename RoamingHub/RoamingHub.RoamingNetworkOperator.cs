@@ -1035,7 +1035,8 @@ namespace cloud.charging.open.RoamingHub
         /// <remarks>
         /// The certificate is given as POI 3 writes it: {"@id", "chargingStationModel", "chargingStationModelVersion",
         /// "verifiedTransparencySoftwareIds", "compatibleTransparencySoftwareIds", "legislation"?, ...}. It is a statement of
-        /// the roaming network operator then, not of the body, until the body gets keys.
+        /// the roaming network operator then, not of the body, until the body gets keys, and says so: this hub gives it
+        /// "statedBy": "roamingNetworkOperator" where it names none (SPECIFICATION.md of WWCP POI, section 4.1).
         /// </remarks>
         /// <param name="RoamingNetworkId">The roaming network.</param>
         /// <param name="ConformityAssessmentBodyId">The conformity assessment body that issued it.</param>
@@ -1069,7 +1070,13 @@ namespace cloud.charging.open.RoamingHub
                     return new (RoamingNetworkPartyStatus.Invalid,
                                 $"The conformity assessment body '{body.Id}' takes part, with keys of its own: it signs its certificates itself, with change sets it submits.");
 
-                if (!ConformityCertificate.TryParse(JSON, out var certificate, out var parseError))
+                // Stated in the place of the body: it says so.
+                var stated = (JObject) JSON.DeepClone();
+
+                if (!stated.ContainsKey(ConformityCertificate.PropertyKeys.StatedBy))
+                    stated.Add(ConformityCertificate.PropertyKeys.StatedBy, ConformityCertificate.RoamingNetworkOperator);
+
+                if (!ConformityCertificate.TryParse(stated, out var certificate, out var parseError))
                     return new (RoamingNetworkPartyStatus.Invalid, $"The certificate can not be added: {parseError}");
 
                 if (network.TryGetConformityCertificateById(certificate.Id, out _))

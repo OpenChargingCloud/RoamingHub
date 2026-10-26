@@ -815,6 +815,7 @@ namespace cloud.charging.open.RoamingHub.Tests
                 Assert.That(byAnybody.StatusCode,                                              Is.AnyOf(HttpStatusCode.Unauthorized, HttpStatusCode.Forbidden));
 
                 Assert.That(served["legislation"]?.Value<String>(),                            Is.EqualTo("CRA"));
+                Assert.That(served["statedBy"]?.Value<String>(),                               Is.EqualTo("roamingNetworkOperator"));
                 Assert.That(bodies.Select(entry => entry["@id"]?.Value<String>()),             Is.EqualTo(new[] { "BSI", "PTB" }));
 
             });

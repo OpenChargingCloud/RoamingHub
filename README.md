@@ -612,7 +612,8 @@ which does not take part yet, the hub adds its certificates in its place:
 writes it; 201 with the commit, 400 where the body has keys of its own or the
 certificate is invalid, e.g. under a legislation the body is not `notifiedFor`,
 409 where the network has it already; `poi:edit`. Such a certificate is a
-statement of the hub as the roaming network operator, not of the body. The POI
+statement of the hub as the roaming network operator, not of the body, and says
+so: the hub gives it `"statedBy": "roamingNetworkOperator"`. The POI
 API lists them at `/poi/RNs/{id}/TSMs` and `/poi/RNs/{id}/CABs`, their releases
 and certificates below them, `…/TSMs/{id}/TSs` and `…/CABs/{id}/TSCs`; the web
 interface has a section for each.
