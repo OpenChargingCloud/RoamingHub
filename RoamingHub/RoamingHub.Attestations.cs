@@ -166,7 +166,8 @@ namespace cloud.charging.open.RoamingHub
                                      Description: new ImmutableI18NString(I18NString.Create(Languages.en, $"The keys of the roaming network operator '{NetworkOperator.Id}' stated until {keyStatement.ValidUntil.ToISO8601()}.")),
                                      CreatedAt:   Now
                                  )
-                             )
+                             ),
+                             At: Now
                          );
 
             if (result.IsCommitted)
