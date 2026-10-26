@@ -1069,10 +1069,10 @@ namespace cloud.charging.open.RoamingHub
                     return new (RoamingNetworkPartyStatus.Invalid,
                                 $"The conformity assessment body '{body.Id}' takes part, with keys of its own: it signs its certificates itself, with change sets it submits.");
 
-                if (!TransparencySoftwareCertificate.TryParse(JSON, out var certificate, out var parseError))
+                if (!ConformityCertificate.TryParse(JSON, out var certificate, out var parseError))
                     return new (RoamingNetworkPartyStatus.Invalid, $"The certificate can not be added: {parseError}");
 
-                if (network.TryGetTransparencySoftwareCertificateById(certificate.Id, out _))
+                if (network.TryGetConformityCertificateById(certificate.Id, out _))
                     return new (RoamingNetworkPartyStatus.Exists, $"The roaming network '{RoamingNetworkId}' has the transparency software certificate '{certificate.Id}' already.");
 
                 RoamingNetworkChangeSet changeSet;

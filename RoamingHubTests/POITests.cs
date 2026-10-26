@@ -651,7 +651,7 @@ namespace cloud.charging.open.RoamingHub.Tests
             var poolWithoutModel  = Assert.Throws<ArgumentException>(() => AddPool());
 
             // Each states its model itself; the hub signs none of them.
-            var models            = await Commit(anybody, Head().CreateChangeSet([ RoamingNetworkChange.Add(new ChargingStationModel(ChargingStationModel_Id.Parse("AC-11"), Versions: [ "1.0" ], MaxPower: Watt.FromW(11000)),
+            var models            = await Commit(anybody, Head().CreateChangeSet([ RoamingNetworkChange.Add(new ChargingStationModel(ChargingStationModel_Id.Parse("AC-11"), HardwareRevisions: [ HardwareRevision.Parse("1.0") ], FirmwareVersions: [ FirmwareVersion.Parse("1.0") ], MaxPower: Watt.FromW(11000)),
                                                                                                             ChargingStationManufacturer_Id.Parse("ACME")),
                                                                                    RoamingNetworkChange.Add(new EnergyMeterModel(EnergyMeterModel_Id.Parse("M-1")),
                                                                                                             EnergyMeterManufacturer_Id.Parse("METERS")) ]).
@@ -684,7 +684,7 @@ namespace cloud.charging.open.RoamingHub.Tests
 
                 Assert.That(served["homepage"]?.Value<String>(),                                      Is.EqualTo("https://acme.example"));
                 Assert.That(served["chargingStationModels"]?[0]?["@id"]?.Value<String>(),            Is.EqualTo("AC-11"));
-                Assert.That(listed.Select(entry => entry["versions"]?[0]?.Value<String>()),           Is.EqualTo(new[] { "1.0" }));
+                Assert.That(listed.Select(entry => entry["hardwareRevisions"]?[0]?.Value<String>()),  Is.EqualTo(new[] { "1.0" }));
                 Assert.That(meterMakers.Select(entry => entry["@id"]?.Value<String>()),               Is.EqualTo(new[] { "METERS" }));
 
             });
@@ -747,7 +747,7 @@ namespace cloud.charging.open.RoamingHub.Tests
             var stationMaker       = await AddedWithKeys("CSMs", "ACME",         acmeKey,     acmeIdentity);
 
             // The model the certificates are for, stated by its manufacturer.
-            var addModel           = await Commit(anybody, Head().CreateChangeSet([ RoamingNetworkChange.Add(new ChargingStationModel(ChargingStationModel_Id.Parse("Wallbox-22"), Versions: [ "1.0" ]),
+            var addModel           = await Commit(anybody, Head().CreateChangeSet([ RoamingNetworkChange.Add(new ChargingStationModel(ChargingStationModel_Id.Parse("Wallbox-22"), HardwareRevisions: [ HardwareRevision.Parse("1.0") ], FirmwareVersions: [ FirmwareVersion.Parse("1.0") ]),
                                                                                                              ChargingStationManufacturer_Id.Parse("ACME")) ]).
                                                                   Sign(acmeKey, POIPublicKey.From(acmeKey).Id, COSEAlgorithm.ES256));
 
@@ -771,7 +771,8 @@ namespace cloud.charging.open.RoamingHub.Tests
                 => new (new JProperty("@id",                                Id),
                         new JProperty("chargingStationManufacturerId",      "ACME"),
                         new JProperty("chargingStationModel",               "Wallbox-22"),
-                        new JProperty("chargingStationModelVersion",        "1.0"),
+                        new JProperty("hardwareRevisions",                  new JArray("1.0")),
+                        new JProperty("firmwareVersions",                   new JArray("1.0")),
                         new JProperty("verifiedTransparencySoftwareIds",    new JArray("chargy-1.5.0")),
                         new JProperty("compatibleTransparencySoftwareIds",  new JArray()),
                         new JProperty("legislation",                        Legislation));
@@ -789,7 +790,7 @@ namespace cloud.charging.open.RoamingHub.Tests
 
             var makers             = JArray. Parse(await anybody.GetStringAsync("poi/RNs/QA/TSMs"));
             var releases           = JArray. Parse(await anybody.GetStringAsync("poi/RNs/QA/TSMs/GraphDefined/TSs"));
-            var served             = JObject.Parse(await anybody.GetStringAsync("poi/RNs/QA/CABs/BSI/TSCs/BSI-2026-1"));
+            var served             = JObject.Parse(await anybody.GetStringAsync("poi/RNs/QA/CABs/BSI/certificates/BSI-2026-1"));
             var bodies             = JArray. Parse(await anybody.GetStringAsync("poi/RNs/QA/CABs"));
 
             Assert.Multiple(() => {
