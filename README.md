@@ -714,6 +714,13 @@ a binding that quietly lets nobody set anything. No role of the hub carries
 `poi-status:edit`; `systemadmin` does, as it may do everything, and sets a
 status only where `statusRoles` names it as well.
 
+A browser may open the WebSocket of a history from the hub's own pages, and
+from the pages of the sites `allowedOrigins` names - `"poi": { "allowedOrigins": [
+"https://map.example.org" ] }` - and from no other site's: an upgrade request
+whose `Origin` is neither is refused with 403. Programs send no `Origin`. What
+changes a history over HTTP takes `application/json` or `application/cbor`, and
+answers anything else with 415.
+
 A driver's app checks a charging station offline (`RoamingHub.Attestations.cs`,
 SPECIFICATION.md of WWCP POI, sections 8.4 to 8.6). A roaming network made here
 states the keys of its operator from its genesis on: a key statement of the
@@ -753,7 +760,8 @@ tagged `poi` and `store`.
   "versionCheckpointInterval":  100,
   "recentVersions":             100,
   "archive":                    true,
-  "statusRoles":                { "gef-feed": [ "DE*GEF" ] }
+  "statusRoles":                { "gef-feed": [ "DE*GEF" ] },
+  "allowedOrigins":             [ "https://map.example.org" ]
 }
 ```
 

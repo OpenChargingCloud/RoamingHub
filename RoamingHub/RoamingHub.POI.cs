@@ -206,7 +206,13 @@ namespace cloud.charging.open.RoamingHub
                                 // operator among the peers, or an account bound to one, set the runtime status of
                                 // what it owns: see RoamingHub.POIStatus.cs.
                                 AuthenticateWebSocketClient   = AuthenticatePOIClient,
-                                AuthorizeStatusUpdate         = AuthorizePOIStatusUpdate
+                                AuthorizeStatusUpdate         = AuthorizePOIStatusUpdate,
+
+                                // A browser opens it from the hub's own pages - by the name a trusted proxy in front
+                                // says, too - and from the pages of the sites the "poi" section names, and from no
+                                // other site's: see POI_API.AllowedOrigins.
+                                AllowedOrigins                = poiConfiguration.EffectiveAllowedOrigins,
+                                HostAskedFor                  = ProxyHostOf
 
                             };
 

@@ -112,6 +112,57 @@ namespace cloud.charging.open.RoamingHub.Tests
 
         #endregion
 
+        #region AllowedOriginsAreReadAndWrittenAgain()
+
+        /// <summary>
+        /// The origins of other sites that may open the WebSocket of a history, as a browser writes an origin, and
+        /// once each; written again as they were given, and none where the section says nothing.
+        /// </summary>
+        [Test]
+        public void AllowedOriginsAreReadAndWrittenAgain()
+        {
+
+            var section = new JObject(
+                              new JProperty(POIConfiguration.AllowedOriginsName, new JArray("https://map.example.org", "http://localhost:8080", "https://MAP.example.org/"))
+                          );
+
+            Assert.That(RoamingHubConfiguration.TryParse(new JObject(new JProperty(POIConfiguration.SectionName, section)), out var configuration, out var error), Is.True, error);
+
+            using (Assert.EnterMultipleScope())
+            {
+                Assert.That(configuration!.POI!.EffectiveAllowedOrigins,                              Is.EqualTo(new[] { "https://map.example.org", "http://localhost:8080" }));
+                Assert.That(configuration.ToJSON()[POIConfiguration.SectionName]?[POIConfiguration.AllowedOriginsName]?.Values<String>(),
+                                                                                                      Is.EqualTo(new[] { "https://map.example.org", "http://localhost:8080" }));
+                Assert.That(configuration.ToString(),                                                 Does.Contain("their WebSocket also opened by pages of https://map.example.org, http://localhost:8080"));
+                Assert.That(new POIConfiguration().EffectiveAllowedOrigins,                           Is.Empty, "No other site's pages, unless the file says so.");
+            }
+
+        }
+
+        #endregion
+
+        #region AnOriginThatIsWrongIsNamed(Value, Said)
+
+        [TestCase("\"https://map.example.org\"",            "'poi.allowedOrigins' must be an array")]
+        [TestCase("[ \"map.example.org\" ]",                "'poi.allowedOrigins' names 'map.example.org', which is no origin")]
+        [TestCase("[ \"https://map.example.org/tiles\" ]",  "'poi.allowedOrigins' names 'https://map.example.org/tiles', which is no origin")]
+        [TestCase("[ \"ftp://map.example.org\" ]",          "'poi.allowedOrigins' names 'ftp://map.example.org', which is no origin")]
+        [TestCase("[ 42 ]",                                  "'poi.allowedOrigins' must contain nothing but strings")]
+        public void AnOriginThatIsWrongIsNamed(String Value, String Said)
+        {
+
+            var json = new JObject(new JProperty(POIConfiguration.SectionName, new JObject(new JProperty(POIConfiguration.AllowedOriginsName, JToken.Parse(Value)))));
+
+            using (Assert.EnterMultipleScope())
+            {
+                Assert.That(RoamingHubConfiguration.TryParse(json, out _, out var error), Is.False);
+                Assert.That(error,                                                         Does.Contain(Said));
+            }
+
+        }
+
+        #endregion
+
         #region ARoleTheHubDoesNotHaveOrThatMayNotSetAStatusStopsTheStart(Roles, Said)
 
         /// <summary>
@@ -163,8 +214,13 @@ namespace cloud.charging.open.RoamingHub.Tests
 
         #region Data
 
-        private const String  GEFEVSE   = "DE*GEF*E1*1";
-        private const String  QACEVSE   = "DE*QAC*E1*1";
+        private const String  GEFEVSE        = "DE*GEF*E1*1";
+        private const String  QACEVSE        = "DE*QAC*E1*1";
+
+        /// <summary>
+        /// The site whose pages the "poi" section lets open the WebSocket of a history.
+        /// </summary>
+        private const String  AllowedOrigin  = "https://map.example.org";
 
         #endregion
 
@@ -181,7 +237,8 @@ namespace cloud.charging.open.RoamingHub.Tests
                 var configuration = TestRoamingHubs.Offline;
 
                 configuration.Add("roles",                       new JObject(new JProperty("gef-feed", new JArray($"{HubAccess.POIStatus}:edit"))));
-                configuration.Add(POIConfiguration.SectionName,  new JObject(new JProperty(POIConfiguration.StatusRolesName, new JObject(new JProperty("gef-feed", new JArray("DE*GEF"))))));
+                configuration.Add(POIConfiguration.SectionName,  new JObject(new JProperty(POIConfiguration.StatusRolesName,    new JObject(new JProperty("gef-feed", new JArray("DE*GEF")))),
+                                                                             new JProperty(POIConfiguration.AllowedOriginsName, new JArray(AllowedOrigin))));
 
                 return configuration;
 
@@ -848,6 +905,97 @@ namespace cloud.charging.open.RoamingHub.Tests
                 Assert.That(Said(),          Has.None.Contains("wrong-token-of-nobody"));
                 Assert.That(Said(),          Has.None.Contains("wrongAPIKeyOfNoAccount0"));
                 Assert.That(Said(),          Has.None.Contains(Password));
+            }
+
+        }
+
+        #endregion
+
+        #region TheWebSocketOpensToTheHubsPagesAndTheSitesAllowedAndNoOther()
+
+        /// <summary>
+        /// The WebSocket of a history opens to a program, which sends no Origin, to a page of the hub's own and to a page
+        /// of the site the "poi" section allows; a page of another site is refused with 403 at the upgrade, before the
+        /// credentials it carries are looked at, and is told why (POI3-ISSUES.md S23).
+        /// </summary>
+        [Test]
+        public async Task TheWebSocketOpensToTheHubsPagesAndTheSitesAllowedAndNoOther()
+        {
+
+            await QAWithTwoOperators();
+
+            static Action<ClientWebSocketOptions> From(String Origin)
+                => options => options.SetRequestHeader("Origin", Origin);
+
+            var (program, programStatus)  = await WebSocketClient.TryConnect(URL);
+            var (own,     ownStatus)      = await WebSocketClient.TryConnect(URL, From(new Uri(BaseURL).GetLeftPart(UriPartial.Authority)));
+            var (allowed, allowedStatus)  = await WebSocketClient.TryConnect(URL, From(AllowedOrigin));
+            var (other,   otherStatus)    = await WebSocketClient.TryConnect(URL, From("https://evil.example"));
+
+            await using (program)
+            await using (own)
+            await using (allowed)
+            {
+                using (Assert.EnterMultipleScope())
+                {
+                    Assert.That(program,      Is.Not.Null, $"a program: {(Int32) programStatus}");
+                    Assert.That(own,          Is.Not.Null, $"a page of the hub's own: {(Int32) ownStatus}");
+                    Assert.That(allowed,      Is.Not.Null, $"a page of the site allowed: {(Int32) allowedStatus}");
+                    Assert.That(other,        Is.Null);
+                    Assert.That(otherStatus,  Is.EqualTo(HttpStatusCode.Forbidden));
+                }
+            }
+
+        }
+
+        #endregion
+
+        #region AChangeSetOfTextPlainIsRefused()
+
+        /// <summary>
+        /// A change set sent to the hub's POI API as text/plain - as a form of another site's page sends it without
+        /// asking - is refused with 415, and the same change set as JSON is committed.
+        /// </summary>
+        [Test]
+        public async Task AChangeSetOfTextPlainIsRefused()
+        {
+
+            Assert.That(RoamingHub.CreateRoamingNetwork(RoamingNetwork_Id.Parse("QA")).Success, Is.True);
+
+            var signingKey  = AddedOperator("DE*GEF");
+            var pool        = new ChargingPool(
+                                  ChargingPool_Id.Parse("DE*GEF*P1"),
+                                  ChargingStations:  [ new ChargingStation(ChargingStation_Id.Parse("DE*GEF*S1"), EVSEs: [ new EVSE(EVSE_Id.Parse(GEFEVSE)) ]) ]
+                              );
+
+            var changeSet   = History.Head.RoamingNetwork.CreateChangeSet([ RoamingNetworkChange.Add(pool) ]).
+                                                         Sign(signingKey, POIPublicKey.From(signingKey).Id, COSEAlgorithm.ES256);
+            var text        = CanonicalJSON.Serialize(changeSet.ToJSON());
+
+            async Task<HttpStatusCode> Commit(String MediaType)
+            {
+
+                using var anybody   = Anonymous();
+                using var request   = new HttpRequestMessage(new HttpMethod("COMMIT"), $"{RoamingHub.POIPathSegment}/RNs/QA/history/changeSets") {
+                                          Content = new StringContent(text, Encoding.UTF8, MediaType)
+                                      };
+                using var response  = await anybody.SendAsync(request);
+
+                return response.StatusCode;
+
+            }
+
+            var revision  = History.Head.Commit.Revision;
+            var plain     = await Commit("text/plain");
+            var refused   = History.Head.Commit.Revision;
+            var json      = await Commit("application/json");
+
+            using (Assert.EnterMultipleScope())
+            {
+                Assert.That(plain,                         Is.EqualTo(HttpStatusCode.UnsupportedMediaType));
+                Assert.That(refused,                       Is.EqualTo(revision), "the change set of text/plain was committed");
+                Assert.That(json,                          Is.EqualTo(HttpStatusCode.Created));
+                Assert.That(History.Head.Commit.Revision,  Is.EqualTo(revision + 1));
             }
 
         }

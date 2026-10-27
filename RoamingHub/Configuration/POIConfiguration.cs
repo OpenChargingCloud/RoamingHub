@@ -49,6 +49,11 @@ namespace cloud.charging.open.RoamingHub.Configuration
     /// "roles" section and the operators here: a role nobody gave the permission, or one this hub does not have, stops
     /// the start rather than be a binding that quietly lets nobody set anything. See RoamingHub.POIStatus.cs.
     /// </para>
+    /// <para>
+    /// AllowedOrigins names the web pages of other sites that may open the WebSocket of a history in a browser -
+    /// "allowedOrigins": [ "https://map.example.org" ]. A browser says whose page asks, and a page of another site is
+    /// refused unless it is named here; the hub's own pages, and programs that are no browsers, always may.
+    /// </para>
     /// </remarks>
     /// <param name="RetainCommits">How many revisions behind the head the commits are kept in the store when compacting; 1000 by default.</param>
     /// <param name="CompactAfterLogEntries">After how many entries of its log a history compacts it; 100 000 by default.</param>
@@ -56,12 +61,14 @@ namespace cloud.charging.open.RoamingHub.Configuration
     /// <param name="RecentVersions">The versions of this many latest commits are kept in memory; 100 by default.</param>
     /// <param name="Archive">Whether the commits dropped go into the archive beside the store, "archive/"; true by default.</param>
     /// <param name="StatusRoles">The roles whose accounts may set the runtime status, each with the charging station operators whose status it may set; none by default.</param>
+    /// <param name="AllowedOrigins">The origins of the web pages of other sites that may open the WebSocket of a history, "https://map.example.org"; none by default.</param>
     public sealed record POIConfiguration(UInt32?                                                                   RetainCommits               = null,
                                           UInt32?                                                                   CompactAfterLogEntries      = null,
                                           UInt32?                                                                   VersionCheckpointInterval   = null,
                                           UInt32?                                                                   RecentVersions              = null,
                                           Boolean?                                                                  Archive                     = null,
-                                          IReadOnlyDictionary<String, IReadOnlyList<ChargingStationOperator_Id>>?  StatusRoles                 = null)
+                                          IReadOnlyDictionary<String, IReadOnlyList<ChargingStationOperator_Id>>?  StatusRoles                 = null,
+                                          IReadOnlyList<String>?                                                    AllowedOrigins              = null)
     {
 
         #region Data
@@ -85,6 +92,16 @@ namespace cloud.charging.open.RoamingHub.Configuration
         /// The most charging station operators one role may be bound to.
         /// </summary>
         public const Int32   MaxStatusOperators    = 1000;
+
+        /// <summary>
+        /// The name of the field of the origins of other sites that may open the WebSocket of a history.
+        /// </summary>
+        public const String  AllowedOriginsName    = "allowedOrigins";
+
+        /// <summary>
+        /// The most origins the section may name.
+        /// </summary>
+        public const Int32   MaxAllowedOrigins     = 100;
 
         private static readonly RoamingNetworkHistoryRetention  defaults  = new ();
 
@@ -116,6 +133,12 @@ namespace cloud.charging.open.RoamingHub.Configuration
         public IReadOnlyDictionary<String, IReadOnlyList<ChargingStationOperator_Id>>  EffectiveStatusRoles
             => StatusRoles ?? new Dictionary<String, IReadOnlyList<ChargingStationOperator_Id>>();
 
+        /// <summary>
+        /// The origins of other sites that may open the WebSocket of a history: none, where the section says nothing.
+        /// </summary>
+        public IReadOnlyList<String>  EffectiveAllowedOrigins
+            => AllowedOrigins ?? [];
+
         #endregion
 
 
@@ -143,12 +166,67 @@ namespace cloud.charging.open.RoamingHub.Configuration
             if (!TryParseStatusRoles(JSON, out var statusRoles, out Error))
                 return false;
 
+            if (!TryParseAllowedOrigins(JSON, out var allowedOrigins, out Error))
+                return false;
+
             Configuration = new POIConfiguration(retainCommits,
                                                  compactAfterLogEntries,
                                                  versionCheckpointInterval,
                                                  recentVersions,
                                                  archive,
-                                                 statusRoles);
+                                                 statusRoles,
+                                                 allowedOrigins);
+            return true;
+
+        }
+
+        #endregion
+
+        #region (private static) TryParseAllowedOrigins(JSON, out AllowedOrigins, out Error)
+
+        /// <summary>
+        /// The origins of other sites that may open the WebSocket of a history, [ "https://map.example.org" ], or the one
+        /// sentence that says what is wrong with them. An origin is what a browser sends: the scheme, the host and the port
+        /// where it is not the scheme's own, and nothing after them.
+        /// </summary>
+        private static Boolean TryParseAllowedOrigins(JObject                           JSON,
+                                                      out IReadOnlyList<String>?        AllowedOrigins,
+                                                      [NotNullWhen(false)] out String?  Error)
+        {
+
+            AllowedOrigins = null;
+
+            var path = $"{SectionName}.{AllowedOriginsName}";
+
+            if (!ConfigurationReader.TryReadStrings(JSON, AllowedOriginsName, SectionName, MaxAllowedOrigins, 256, out var texts, out Error))
+                return false;
+
+            if (texts is null)
+                return true;
+
+            var origins = new List<String>();
+
+            foreach (var text in texts)
+            {
+
+                if (!Uri.TryCreate(text, UriKind.Absolute, out var uri) ||
+                    uri.Scheme is not ("http" or "https") ||
+                    uri.Host.Length == 0 ||
+                    uri.UserInfo.Length > 0 ||
+                    text.TrimEnd('/').Length != uri.GetLeftPart(UriPartial.Authority).Length)
+                {
+                    Error = $"'{path}' names '{text}', which is no origin: the scheme and the host of a web page, and its port where it is not the scheme's own, e.g. \"https://map.example.org\".";
+                    return false;
+                }
+
+                var origin = uri.GetLeftPart(UriPartial.Authority);
+
+                if (!origins.Contains(origin, StringComparer.OrdinalIgnoreCase))
+                    origins.Add(origin);
+
+            }
+
+            AllowedOrigins = origins;
             return true;
 
         }
@@ -261,6 +339,9 @@ namespace cloud.charging.open.RoamingHub.Configuration
             if (StatusRoles is not null)
                 json.Add(StatusRolesName, new JObject(StatusRoles.Select(statusRole => new JProperty(statusRole.Key, new JArray(statusRole.Value.Select(operatorId => operatorId.ToString()))))));
 
+            if (AllowedOrigins is not null)
+                json.Add(AllowedOriginsName, new JArray(AllowedOrigins));
+
             return json;
 
         }
@@ -278,6 +359,9 @@ namespace cloud.charging.open.RoamingHub.Configuration
                    (EffectiveArchive ? ", the commits dropped archived" : ", the commits dropped not archived") +
                    (EffectiveStatusRoles.Count > 0
                         ? ", their status set by " + String.Join(", ", EffectiveStatusRoles.Select(statusRole => $"'{statusRole.Key}' for {String.Join(", ", statusRole.Value)}"))
+                        : "") +
+                   (EffectiveAllowedOrigins.Count > 0
+                        ? ", their WebSocket also opened by pages of " + String.Join(", ", EffectiveAllowedOrigins)
                         : "");
 
         }
