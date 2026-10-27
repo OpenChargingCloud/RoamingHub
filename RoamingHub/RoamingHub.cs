@@ -198,8 +198,9 @@ namespace cloud.charging.open.RoamingHub
         ];
 
         /// <summary>
-        /// The kinds of certificate a hub keeps: the four TLS is made of, and
-        /// none of the vehicle's seven.
+        /// The kinds of certificate a hub keeps: the four TLS is made of, the
+        /// identity its web interface shows over HTTPS, and none of the
+        /// vehicle's seven.
         /// </summary>
         /// <remarks>
         /// What a server this hub connects to may chain to, what a client
@@ -209,8 +210,14 @@ namespace cloud.charging.open.RoamingHub
         /// peers, reached over HTTPS and reaching this hub the same way, are
         /// what a hub has more of than anybody. Public, so that what -h shows
         /// can name them before a hub is made.
+        ///
+        /// The TLS server identity is what the web interface, the JSON API and
+        /// the sign-in show where the "web" section says "tls": { "certificate":
+        /// "store" }, or --https - kept from the start, so that
+        /// --import-certificate tlsServerIdentity=&lt;file&gt; puts it in at the
+        /// same start that asks for it (POI3-ISSUES.md S13).
         /// </remarks>
-        public static readonly IReadOnlyList<CertificateKind> CertificateKinds = CertificateKindExtensions.TLS;
+        public static readonly IReadOnlyList<CertificateKind> CertificateKinds = [ .. CertificateKindExtensions.TLS, CertificateKind.TLSServerIdentity ];
 
         #endregion
 
@@ -249,6 +256,7 @@ namespace cloud.charging.open.RoamingHub
         /// <param name="BridgeDebugLog">Whether what the libraries below write with DebugX ends up in the log.</param>
         /// <param name="TimeProvider">Where this RoamingHub reads the time; the system clock by default.</param>
         /// <param name="SSH">What the program says about serving the command line over SSH; nothing by default - see SSHSettings.</param>
+        /// <param name="Web">What the program says of HTTPS and of the reverse proxies in front - --https, --https-cert, --redirect-port and --trusted-proxy - over the "web" section of the configuration file; nothing by default, and then the file alone says it.</param>
         public RoamingHub(DNSClient?             DNSClient          = null,
                           NTSClient?             NTSClient          = null,
                           HTTPServer?            HTTPServer         = null,
@@ -268,7 +276,8 @@ namespace cloud.charging.open.RoamingHub
                           String?                LogPath            = null,
                           Boolean                BridgeDebugLog     = true,
                           TimeProvider?          TimeProvider       = null,
-                          SSHSettings?           SSH                = null)
+                          SSHSettings?           SSH                = null,
+                          WebConfiguration?      Web                = null)
 
             : base(Kind:               RoamingHubKind,
                    Version:            typeof(RoamingHub).Assembly.GetName().Version?.ToString(3) ?? "0.0.0",
@@ -294,7 +303,13 @@ namespace cloud.charging.open.RoamingHub
                    BridgeDebugLog:     BridgeDebugLog,
                    TraceTags:          TraceTags,
                    TimeProvider:       TimeProvider,
-                   SSH:                SSH)
+                   SSH:                SSH,
+
+                   // HTTPS of the hub's own, or the proxies in front believed:
+                   // with --any, which its OCPI peers need, the sign-in would
+                   // otherwise cross the network in the clear - see the node's
+                   // "web" section (POI3-ISSUES.md S13).
+                   Web:                Web)
 
         {
 

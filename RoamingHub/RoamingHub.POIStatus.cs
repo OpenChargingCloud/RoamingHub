@@ -161,7 +161,7 @@ namespace cloud.charging.open.RoamingHub
 
             if (!TryIdentifyPOIClient(Request, out var client, out var refusal))
             {
-                Log.Warning($"Somebody at {Request.RemoteSocket} was refused the WebSocket of the roaming network '{RoamingNetworkIdOf(Request)}': {refusal}.", "poi", "status", "websocket");
+                Log.Warning($"Somebody at {ClientOf(Request)} was refused the WebSocket of the roaming network '{RoamingNetworkIdOf(Request)}': {refusal}.", "poi", "status", "websocket");
                 return Task.FromResult<String?>(null);
             }
 
@@ -202,7 +202,7 @@ namespace cloud.charging.open.RoamingHub
 
             if (client is null)
             {
-                Log.Warning($"Somebody without credentials at {Request.RemoteSocket} was refused {what}: who sets a status shows who it is.", "poi", "status");
+                Log.Warning($"Somebody without credentials at {ClientOf(Request)} was refused {what}: who sets a status shows who it is.", "poi", "status");
                 return false;
             }
 

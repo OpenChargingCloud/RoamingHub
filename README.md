@@ -241,13 +241,43 @@ The `configuration.json` beside it, in the same shape as the EMSP's:
 | `nts` | the time servers, the rules for believing them, what each is held to, and how often the clock is checked |
 | `certificates` | where the certificate store is: `directory`, `certificates/` beside the file by default |
 | `roles` | roles beyond the three a hub brings, or what one of them may do |
+| `web` | how the web interface, the JSON API and the sign-in are reached safely: HTTPS of the hub's own - with its store's `tlsServerIdentity` or certbot's PEM files, read again when they change - with HSTS and a port that redirects to it, or the reverse proxies in front that do the HTTPS and are believed when they name the client |
 | `ocpi` | who this hub is - country code, party identification, name - and which versions it offers |
 | `datex2` | which roaming networks are published as DATEX II, to be pulled and pushed to the Mobilithek |
 | `poi` | what the histories of the roaming networks keep, whether the commits they drop are archived, and which roles may set the runtime status of which charging station operators |
 
 The node below reads the sections every one of these programs has - `dns`,
-`nts`, `certificates` and `roles` - and the hub reads its own, `ocpi`,
-`datex2` and `poi`, from the same document; each passes over what is the other's.
+`nts`, `certificates`, `roles`, `ssh` and `web` - and the hub reads its own,
+`ocpi`, `datex2` and `poi`, from the same document; each passes over what is
+the other's.
+
+`web` is what a hub listening beyond its machine needs most: `--any`, which
+its OCPI peers need, puts the sign-in's password, every API key and the
+session cookie on the network, in the clear unless one of two things is said
+(POI3-ISSUES.md S13). Either HTTPS of the hub's own,
+
+```json
+"web": { "tls": { "certificate": { "fullchain": "/etc/letsencrypt/live/hub.example.org/fullchain.pem",
+                                   "privateKey": "/etc/letsencrypt/live/hub.example.org/privkey.pem" },
+                  "redirectPort": 80 } }
+```
+
+or `"certificate": "store"` with the store's TLS server identity, put there
+with `--import-certificate tlsServerIdentity=<file>` or on the Certificates
+page - or the proxy in front that does the HTTPS, nginx as the hub has been
+run so far:
+
+```json
+"web": { "trustedProxies": [ "127.0.0.1", "::1" ] }
+```
+
+Then the client nginx names in X-Forwarded-For is who the log, the sign-in's
+ration of guesses and an API key bound to addresses see, and the session
+cookie is a secure one where X-Forwarded-Proto says `https`. The switches
+`--https`, `--https-cert <file>` with `--https-key <file>`, `--redirect-port
+<number>` and `--trusted-proxy <address>` say the same and win over the file.
+Neither said, with `--any`, the hub warns in its log, below its banner and
+above every page to its administrators. WWCP_Node's README has all of it.
 
 Everything in `dns` and `nts` takes effect the moment it is saved. The `ocpi`
 section is read once at the start and deliberately not changeable while
@@ -461,8 +491,9 @@ banner and the pages - drops it again.
 Everything this hub believes in TLS, what it will present and every server it
 recognises lives in one store: `certificates/` beside the configuration file,
 unless the file's `certificates.directory` or the command line says
-otherwise. It is the node's store, and a hub keeps the four kinds of TLS in it
-and none of the seven of ISO 15118, which are a vehicle's:
+otherwise. It is the node's store, and a hub keeps the four kinds of TLS in it,
+the identity its web interface shows over HTTPS, and none of the seven of ISO
+15118, which are a vehicle's:
 
 | Kind | |
 |---|---|
@@ -470,9 +501,11 @@ and none of the seven of ISO 15118, which are a vehicle's:
 | `tlsServer` | a server's own certificate, kept to hold the server to by its fingerprint - for `nts`, `dns` or both |
 | `clientRoot` | what a client connecting to this hub will have to chain to - the root, or the CA that issues the clients |
 | `tlsIdentity` | who this hub is to a server that asks, with its private key - looked after on the **Identities** page, as every certificate with a key is |
+| `tlsServerIdentity` | what the web interface, the JSON API and the sign-in show over HTTPS, with its private key, where the `web` section says `"tls": { "certificate": "store" }` or the command line `--https` |
 
-The first two are used today; the other two are kept, and used by nothing
-here yet. The peers are what they are waiting for: a hub reaches more servers
+The first two are used today, and the last where HTTPS of the hub's own is
+asked for; `clientRoot` and `tlsIdentity` are kept, and used by nothing here
+yet. The peers are what they are waiting for: a hub reaches more servers
 over HTTPS, and is reached by more clients, than any other kind of node.
 
 The store is the directory: one file per certificate below it, and an

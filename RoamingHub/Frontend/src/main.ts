@@ -48,6 +48,9 @@ startNode({
             nodeMenu.ssh,
             nodeMenu.certificates,
             nodeMenu.identities,
+            // What the web interface shows over HTTPS, where the "web"
+            // section says "tls": { "certificate": "store" } (POI3-ISSUES.md S13).
+            nodeMenu.serverIdentities,
             { path: '/configuration/ocpi',          label: 'OCPI',   icon: 'fa-plug',       permission: [ 'configuration:read' ] },
             { path: '/configuration/ocpi/partners',  label: 'Peers',  icon: 'fa-handshake',  permission: [ 'peers:read' ]         }
         ]),

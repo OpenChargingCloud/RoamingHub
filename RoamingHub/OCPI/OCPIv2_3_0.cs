@@ -257,7 +257,7 @@ namespace cloud.charging.open.RoamingHub.OCPI
             void LogHandshake(String What, V.OCPIRequest Request, V.OCPIResponse Response)
             {
 
-                var who     = Request.RemoteParty?.Id.ToString() ?? $"somebody at {Request.HTTPRequest.RemoteSocket}";
+                var who     = Request.RemoteParty?.Id.ToString() ?? $"somebody at {RoamingHub.ClientOf(Request.HTTPRequest)}";
                 var worked  = Response.StatusCode == StatusCode.Success;
 
                 if (RoamingHub.OCPI.Logging?.Requests != false || !worked)

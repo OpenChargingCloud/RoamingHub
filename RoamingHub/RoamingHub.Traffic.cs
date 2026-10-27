@@ -125,7 +125,9 @@ namespace cloud.charging.open.RoamingHub
 
                 RequestId:           Request.GetHeaderField(protocols.OCPI.HTTPHeaders.X_Request_ID),
                 CorrelationId:       Request.GetHeaderField(protocols.OCPI.HTTPHeaders.X_Correlation_ID),
-                RemoteSocket:        Request.RemoteSocket.ToString(),
+                // The client a trusted proxy in front names, and the proxy beside
+                // it - see WWCPNode.ClientOf.
+                RemoteSocket:        ClientOf(Request),
 
                 // A credentials body carries the token the peer will be called with, or the one this hub handed out;
                 // it is redacted before it is kept, whatever the module (every other body has no such field).

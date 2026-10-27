@@ -349,7 +349,7 @@ namespace cloud.charging.open.RoamingHub
                     $"OCPI: {request.HTTPMethod} {request.Path} from " +
                     (remotePartyId.HasValue
                          ? $"the peer '{remotePartyId}'"
-                         : $"somebody at {request.RemoteSocket}") +
+                         : $"somebody at {ClientOf(request)}") +
                     $" failed (request id {requestId}, correlation id {correlationId})",
                     "ocpi", "http"
                 );
@@ -381,7 +381,7 @@ namespace cloud.charging.open.RoamingHub
                     Log.Info(
                         request.RemoteParty is not null
                             ? $"The peer '{request.RemoteParty.Id}' asked for the OCPI versions."
-                            : $"Somebody at {request.HTTPRequest.RemoteSocket} asked for the OCPI versions" +
+                            : $"Somebody at {ClientOf(request.HTTPRequest)} asked for the OCPI versions" +
                               (request.AccessToken.HasValue ? " with a token this hub does not know." : " without a token."),
                         "ocpi", "versions"
                     );

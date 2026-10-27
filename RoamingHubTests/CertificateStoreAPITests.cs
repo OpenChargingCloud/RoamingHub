@@ -141,15 +141,16 @@ namespace cloud.charging.open.RoamingHub.Tests
         #endregion
 
 
-        #region TheStoreKeepsTLSsFourKindsAndNoneOfAVehicles()
+        #region TheStoreKeepsTLSsFourKindsTheWebInterfacesIdentityAndNoneOfAVehicles()
 
         /// <summary>
         /// What the page is told the store keeps: the four kinds TLS is made of,
-        /// sorted into what the hub believes, presents and recognises, and what
-        /// each of them may be told it is for.
+        /// and the identity the web interface shows over HTTPS (POI3-ISSUES.md
+        /// S13), sorted into what the hub believes, presents and recognises, and
+        /// what each of them may be told it is for.
         /// </summary>
         [Test]
-        public async Task TheStoreKeepsTLSsFourKindsAndNoneOfAVehicles()
+        public async Task TheStoreKeepsTLSsFourKindsTheWebInterfacesIdentityAndNoneOfAVehicles()
         {
 
             var (_, store) = await Send(HttpMethod.Get, "api/v1/certificates");
@@ -157,10 +158,10 @@ namespace cloud.charging.open.RoamingHub.Tests
             Assert.Multiple(() => {
 
                 Assert.That(((JObject) store["kinds"]!).Properties().Select(kind => kind.Name),
-                            Is.EquivalentTo(new[] { "tlsRoot", "clientRoot", "tlsServer", "tlsIdentity" }));
+                            Is.EquivalentTo(new[] { "tlsRoot", "clientRoot", "tlsServer", "tlsIdentity", "tlsServerIdentity" }));
 
                 Assert.That(store["trustAnchors"]!.Values<String>(),  Is.EquivalentTo(new[] { "tlsRoot", "clientRoot" }));
-                Assert.That(store["credentials"]!.Values<String>(),   Is.EqualTo(new[] { "tlsIdentity" }));
+                Assert.That(store["credentials"]!.Values<String>(),   Is.EqualTo(new[] { "tlsIdentity", "tlsServerIdentity" }));
                 Assert.That(store["recognised"]!.Values<String>(),    Is.EqualTo(new[] { "tlsServer" }),
                             "a server certificate is recognised, neither believed nor presented");
                 Assert.That(store["usages"]!.Values<String>(),        Is.EqualTo(new[] { "dns", "nts" }), "what a page may offer");
@@ -181,13 +182,15 @@ namespace cloud.charging.open.RoamingHub.Tests
 
                 // Where each is looked after: a certificate alone in the store,
                 // one with a private key - the identity - among the identities,
+                // and what the web interface shows among the server identities,
                 // which the hub's menu has below the store.
                 Assert.That(((JObject) store["kinds"]!).Properties().ToDictionary(kind => kind.Name, kind => kind.Value["page"]?.Value<String>()),
                             Is.EquivalentTo(new Dictionary<String, String?> {
-                                { "tlsRoot",      "certificates" },
-                                { "clientRoot",   "certificates" },
-                                { "tlsServer",    "certificates" },
-                                { "tlsIdentity",  "identities"   }
+                                { "tlsRoot",            "certificates"      },
+                                { "clientRoot",         "certificates"      },
+                                { "tlsServer",          "certificates"      },
+                                { "tlsIdentity",        "identities"        },
+                                { "tlsServerIdentity",  "serverIdentities"  }
                             }));
 
             });
