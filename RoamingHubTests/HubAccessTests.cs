@@ -240,7 +240,7 @@ namespace cloud.charging.open.RoamingHub.Tests
 
             Assert.Multiple(() => {
                 Assert.That(roamingHub.Roles,             Is.EqualTo(new[] { "viewer", "hub", WWCPNode.AdminRole }));
-                Assert.That(roamingHub.Access.Resources,  Is.EqualTo(new[] { "configuration", "dns", "nts", "certificates", "ssh", "peers", "traffic", "poi" }));
+                Assert.That(roamingHub.Access.Resources,  Is.EqualTo(new[] { "configuration", "dns", "nts", "certificates", "ssh", "peers", "traffic", "poi", "poi-status" }));
             });
 
         }

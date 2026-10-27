@@ -29,9 +29,12 @@ export * from '@node/api/client';
  * The traffic is a resource of its own and deliberately not part of the
  * configuration: the configuration is what this hub is, and the traffic is
  * what its peers did through it. The roaming networks are read by everybody,
- * as the POI API is; editing them is making a new one.
+ * as the POI API is; editing them is making a new one. Their runtime status
+ * is set over the WebSocket of a history, by the feed of a charging station
+ * operator, and nowhere on these pages: "poi-status:edit" is here because
+ * /api/v1/auth/me spells it out for whoever holds it.
  */
-export type Resource = NodeResource | 'peers' | 'traffic' | 'poi';
+export type Resource = NodeResource | 'peers' | 'traffic' | 'poi' | 'poi-status';
 
 /** What somebody signed in to this hub may do: an operation on a resource, written "dns:edit". */
 export type Permission = `${Resource}:${Operation}`;

@@ -17,6 +17,8 @@
 
 #region Usings
 
+using System.Diagnostics.CodeAnalysis;
+
 using Newtonsoft.Json.Linq;
 
 using org.GraphDefined.Vanaheimr.Hermod.HTTP;
@@ -220,10 +222,31 @@ namespace cloud.charging.open.RoamingHub
         /// </para>
         /// </remarks>
         private String? ReadPeer(HTTPRequest Request)
-        {
 
-            if (Request.Authorization is not HTTPTokenAuthentication tokenAuth)
-                return null;
+            => Request.Authorization is HTTPTokenAuthentication tokenAuth &&
+               TryGetPeerByToken(tokenAuth.Token, out var peer, out _)
+                   ? peer.Id.ToString()
+                   : null;
+
+        #endregion
+
+        #region (private) TryGetPeerByToken(Token, out Peer, out AccessInfo)
+
+        /// <summary>
+        /// The peer that holds the given token of this hub, and what this hub
+        /// keeps about that token - whether it is allowed among it.
+        /// </summary>
+        /// <remarks>
+        /// The one place a token is looked up outside the OCPI library: for
+        /// the traffic, which names the peer of a call, and for the WebSocket
+        /// of a roaming network's history, which lets a charging station
+        /// operator among the peers set its status - see RoamingHub.POIStatus.cs.
+        /// Whether the peer may do anything is not decided here.
+        /// </remarks>
+        private Boolean TryGetPeerByToken(String                                                   Token,
+                                          [NotNullWhen(true)] out protocols.OCPI.RemoteParty?      Peer,
+                                          [NotNullWhen(true)] out protocols.OCPI.LocalAccessInfo?  AccessInfo)
+        {
 
             // Both spellings, because OCPI 2.2 sends the token base64 encoded
             // and 2.1.1 sends it as it is - and a hub that only understood
@@ -234,16 +257,20 @@ namespace cloud.charging.open.RoamingHub
                                   })
             {
 
-                if (parse(tokenAuth.Token) is { } accessToken &&
+                if (parse(Token) is { } accessToken &&
                     OCPIAPI.TryGetRemoteParties(accessToken, null, null, out var parties, out _) &&
                     parties.FirstOrDefault() is { } found)
                 {
-                    return found.Item1.Id.ToString();
+                    Peer        = found.Item1;
+                    AccessInfo  = found.Item2;
+                    return true;
                 }
 
             }
 
-            return null;
+            Peer        = null;
+            AccessInfo  = null;
+            return false;
 
         }
 

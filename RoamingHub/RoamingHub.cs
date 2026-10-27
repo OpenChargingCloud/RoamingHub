@@ -327,6 +327,10 @@ namespace cloud.charging.open.RoamingHub
             if (!configuration.IsEmpty)
                 this.Log.Info($"Hub configuration from '{this.ConfigFile.Path}': {configuration}.", "config");
 
+            // The roles the "poi" section binds to charging station operators are roles of this hub that may set
+            // a status, or the start stops - here, before anything is opened: see RoamingHub.POIStatus.cs.
+            CheckStatusRoles(configuration.POI);
+
             #endregion
 
             this.Log.Info(

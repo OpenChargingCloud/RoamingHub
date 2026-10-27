@@ -46,7 +46,7 @@ namespace cloud.charging.open.RoamingHub.Configuration
     /// </remarks>
     /// <param name="OCPI">Who this hub is when it speaks OCPI, and which versions of it it speaks.</param>
     /// <param name="DatexII">Which roaming networks this hub publishes as DATEX II, to be pulled and pushed to the Mobilithek.</param>
-    /// <param name="POI">What the histories of the roaming networks keep in their stores, and whether the commits they drop are archived.</param>
+    /// <param name="POI">What the histories of the roaming networks keep in their stores, whether the commits they drop are archived, and whose runtime status the accounts of which roles may set.</param>
     public sealed record RoamingHubConfiguration(OCPIConfiguration?     OCPI      = null,
                                                  DatexIIConfiguration?  DatexII   = null,
                                                  POIConfiguration?      POI       = null)

@@ -108,6 +108,12 @@ namespace cloud.charging.open.RoamingHub
     /// Who may make a roaming network and add its parties is the permission poi:edit, which only the
     /// administrators have out of the box: it signs with the keys of this hub.
     /// </para>
+    /// <para>
+    /// The runtime status - whether an EVSE is charging, its power, its price right now - is no change set and
+    /// signed by nobody: it is set over the WebSocket of the history by a charging station operator among the peers,
+    /// or by an account of a role the "poi" section binds to one, and only for what that operator owns - see
+    /// RoamingHub.POIStatus.cs.
+    /// </para>
     /// </remarks>
     public partial class RoamingHub
     {
@@ -194,7 +200,13 @@ namespace cloud.charging.open.RoamingHub
 
                                 // Everybody may submit: what a change set changes is the business of
                                 // the signatures of its owners, which every commit checks.
-                                AuthorizeChangeSetSubmission = (request, changeSet) => true
+                                AuthorizeChangeSetSubmission  = (request, changeSet) => true,
+
+                                // Everybody may open the WebSocket of a history and read, and a charging station
+                                // operator among the peers, or an account bound to one, set the runtime status of
+                                // what it owns: see RoamingHub.POIStatus.cs.
+                                AuthenticateWebSocketClient   = AuthenticatePOIClient,
+                                AuthorizeStatusUpdate         = AuthorizePOIStatusUpdate
 
                             };
 

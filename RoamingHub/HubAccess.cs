@@ -48,6 +48,12 @@ namespace cloud.charging.open.RoamingHub
     /// one of them may do - see the node's "roles" section. What is written
     /// here is what a hub is when its file says nothing.
     /// </para>
+    /// <para>
+    /// One resource is for nobody here: the runtime status of the roaming
+    /// networks, set by whoever runs the feed of a charging station operator.
+    /// A role for it is written into the file, and so are the operators it is
+    /// bound to - see <see cref="POIStatus"/>.
+    /// </para>
     /// </remarks>
     public static class HubAccess
     {
@@ -59,13 +65,13 @@ namespace cloud.charging.open.RoamingHub
         /// added, suspended, resumed or removed and the token it signs in with;
         /// run, the OCPI credentials handshake with one.
         /// </summary>
-        public const String  Peers    = "peers";
+        public const String  Peers      = "peers";
 
         /// <summary>
         /// What went between the peers: which of them called which, on what,
         /// and what came back - read, and nothing else.
         /// </summary>
-        public const String  Traffic  = "traffic";
+        public const String  Traffic    = "traffic";
 
         /// <summary>
         /// The roaming networks of the points of interest: edited, a new one
@@ -74,12 +80,37 @@ namespace cloud.charging.open.RoamingHub
         /// Reading them needs nothing, as the POI API is public, and what is
         /// in them is changed by change sets their owners sign, not by a role.
         /// </summary>
-        public const String  POI      = "poi";
+        public const String  POI        = "poi";
 
         /// <summary>
-        /// All three.
+        /// The runtime status of the roaming networks - whether an EVSE is
+        /// charging, the power it delivers, the price shown right now: edited,
+        /// set over the WebSocket of a history, and only that of the charging
+        /// station operators the "poi" section binds the role to.
         /// </summary>
-        public static readonly IReadOnlyList<String>  Resources = [ Peers, Traffic, POI ];
+        /// <remarks>
+        /// <para>
+        /// Its own resource rather than a part of "poi", because it is given to
+        /// somebody else: "poi" is whoever says which roaming networks there are
+        /// and who is in them, this is the feed of one operator, run by a
+        /// program with an API key and nothing else. And it is bound to
+        /// operators, which a permission is not: "poi-status:edit" alone lets
+        /// nobody set anything, the operators its role is bound to in the
+        /// "poi" section are what it may set - see POIConfiguration.StatusRoles.
+        /// </para>
+        /// <para>
+        /// No role of the hub carries it: which operator's feed an account is,
+        /// is nothing a hub can know before its file says so. The peers of the
+        /// hub that are charging station operators need neither - their token
+        /// says who they are, see RoamingHub.POIStatus.cs.
+        /// </para>
+        /// </remarks>
+        public const String  POIStatus  = "poi-status";
+
+        /// <summary>
+        /// All four.
+        /// </summary>
+        public static readonly IReadOnlyList<String>  Resources = [ Peers, Traffic, POI, POIStatus ];
 
         #endregion
 

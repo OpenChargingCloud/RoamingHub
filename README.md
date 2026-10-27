@@ -37,10 +37,10 @@ what goes between them.
 | The base | WWCP_Node's - name resolution, the time source, the certificate store, the accounts, the event log, and the JSON API every node answers with its event stream, to which the hub adds its own routes |
 | The peering | a peer added, a token handed out, and the credentials exchanged in **either** direction |
 | The traffic | every OCPI call that touched this hub, both ways, with the two parties of it - on its own page and its own stream |
-| Who may do what | three roles - `viewer`, `hub` and `systemadmin` - over the node's resources and the hub's two, `peers` and `traffic`, and whatever the configuration file adds |
+| Who may do what | three roles - `viewer`, `hub` and `systemadmin` - over the node's resources and the hub's four, `peers`, `traffic`, `poi` and `poi-status`, and whatever the configuration file adds |
 | The web interface | all of the above in a browser: the traffic as it happens, the peers, the name servers, the time servers, the certificates and the log |
 | HubClientInfo | who is on this hub and whether they can be reached, over OCPI and on the Peers page |
-| The points of interest | roaming networks of POI 3 below `/poi`, public: operated by this hub, which is a roaming network operator with keys of its own, and filled by change sets their owners sign |
+| The points of interest | roaming networks of POI 3 below `/poi`, public: operated by this hub, which is a roaming network operator with keys of its own, and filled by change sets their owners sign; their runtime status set over the WebSocket of a history by the charging station operators among the peers, and by accounts bound to an operator |
 
 **What is not here yet.** Forwarding what one peer sends to another, which is
 what would make this hub more than a directory. That is the next thing.
@@ -243,7 +243,7 @@ The `configuration.json` beside it, in the same shape as the EMSP's:
 | `roles` | roles beyond the three a hub brings, or what one of them may do |
 | `ocpi` | who this hub is - country code, party identification, name - and which versions it offers |
 | `datex2` | which roaming networks are published as DATEX II, to be pulled and pushed to the Mobilithek |
-| `poi` | what the histories of the roaming networks keep, and whether the commits they drop are archived |
+| `poi` | what the histories of the roaming networks keep, whether the commits they drop are archived, and which roles may set the runtime status of which charging station operators |
 
 The node below reads the sections every one of these programs has - `dns`,
 `nts`, `certificates` and `roles` - and the hub reads its own, `ocpi`,
@@ -645,6 +645,42 @@ set may change is decided by the signatures of its owners, which every commit
 checks against the keys in the network, not by who sent it. Every commit the
 history takes, a merge as well, is in the log, tagged `poi` and `commit`.
 
+The **runtime status** - whether an EVSE is charging, the power it delivers,
+the price shown right now - is no change set and signed by nobody, so it is
+decided by who sends it (`RoamingHub.POIStatus.cs`). It is set with
+`setStatus` over the WebSocket of a history,
+`ws://…/poi/RNs/{RN_Id}/history/ws`, and only for what a charging station
+operator owns - the operator itself, its charging pools, stations, EVSEs,
+tariffs and their groups, whose identifications name it: `DE*GEF*E1*1` is
+DE*GEF's. Who may:
+
+| Who | Shows | May set the status of |
+|---|---|---|
+| a peer of the hub | the token it calls the hub with over OCPI, as `Authorization: Token …` (base64 encoded or as it is, as the OCPI side takes it) or `Authorization: Bearer …` | its parties with the role CPO, DE/GEF as `DE*GEF`, as the OCPI library maps a CPO to WWCP - while the library allows its token and the party and nobody suspended it here; an EMSP sets nothing |
+| an account | its API key, as `API-Key: …`, as on the JSON API | the operators the `poi` section binds its roles to, where the role may `poi-status:edit`; with a read-only key, nothing |
+| anybody else | nothing | nothing: it reads and subscribes, as everybody may read a history over HTTP |
+
+Credentials the hub does not know - a token of no peer, a peer suspended, an
+API key of no account, a password - are refused at the upgrade with 401. Not
+by password and not by the cookie of the web interface: a feed is a program,
+and a cookie is what any other website opening a WebSocket here would bring
+along. Asked again at every status, not only at the upgrade, so a peer
+suspended or removed, an API key taken back or a role that went sets nothing
+from then on. Who set what, and what was refused and why, is in the log,
+tagged `poi` and `status`, by the name of the peer or the account and never by
+its token or key.
+
+```json
+"roles": { "gef-feed": [ "poi-status:edit" ] },
+"poi":   { "statusRoles": { "gef-feed": [ "DE*GEF" ] } }
+```
+
+Both are written down on purpose: a role in `statusRoles` the hub does not
+have, or one that may not `poi-status:edit`, stops the start, as it would be
+a binding that quietly lets nobody set anything. No role of the hub carries
+`poi-status:edit`; `systemadmin` does, as it may do everything, and sets a
+status only where `statusRoles` names it as well.
+
 A driver's app checks a charging station offline (`RoamingHub.Attestations.cs`,
 SPECIFICATION.md of WWCP POI, sections 8.4 to 8.6). A roaming network made here
 states the keys of its operator from its genesis on: a key statement of the
@@ -683,7 +719,8 @@ tagged `poi` and `store`.
   "compactAfterLogEntries":     100000,
   "versionCheckpointInterval":  100,
   "recentVersions":             100,
-  "archive":                    true
+  "archive":                    true,
+  "statusRoles":                { "gef-feed": [ "DE*GEF" ] }
 }
 ```
 
@@ -757,13 +794,14 @@ A role is a user group of the accounts, and what it may do is a list of
 permissions, each an operation on a resource: `dns:edit`. The operations are
 the node's three - `read`, `edit`, and `run` for asking a server something -
 and the resources are the node's four, `configuration`, `dns`, `nts` and
-`certificates`, and the hub's three:
+`certificates`, and the hub's four:
 
 | Resource | |
 |---|---|
 | `peers` | who is on this hub - read; edited, a peer added, suspended, resumed or removed, and the token it signs in with shown; run, the credentials handshake with one |
 | `traffic` | what went between the peers - read, and nothing else |
 | `poi` | the roaming networks of the points of interest - edited: a new one made, operated by this hub, and a party added to one, signed with the keys of this hub; reading them needs nothing, as the POI API is public, and what is in them changes by change sets their owners sign, not by a role |
+| `poi-status` | the runtime status of the roaming networks - edited: set over the WebSocket of a history with an API key, and only that of the charging station operators the `poi` section binds the role to (`statusRoles`, see [The points of interest](#the-points-of-interest)) |
 
 A hub brings three roles:
 
@@ -775,6 +813,7 @@ A hub brings three roles:
 | `peers` | read | read | everything |
 | `traffic` | - | read | everything |
 | `poi` | - | - | everything |
+| `poi-status` | - | - | everything, where `statusRoles` binds it |
 
 `systemadmin` is the node's: it may do everything, the first account goes
 there, and nobody but the node says what it may do, because a role that could
@@ -888,7 +927,19 @@ old key forgotten and the new ones those of the hub after a restart, an old key
 kept beside the new one while a directory below `poi/` could not be read, and
 after the next restart as well; the operator renamed in every roaming network
 and in those made afterwards; and over HTTP, only by whoever may edit the
-points of interest. And
+points of interest. And the runtime status over the WebSocket of a history: a
+CPO among the peers setting that of its EVSE with its token, as `Token` and as
+`Bearer`, a subscriber told and the runtime status saying so, and refused for
+another operator's EVSE; a peer suspended refused on the WebSocket it opened
+before and at a new upgrade, and removed as well; an EMSP among the peers
+reading and setting nothing; an account whose role `statusRoles` binds to
+DE*GEF setting DE*GEF's and not DE*QAC's with its API key, and neither its
+read-only key nor an account without the role setting anything; anybody
+without credentials reading and subscribing, and setting nothing; a token of
+no peer, an API key of no account and a password refused at the upgrade with
+401, none of them in the log; and `statusRoles` read and written again, what
+is wrong in it named, and a role the hub does not have, or one that may not
+`poi-status:edit`, stopping the start. And
 DATEX II: the `datex2` section read and written again, pull on by default,
 what is wrong in it named by its field, a network named twice refused; a
 network the section names published as XML, JSON and the JSON of the
