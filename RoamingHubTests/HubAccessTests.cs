@@ -370,6 +370,68 @@ namespace cloud.charging.open.RoamingHub.Tests
 
         #endregion
 
+        #region WhoMayRunTheHandshakeIsNotHandedTheTokens()
+
+        /// <summary>
+        /// Pressing Register is peers:run; the tokens are for peers:edit. A
+        /// role with peers:read and peers:run gets the peers back without
+        /// them - as it reads them on the page - and only the role that may
+        /// manage the peers gets them along.
+        /// </summary>
+        [Test]
+        public async Task WhoMayRunTheHandshakeIsNotHandedTheTokens()
+        {
+
+            await StartedHub("""
+                             {
+                               "nts":   { "groups": { "legal": { "enabled": false } } },
+                               "roles": { "runner": [ "peers:read", "peers:run" ] }
+                             }
+                             """);
+
+            var added = await hub!.AddRemotePartyAsync(new JObject(
+                                                           new JProperty("version",      "2.2.1"),
+                                                           new JProperty("countryCode",  "DE"),
+                                                           new JProperty("partyId",      "ABC"),
+                                                           new JProperty("role",         "CPO"),
+                                                           new JProperty("name",         "A peer")
+                                                       ));
+
+            Assert.That(added.Success, Is.True, added.Message);
+
+            var id = added.Data?.Value<String>("id");
+
+            using var runner  = await SignedInAs("runner1", "runner");
+            using var admin   = await SignedInAs("admin1",  WWCPNode.AdminRole);
+
+            static async Task<(HttpStatusCode, String?[])> Register(HttpClient Client, String? Id)
+            {
+
+                var answer  = await Client.PostAsync($"api/v1/ocpi/partners/2.2.1/{Id}/register",
+                                                     new StringContent("{}", Encoding.UTF8, "application/json"));
+
+                var json    = JObject.Parse(await answer.Content.ReadAsStringAsync());
+
+                return (answer.StatusCode,
+                        [ .. json.SelectTokens("$..ourToken").Concat(json.SelectTokens("$..theirToken")).Select(token => token.Type == JTokenType.Null ? null : token.ToString()) ]);
+
+            }
+
+            var (ranStatus,   ranTokens)    = await Register(runner, id);
+            var (adminStatus, adminTokens)  = await Register(admin,  id);
+
+            Assert.Multiple(() => {
+                Assert.That(ranStatus,     Is.Not.EqualTo(HttpStatusCode.Forbidden),    "peers:run may press Register");
+                Assert.That(ranTokens,     Is.Not.Empty,                                "the peers came back without their token fields");
+                Assert.That(ranTokens,     Is.All.Null,                                 "the tokens were handed to a role that may not manage the peers");
+                Assert.That(adminStatus,   Is.Not.EqualTo(HttpStatusCode.Forbidden));
+                Assert.That(adminTokens,   Has.Some.Not.Null,                           "the tokens were not handed to the role that may manage the peers");
+            });
+
+        }
+
+        #endregion
+
         #region ARoleFromTheConfigurationFileIsHeardByTheAPI()
 
         /// <summary>

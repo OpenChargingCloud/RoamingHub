@@ -191,6 +191,11 @@ namespace cloud.charging.open.RoamingHub
 
             var result = await RoamingHub.RegisterRemotePartyAsync(version, id);
 
+            // Running the handshake is not managing the peers: the tokens come
+            // back only to whoever could have read them on the page anyway -
+            // see GetPartners.
+            var mayManage = RoamingHub.IsAllowed(user, HubAccess.Peers, Operation.Edit);
+
             return JSONResponse(
                        Request,
                        result.Success  ? HTTPStatusCode.OK
@@ -199,7 +204,7 @@ namespace cloud.charging.open.RoamingHub
                        new JObject(
                            new JProperty("ok",        result.Success),
                            new JProperty("message",   result.Message),
-                           new JProperty("partners",  RoamingHub.RemotePartiesJSON(IncludeSecrets: true))
+                           new JProperty("partners",  RoamingHub.RemotePartiesJSON(IncludeSecrets: mayManage))
                        )
                    );
 
