@@ -594,10 +594,11 @@ namespace cloud.charging.open.RoamingHub.Tests
 
             var key    = Guid.NewGuid().ToString("N");
 
+            // Kept as its SHA-256; the key itself is what a request presents.
             var added  = await RoamingHub.ExtAPI.AddAPIKey(new APIKey(APIKey_Id.Parse(key),
                                                                       account!.Id,
                                                                       AccessRights:  Rights,
-                                                                      Created:       DateTimeOffset.UtcNow));
+                                                                      Created:       DateTimeOffset.UtcNow).AsKept());
 
             Assert.That(added.Result, Is.EqualTo(CommandResult.Success), added.Description?.FirstText());
 
