@@ -214,7 +214,11 @@ namespace cloud.charging.open.RoamingHub
                                 // says, too - and from the pages of the sites the "poi" section names, and from no
                                 // other site's: see POI_API.AllowedOrigins.
                                 AllowedOrigins                = poiConfiguration.EffectiveAllowedOrigins,
-                                HostAskedFor                  = ProxyHostOf
+                                HostAskedFor                  = ProxyHostOf,
+
+                                // The heavy reads, snapshots and pages of commits among them, are counted per client:
+                                // behind a trusted proxy the one it names, not the proxy (POI_API.MaxHeavyReadsPerMinute).
+                                ClientAddressOf               = ClientAddressOf
 
                             };
 
