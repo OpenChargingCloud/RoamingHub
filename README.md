@@ -521,8 +521,8 @@ one stays listed and stops being used.
 
 **The private keys in the store are not encrypted.** A PKCS#12 is opened with
 its password once, at import, and written back without one. What guards them
-is the file system - the directory is made for its owner alone where the
-platform allows saying so in one call - so the store belongs on a machine
+is the file system - the directory is made for its owner alone, on Windows
+as on Unix (see WWCP_Node, "Who may sign in") - so the store belongs on a machine
 whose users are all trusted with this hub's identity. The hub says so at every
 start with a key in the store, and the Identities page says it where the
 keys are listed.

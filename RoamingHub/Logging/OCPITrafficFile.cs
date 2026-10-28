@@ -150,12 +150,16 @@ namespace cloud.charging.open.RoamingHub.Logging
         /// when it does not exist.
         /// </summary>
         /// <param name="Directory">Where the files live.</param>
-        public OCPITrafficFile(String Directory)
+        /// <param name="Complain">Told where the directory could not be made its owner's alone.</param>
+        public OCPITrafficFile(String           Directory,
+                               Action<String>?  Complain   = null)
         {
 
             this.Directory = Directory;
 
-            System.IO.Directory.CreateDirectory(Directory);
+            // What the peers sent each other - sessions, CDRs, the uids of
+            // their tokens - is for the account the hub runs under alone.
+            protocols.WWCP.Node.OwnerOnly.Directory(Directory, Complain);
 
         }
 

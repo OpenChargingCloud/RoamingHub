@@ -24,6 +24,8 @@ using Newtonsoft.Json.Linq;
 
 using NUnit.Framework;
 
+using static cloud.charging.open.protocols.WWCP.Node.TestKit.OwnerOnlyChecks;
+
 #endregion
 
 namespace cloud.charging.open.RoamingHub.Tests
@@ -182,6 +184,42 @@ namespace cloud.charging.open.RoamingHub.Tests
                             Is.GreaterThan(0UL),
                             "A call was written down and the count did not move.");
 
+            });
+
+        }
+
+        #endregion
+
+        #region WhatTheHubKeepsIsItsOwnersAlone()
+
+        /// <summary>
+        /// The traffic, the peers and their tokens, and the private keys of the
+        /// roaming network operator: each directory for the account the hub
+        /// runs under alone, and the keys as well.
+        /// </summary>
+        [Test]
+        public async Task WhatTheHubKeepsIsItsOwnersAlone()
+        {
+
+            using (var stranger = Stranger())
+                await stranger.GetAsync("/ext/versions");
+
+            var networkOperator = Path.Combine(Directory, HubRoamingNetworkOperator.DirectoryName);
+
+            var kept = new[] {
+                           Path.Combine(Directory, "traffic"),
+                           Path.Combine(Directory, RoamingHub.OCPIDirectoryName),
+                           networkOperator,
+                           Path.Combine(networkOperator, HubRoamingNetworkOperator.SigningKeyFileName),
+                           Path.Combine(networkOperator, HubRoamingNetworkOperator.IdentityKeyFileName)
+                       };
+
+            Assert.Multiple(() => {
+                foreach (var path in kept)
+                {
+                    Assert.That(Path.Exists(path),      Is.True,  path);
+                    Assert.That(OthersMayGetIn(path),   Is.Empty, path);
+                }
             });
 
         }

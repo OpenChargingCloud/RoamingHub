@@ -179,7 +179,7 @@ namespace cloud.charging.open.RoamingHub
         #endregion
 
 
-        #region (static) OpenOrCreate(Directory, Configuration = null, Now = null)
+        #region (static) OpenOrCreate(Directory, Configuration = null, Now = null, Complain = null)
 
         /// <summary>
         /// The operator kept in the given directory, or, at the first start, a new one with new keys, kept there
@@ -188,11 +188,18 @@ namespace cloud.charging.open.RoamingHub
         /// <param name="Directory">Where it is kept.</param>
         /// <param name="Configuration">What the configuration file says of it, read only when it is made.</param>
         /// <param name="Now">When it is made.</param>
+        /// <param name="Complain">Told where the directory could not be made its owner's alone.</param>
         /// <exception cref="InvalidOperationException">What is kept is incomplete or does not fit together.</exception>
         public static HubRoamingNetworkOperator OpenOrCreate(String           Directory,
                                                              JObject?         Configuration   = null,
-                                                             DateTimeOffset?  Now             = null)
+                                                             DateTimeOffset?  Now             = null,
+                                                             Action<String>?  Complain        = null)
         {
+
+            // The private halves of the operator's keys are kept here: whoever can read them signs as the operator
+            // of every roaming network this hub runs. Its owner's alone at every start, so that a directory an older
+            // version left open to the other users of the machine is taken back - see OwnerOnly.
+            protocols.WWCP.Node.OwnerOnly.Directory(Directory, Complain);
 
             var operatorPath     = Path.Combine(Directory, OperatorFileName);
             var signingKeyPath   = Path.Combine(Directory, SigningKeyFileName);
@@ -225,8 +232,6 @@ namespace cloud.charging.open.RoamingHub
             #endregion
 
             #region The first start: made now
-
-            System.IO.Directory.CreateDirectory(Directory);
 
             // Keys left by a first start that ended before it wrote the operator are taken; none are replaced.
             var newSigningKey   = File.Exists(signingKeyPath)  ? ReadKey(signingKeyPath)  : WriteKey(signingKeyPath,  NewKey(COSECurve.P256));
@@ -753,18 +758,7 @@ namespace cloud.charging.open.RoamingHub
             File.WriteAllText(Path, new String(PemEncoding.Write("PRIVATE KEY", PrivateKeyInfoFactory.CreatePrivateKeyInfo(Key).GetEncoded())) + "\n");
 
             // A private key that the whole machine may read is one that the whole machine may sign with.
-            // Unix only: Windows inherits the directory's ACL.
-            if (!OperatingSystem.IsWindows())
-            {
-                try
-                {
-                    File.SetUnixFileMode(Path, UnixFileMode.UserRead | UnixFileMode.UserWrite);
-                }
-                catch
-                {
-                    // A file system with no notion of modes: worth trying, not worth failing a start over.
-                }
-            }
+            protocols.WWCP.Node.OwnerOnly.File(Path);
 
             return Key;
 
@@ -917,7 +911,8 @@ namespace cloud.charging.open.RoamingHub
             var directory = Path.Combine(Path.GetDirectoryName(ConfigFile.Path) ?? ".", HubRoamingNetworkOperator.DirectoryName);
 
             NetworkOperator = HubRoamingNetworkOperator.OpenOrCreate(directory,
-                                                                     ConfigurationDocument[HubRoamingNetworkOperator.ConfigurationSection] as JObject);
+                                                                     ConfigurationDocument[HubRoamingNetworkOperator.ConfigurationSection] as JObject,
+                                                                     Complain: problem => Log.Warning(problem, "poi", "security"));
 
             if (NetworkOperator.IsNew)
                 Log.Notice($"This hub is the roaming network operator '{NetworkOperator.Id}' now: its signing key {NetworkOperator.SigningKey.Id[..16]}… " +

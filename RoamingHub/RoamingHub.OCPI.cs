@@ -253,6 +253,11 @@ namespace cloud.charging.open.RoamingHub
 
             OCPIDirectory    = Path.Combine(Path.GetDirectoryName(ConfigFile.Path) ?? ".", OCPIDirectoryName);
 
+            // The peers and the tokens exchanged with them, which let whoever
+            // reads them call the peers as this hub and this hub as the peers:
+            // its owner's alone, before the library writes the first of them.
+            protocols.WWCP.Node.OwnerOnly.Directory(OCPIDirectory, problem => Log.Warning(problem, "ocpi", "security"));
+
             #endregion
 
             #region ... and where the traffic is kept, when it is
@@ -268,7 +273,8 @@ namespace cloud.charging.open.RoamingHub
                                            OCPITrafficFile.DefaultDirectoryName
                                        );
 
-                trafficFile = new OCPITrafficFile(trafficDirectory);
+                trafficFile = new OCPITrafficFile(trafficDirectory,
+                                                  problem => Log.Warning(problem, "ocpi", "traffic", "security"));
 
                 // A write that failed must not be lost in silence: the traffic
                 // log invokes its listeners inside a catch-all, so the file
