@@ -119,7 +119,12 @@ ClientInfo object that simply vanished would leave every other peer holding a
 party the hub has forgotten, with no way to tell that from one that is merely
 quiet. A peer that is not to be talked to is set to `SUSPENDED` instead, and
 it then also leaves the `roles` this hub advertises in its credentials -
-nobody is invited to address a party the hub will not forward to.
+nobody is invited to address a party the hub will not forward to. Nor is it
+listened to: the tokens of this hub it holds are `BLOCKED` in the OCPI
+library, on every version it is peered on, so that it neither lists who is on
+the hub nor reads or renews its credentials until it is resumed. That is
+written to the file of the peers - a suspension the file cannot take is a
+500, and nothing changed - and a peer is still suspended after a restart.
 
 **How a status is decided: by not asking.** Every OCPI call a peer makes
 already passes the traffic recorder, which identifies it by its token - so a

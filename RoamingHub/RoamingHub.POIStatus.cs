@@ -288,13 +288,14 @@ namespace cloud.charging.open.RoamingHub
             if (!TryGetPeerByToken(Token, out var peer, out var accessInfo))
                 return Refused("its token is the token of no peer of this hub", out Client, out Refusal);
 
-            // As the OCPI side decides it: the token and the party allowed. And as this hub decides it, which
-            // the OCPI library does not know of: a peer suspended is not talked to, nor listened to.
-            if (accessInfo.Status != protocols.OCPI.AccessStatus.ALLOWED || peer.Status != protocols.OCPI.PartyStatus.ENABLED)
-                return Refused($"the peer '{peer.Id}' is not allowed in (its token {accessInfo.Status}, the peer {peer.Status})", out Client, out Refusal);
-
+            // As this hub decides it - a peer suspended is not talked to, nor listened to - said first, for
+            // it says why; its tokens are BLOCKED as well, see SuspendPeer. And as the OCPI side decides it:
+            // the token and the party allowed.
             if (FindPeer(peer.Id.ToString())?.Status == PeerStatus.SUSPENDED)
                 return Refused($"the peer '{peer.Id}' is suspended", out Client, out Refusal);
+
+            if (accessInfo.Status != protocols.OCPI.AccessStatus.ALLOWED || peer.Status != protocols.OCPI.PartyStatus.ENABLED)
+                return Refused($"the peer '{peer.Id}' is not allowed in (its token {accessInfo.Status}, the peer {peer.Status})", out Client, out Refusal);
 
             // Its parties as its credentials name them, several behind one token where it has several; as it was added,
             // where its version names none.

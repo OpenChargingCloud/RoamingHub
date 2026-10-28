@@ -24,6 +24,7 @@ using Newtonsoft.Json.Linq;
 using org.GraphDefined.Vanaheimr.Illias;
 
 using cloud.charging.open.protocols.OCPI;
+using cloud.charging.open.RoamingHub.OCPI;
 
 #endregion
 
@@ -56,6 +57,13 @@ namespace cloud.charging.open.RoamingHub
     /// window is CONNECTED; one that is registered and has gone quiet is
     /// OFFLINE; and one an operator has switched off is SUSPENDED, which
     /// sticks until somebody switches it back on.
+    /// </para>
+    /// <para>
+    /// SUSPENDED is not a word only: the tokens of this hub the party holds are
+    /// BLOCKED in the OCPI library, which then refuses every request it makes
+    /// with them - who else is on the hub, its credentials, a renewal - and
+    /// writes that to the file of the peers, so that a suspended party is
+    /// still suspended after a restart.
     /// </para>
     /// </remarks>
     public partial class RoamingHub
@@ -189,7 +197,10 @@ namespace cloud.charging.open.RoamingHub
         #region Suspend/Resume(PartyId)
 
         /// <summary>
-        /// Stop talking to a party, without forgetting it.
+        /// Stop talking to a party, and listening to it, without forgetting it:
+        /// its tokens refused on every version. Null where this hub knows no
+        /// such party; NotSaved where the file of the peers refused, and
+        /// nothing changed.
         /// </summary>
         /// <remarks>
         /// The specification has no deletion here: a ClientInfo object that
@@ -197,34 +208,90 @@ namespace cloud.charging.open.RoamingHub
         /// knows, and nothing to tell that apart from one that is merely
         /// quiet. So it is switched off instead, and every peer is told.
         /// </remarks>
-        public Boolean SuspendPeer(Party_Idv3 PartyId)
+        public async Task<OCPIOperationResult?> SuspendPeer(Party_Idv3 PartyId)
         {
 
-            if (!presence.TryGetValue(PartyId, out var peer))
-                return false;
+            if (!presence.ContainsKey(PartyId))
+                return null;
+
+            var blocked = await SetLocalAccess(PartyId, AccessStatus.BLOCKED);
+
+            if (!blocked.Success || !presence.TryGetValue(PartyId, out var peer))
+                return blocked;
 
             SetPresence(PartyId, peer.Role, PeerStatus.SUSPENDED, peer.Registered, peer.LastSeen);
 
-            Log.Notice($"'{PartyId}' was suspended and will not be talked to until it is resumed.", "ocpi", "hubclientinfo");
+            Log.Notice($"'{PartyId}' was suspended: its tokens are refused, and it will not be talked to until it is resumed.", "ocpi", "hubclientinfo");
 
-            return true;
+            return blocked;
 
         }
 
         /// <summary>
-        /// Talk to it again: back to whatever it actually is.
+        /// Talk to it again, and let it in: back to whatever it actually is.
+        /// Null where this hub knows no such party; NotSaved where the file
+        /// of the peers refused, and nothing changed.
         /// </summary>
-        public Boolean ResumePeer(Party_Idv3 PartyId)
+        public async Task<OCPIOperationResult?> ResumePeer(Party_Idv3 PartyId)
         {
 
-            if (!presence.TryGetValue(PartyId, out var peer))
-                return false;
+            if (!presence.ContainsKey(PartyId))
+                return null;
+
+            var allowed = await SetLocalAccess(PartyId, AccessStatus.ALLOWED);
+
+            if (!allowed.Success || !presence.TryGetValue(PartyId, out var peer))
+                return allowed;
 
             SetPresence(PartyId, peer.Role, StatusOf(peer.Registered, peer.LastSeen), peer.Registered, peer.LastSeen);
 
-            Log.Notice($"'{PartyId}' was resumed.", "ocpi", "hubclientinfo");
+            Log.Notice($"'{PartyId}' was resumed: its tokens are let in again.", "ocpi", "hubclientinfo");
 
-            return true;
+            return allowed;
+
+        }
+
+        #endregion
+
+        #region (private) SetLocalAccess(PartyId, Status)
+
+        /// <summary>
+        /// The tokens of the given party ALLOWED or BLOCKED, on every version
+        /// it is peered on - all of them, or none: where one version's could
+        /// not be changed, those changed before it are changed back.
+        /// </summary>
+        private async Task<OCPIOperationResult> SetLocalAccess(Party_Idv3    PartyId,
+                                                               AccessStatus  Status)
+        {
+
+            var done = new List<(OCPIVersion Version, RemoteParty_Id Id)>();
+
+            foreach (var version in ocpiVersions)
+            {
+                foreach (var party in version.RemoteParties.Where(party => Party_Idv3.From(party.CountryCode, party.PartyId) == PartyId).ToArray())
+                {
+
+                    var result = await version.SetLocalAccess(party.Id, Status);
+
+                    if (!result.Success)
+                    {
+
+                        foreach (var (doneVersion, doneId) in done)
+                            await doneVersion.SetLocalAccess(doneId, Status == AccessStatus.BLOCKED ? AccessStatus.ALLOWED : AccessStatus.BLOCKED);
+
+                        return OCPIOperationResult.Failed(
+                                   $"'{PartyId}' was not {(Status == AccessStatus.BLOCKED ? "suspended" : "resumed")}: {result.Message}",
+                                   result.NotSaved
+                               );
+
+                    }
+
+                    done.Add((version, party.Id));
+
+                }
+            }
+
+            return OCPIOperationResult.Ok($"'{PartyId}' was {(Status == AccessStatus.BLOCKED ? "suspended" : "resumed")}.");
 
         }
 
@@ -264,7 +331,8 @@ namespace cloud.charging.open.RoamingHub
         /// <para>
         /// What it does not touch is what it has no business deciding again:
         /// when a peer was last heard from stays, and a peer somebody
-        /// suspended stays suspended. At a start nobody is CONNECTED, however
+        /// suspended stays suspended - at a start as well, where its blocked
+        /// tokens say so. At a start nobody is CONNECTED, however
         /// completely they are registered - this hub has just come up and has
         /// heard from none of them.
         /// </para>
@@ -288,7 +356,7 @@ namespace cloud.charging.open.RoamingHub
                     SetPresence(
                         partyId,
                         party.Role,
-                        known?.Status == PeerStatus.SUSPENDED
+                        known?.Status == PeerStatus.SUSPENDED || party.OurTokenStatus == AccessStatus.BLOCKED
                             ? PeerStatus.SUSPENDED
                             : StatusOf(party.Registered, known?.LastSeen),
                         Registered:  party.Registered,

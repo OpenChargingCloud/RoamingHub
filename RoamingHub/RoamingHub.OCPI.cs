@@ -656,7 +656,12 @@ namespace cloud.charging.open.RoamingHub
 
             #endregion
 
-            var spec = new RemotePartySpec(countryCode, partyId, role, name, website, ourToken, theirToken, theirVersionsURL);
+            // A party suspended on this hub stays suspended on the version it is
+            // added on as well: its token there is refused from the start.
+            var suspended = presence.TryGetValue(Party_Idv3.From(countryCode, partyId), out var known) &&
+                            known.Status == PeerStatus.SUSPENDED;
+
+            var spec = new RemotePartySpec(countryCode, partyId, role, name, website, ourToken, theirToken, theirVersionsURL, suspended);
 
             #region Not twice
 

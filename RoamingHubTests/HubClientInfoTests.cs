@@ -164,7 +164,7 @@ namespace cloud.charging.open.RoamingHub.Tests
         /// the specification has no deletion here: the peer stays in the
         /// HubClientInfo list so that everybody learns it is switched off,
         /// and it leaves the credentials so that nobody is invited to address
-        /// it any more.
+        /// it any more. Its own token opens nothing until it is resumed.
         /// </summary>
         [Test]
         public async Task ASuspendedPeerStaysButIsNoLongerOffered()
@@ -173,6 +173,9 @@ namespace cloud.charging.open.RoamingHub.Tests
             using var admin = await SignedIn();
 
             var (id, ourToken, _) = await AddPeer(admin);
+
+            // Somebody else on the hub, to see what everybody learns of it.
+            var (_, otherToken, _) = await AddPeer(admin, PartyId: "ABC");
 
             #region Suspend it
 
@@ -185,10 +188,11 @@ namespace cloud.charging.open.RoamingHub.Tests
 
             #region It is still there, and it is switched off
 
-            var clientInfos = await HubClientInfo(ourToken);
+            var clientInfos = await HubClientInfo(otherToken);
+            var gef         = clientInfos.FirstOrDefault(info => info.Value<String>("party_id") == "GEF");
 
-            Assert.That(clientInfos, Has.Count.EqualTo(1), "A suspended peer was deleted; the specification forbids it.");
-            Assert.That(clientInfos[0].Value<String>("status"), Is.EqualTo("SUSPENDED"));
+            Assert.That(gef, Is.Not.Null, "A suspended peer was deleted; the specification forbids it.");
+            Assert.That(gef!.Value<String>("status"), Is.EqualTo("SUSPENDED"));
 
             Assert.That((await Partner(admin, id)).Value<String>("connection"), Is.EqualTo("SUSPENDED"));
 
@@ -196,14 +200,28 @@ namespace cloud.charging.open.RoamingHub.Tests
 
             #region ... and nobody is invited to address it
 
-            using var peer = Peer(ourToken);
+            using var other = Peer(otherToken);
 
-            var roles = ((await OCPIResponse(await peer.GetAsync("/ext/v2.3.0/credentials")))["data"]!["roles"] as JArray)!.
+            var roles = ((await OCPIResponse(await other.GetAsync("/ext/v2.3.0/credentials")))["data"]!["roles"] as JArray)!.
                             Select(role => role.Value<String>("party_id")).
                             ToArray();
 
             Assert.That(roles, Does.Not.Contain("GEF"),
                         "A suspended party is still advertised in the credentials.");
+
+            #endregion
+
+            #region ... and it gets nothing itself
+
+            using var peer = Peer(ourToken);
+
+            var itsClientInfos  = await peer.GetAsync("/ext/v2.3.0/hubclientinfo");
+            var itsCredentials  = await peer.GetAsync("/ext/v2.3.0/credentials");
+
+            Assert.Multiple(() => {
+                Assert.That(itsClientInfos.IsSuccessStatusCode,  Is.False, "A suspended peer still lists everyone on the hub.");
+                Assert.That(itsCredentials.IsSuccessStatusCode,  Is.False, "A suspended peer still reads its credentials.");
+            });
 
             #endregion
 
@@ -215,6 +233,9 @@ namespace cloud.charging.open.RoamingHub.Tests
 
             Assert.That((await Partner(admin, id)).Value<String>("connection"), Is.EqualTo("PLANNED"),
                         "A resumed peer did not go back to what it actually is.");
+
+            Assert.That(await HubClientInfo(ourToken), Has.Count.EqualTo(2),
+                        "A resumed peer is still refused.");
 
             #endregion
 

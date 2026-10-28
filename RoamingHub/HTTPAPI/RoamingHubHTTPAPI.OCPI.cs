@@ -233,48 +233,45 @@ namespace cloud.charging.open.RoamingHub
         /// <summary>
         /// Both of the above, which differ by one word.
         /// </summary>
-        private Task<HTTPResponse> SetPeerSuspension(HTTPRequest Request, Boolean Suspend)
+        private async Task<HTTPResponse> SetPeerSuspension(HTTPRequest Request, Boolean Suspend)
         {
 
             if (!TryAuthorize(Request, Permission.Edit(HubAccess.Peers), true, out var user, out var refused))
-                return Task.FromResult(refused);
+                return refused;
 
             if (!Request.ParsedURLParameters.Any() ||
                 !Party_Idv3.TryParse(Request.ParsedURLParameters[0], out var partyId))
             {
-                return Task.FromResult(
-                           JSONResponse(
-                               Request,
-                               HTTPStatusCode.BadRequest,
-                               new JObject(new JProperty("error", "A party identification of five characters is needed, e.g. 'DEGEF'."))
-                           )
+                return JSONResponse(
+                           Request,
+                           HTTPStatusCode.BadRequest,
+                           new JObject(new JProperty("error", "A party identification of five characters is needed, e.g. 'DEGEF'."))
                        );
             }
 
-            var ok = Suspend
-                         ? RoamingHub.SuspendPeer(partyId)
-                         : RoamingHub.ResumePeer (partyId);
+            var result = Suspend
+                             ? await RoamingHub.SuspendPeer(partyId)
+                             : await RoamingHub.ResumePeer (partyId);
 
-            if (!ok)
-                return Task.FromResult(
-                           JSONResponse(
-                               Request,
-                               HTTPStatusCode.NotFound,
-                               new JObject(new JProperty("error", $"This hub knows no peer '{partyId}'."))
-                           )
+            if (result is null)
+                return JSONResponse(
+                           Request,
+                           HTTPStatusCode.NotFound,
+                           new JObject(new JProperty("error", $"This hub knows no peer '{partyId}'."))
                        );
+
+            if (!result.Success)
+                return NotChanged(Request, HTTPStatusCode.Conflict, result.Message, result.NotSaved);
 
             Log.Info($"'{user.Id}' {(Suspend ? "suspended" : "resumed")} the peer '{partyId}'.", "ocpi", "hubclientinfo", "web");
 
-            return Task.FromResult(
-                       JSONResponse(
-                           Request,
-                           HTTPStatusCode.OK,
-                           new JObject(
-                               new JProperty("ok",        true),
-                               new JProperty("message",   $"'{partyId}' was {(Suspend ? "suspended" : "resumed")}."),
-                               new JProperty("partners",  RoamingHub.RemotePartiesJSON(IncludeSecrets: true))
-                           )
+            return JSONResponse(
+                       Request,
+                       HTTPStatusCode.OK,
+                       new JObject(
+                           new JProperty("ok",        true),
+                           new JProperty("message",   $"'{partyId}' was {(Suspend ? "suspended" : "resumed")}."),
+                           new JProperty("partners",  RoamingHub.RemotePartiesJSON(IncludeSecrets: true))
                        )
                    );
 

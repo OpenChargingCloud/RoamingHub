@@ -195,6 +195,146 @@ namespace cloud.charging.open.RoamingHub.Tests
         #endregion
 
 
+        #region ASuspendedPeerIsRefusedAndStillSuspendedAfterARestart(Version)
+
+        /// <summary>
+        /// A suspended peer's token opens nothing - not this hub's details of its
+        /// version, not its credentials - and opens them again once it is
+        /// resumed; suspended once more, it is still suspended at the next start,
+        /// its token still refused: the file of its version says so.
+        /// </summary>
+        [TestCase("2.2.1")]
+        [TestCase("2.3.0")]
+        public async Task ASuspendedPeerIsRefusedAndStillSuspendedAfterARestart(String Version)
+        {
+
+            using var admin             = await SignedIn();
+
+            var token                   = await AddPeerWithOurToken(admin, Version);
+
+            using var peer              = PeerWith(token);
+
+            var (details, credentials)  = await Endpoints(peer, Version);
+
+            Assert.That(await LetIn(peer, details), Is.True, "Not let in before it was suspended.");
+
+            await Suspension(admin, "suspend");
+
+            var detailsWhileSuspended      = await LetIn(peer, details);
+            var credentialsWhileSuspended  = await LetIn(peer, credentials);
+            var listed                     = await ListedPeer(admin, Version);
+
+            Assert.Multiple(() => {
+                Assert.That(detailsWhileSuspended,                    Is.False, "A suspended peer reads this hub's details.");
+                Assert.That(credentialsWhileSuspended,                Is.False, "A suspended peer reads its credentials.");
+                Assert.That(listed?.Value<String>("ourTokenStatus"),  Is.EqualTo("BLOCKED"));
+                Assert.That(listed?.Value<String>("connection"),      Is.EqualTo("SUSPENDED"));
+            });
+
+            await Suspension(admin, "resume");
+
+            Assert.That(await LetIn(peer, details), Is.True, "A resumed peer is still refused.");
+
+            await Suspension(admin, "suspend");
+
+            var (status, tokenStatus) = await PeersAfterARestart(hub => (hub.Peers.Single().Status,
+                                                                         hub.OCPIVersions.SelectMany(version => version.RemoteParties).Single().OurTokenStatus));
+
+            Assert.Multiple(() => {
+                Assert.That(status,       Is.EqualTo(PeerStatus.SUSPENDED),                "A suspended peer is no longer suspended after a restart.");
+                Assert.That(tokenStatus,  Is.EqualTo(protocols.OCPI.AccessStatus.BLOCKED),  "A suspended peer's token is let in after a restart.");
+            });
+
+        }
+
+        #endregion
+
+        #region ASuspensionItsFileCannotTakeChangesNothing(Version)
+
+        /// <summary>
+        /// A suspension the file of the peer's version cannot take changes
+        /// nothing: 500 and why, the token still let in, the peer not
+        /// suspended.
+        /// </summary>
+        [TestCase("2.2.1")]
+        [TestCase("2.3.0")]
+        public async Task ASuspensionItsFileCannotTakeChangesNothing(String Version)
+        {
+
+            using var admin   = await SignedIn();
+
+            var token         = await AddPeerWithOurToken(admin, Version);
+
+            using var peer    = PeerWith(token);
+
+            var (details, _)  = await Endpoints(peer, Version);
+
+            var file          = BlockPeersFile(Version);
+
+            var response      = await admin.PostAsync("/api/v1/ocpi/peers/DEGEF/suspend", JSONBody());
+            var text          = await response.Content.ReadAsStringAsync();
+            var letIn         = await LetIn(peer, details);
+            var listed        = await ListedPeer(admin, Version);
+
+            UnblockPeersFile(Version);
+
+            Assert.Multiple(() => {
+                Assert.That(response.StatusCode,                      Is.EqualTo(HttpStatusCode.InternalServerError), text);
+                Assert.That(text,                                     Does.Contain(Path.GetFileName(file)), "The answer does not say which file refused.");
+                Assert.That(letIn,                                    Is.True, "The suspension the file refused refuses the peer all the same.");
+                Assert.That(listed?.Value<String>("ourTokenStatus"),  Is.EqualTo("ALLOWED"));
+                Assert.That(listed?.Value<String>("connection"),      Is.Not.EqualTo("SUSPENDED"));
+            });
+
+        }
+
+        #endregion
+
+        #region APartyAddedWhileSuspendedIsRefusedFromTheStart()
+
+        /// <summary>
+        /// DE*GEF suspended as a CPO on 2.2.1, and added as an eMSP on 2.3.0:
+        /// suspended there too, its token refused from the start, and let in
+        /// with the rest of it once it is resumed.
+        /// </summary>
+        [Test]
+        public async Task APartyAddedWhileSuspendedIsRefusedFromTheStart()
+        {
+
+            using var admin  = await SignedIn();
+
+            await AddPeer(admin, "2.2.1");
+            await Suspension(admin, "suspend");
+
+            var added        = await admin.PostAsync("/api/v1/ocpi/partners", JSONBody(
+                                                                                  new JProperty("version",      "2.3.0"),
+                                                                                  new JProperty("countryCode",  "DE"),
+                                                                                  new JProperty("partyId",      "GEF"),
+                                                                                  new JProperty("role",         "EMSP"),
+                                                                                  new JProperty("name",         "Test EMSP")
+                                                                              ));
+            var text         = await added.Content.ReadAsStringAsync();
+
+            Assert.That(added.StatusCode, Is.EqualTo(HttpStatusCode.Created), text);
+
+            using var emsp   = PeerWith(JObject.Parse(text).Value<String>("ourToken")!);
+
+            var whileSuspended = await LetIn(emsp, "/ext/versions/2.3.0");
+
+            await Suspension(admin, "resume");
+
+            var resumed        = await LetIn(emsp, "/ext/versions/2.3.0");
+
+            Assert.Multiple(() => {
+                Assert.That(whileSuspended,  Is.False, "A party added while it is suspended is let in.");
+                Assert.That(resumed,         Is.True,  "A party resumed is still refused where it was added while suspended.");
+            });
+
+        }
+
+        #endregion
+
+
         #region NothingIsSentWhereTheTokenToBeCalledBackWithCannotBeStored(Version)
 
         /// <summary>
@@ -828,6 +968,43 @@ namespace cloud.charging.open.RoamingHub.Tests
                    Encoding.UTF8,
                    "application/json"
                );
+
+        #endregion
+
+        #region (private static) LetIn(Peer, URL) / Suspension(Admin, What)
+
+        /// <summary>
+        /// Whether the given peer is answered at the given URL, rather than
+        /// refused.
+        /// </summary>
+        private static async Task<Boolean> LetIn(HttpClient  Peer,
+                                                 String      URL)
+        {
+
+            var response = await Peer.GetAsync(URL);
+            var text     = await response.Content.ReadAsStringAsync();
+
+            return response.IsSuccessStatusCode &&
+                   text.TrimStart().StartsWith('{') &&
+                   JObject.Parse(text).Value<Int32?>("status_code") == 1000;
+
+        }
+
+        /// <summary>
+        /// Suspend or resume DE*GEF through the JSON API.
+        /// </summary>
+        /// <param name="Admin">Who may.</param>
+        /// <param name="What">"suspend" or "resume".</param>
+        private static async Task Suspension(HttpClient  Admin,
+                                             String      What)
+        {
+
+            var response = await Admin.PostAsync($"/api/v1/ocpi/peers/DEGEF/{What}", JSONBody());
+
+            Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.OK),
+                        $"To {What} the peer answered {(Int32) response.StatusCode}: {await response.Content.ReadAsStringAsync()}");
+
+        }
 
         #endregion
 

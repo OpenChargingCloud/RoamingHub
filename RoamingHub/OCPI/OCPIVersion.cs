@@ -53,6 +53,7 @@ namespace cloud.charging.open.RoamingHub.OCPI
     /// <param name="OurToken">The token the partner presents to this hub.</param>
     /// <param name="TheirToken">The token this hub presents to the partner, or null while they have not handed one out.</param>
     /// <param name="TheirVersionsURL">Where the partner's versions endpoint is, or null.</param>
+    /// <param name="Suspended">Whether the party is suspended on this hub - added on another version while it is: its token refused from the start.</param>
     public sealed record RemotePartySpec(CountryCode      CountryCode,
                                          Party_Id         PartyId,
                                          Role             Role,
@@ -60,8 +61,18 @@ namespace cloud.charging.open.RoamingHub.OCPI
                                          URL?             Website,
                                          AccessToken      OurToken,
                                          AccessToken?     TheirToken,
-                                         URL?             TheirVersionsURL)
+                                         URL?             TheirVersionsURL,
+                                         Boolean          Suspended   = false)
     {
+
+        /// <summary>
+        /// What the library is to say of the partner's token: refused where
+        /// the party is suspended, allowed otherwise.
+        /// </summary>
+        public AccessStatus  OurTokenStatus
+            => Suspended
+                   ? AccessStatus.BLOCKED
+                   : AccessStatus.ALLOWED;
 
         /// <summary>
         /// The identification the library files the partner under.
@@ -280,6 +291,18 @@ namespace cloud.charging.open.RoamingHub.OCPI
         /// UnsavedRemoteParties.
         /// </summary>
         public abstract Task<OCPIOperationResult>  Register(RemoteParty_Id Id);
+
+        /// <summary>
+        /// Let a roaming partner in again, or keep it out: every token of this
+        /// hub it holds ALLOWED or BLOCKED, which the library asks of every
+        /// request it makes - its versions, its credentials, a renewal, the
+        /// hub modules - and which is written to the file of the partners, so
+        /// that it holds after a restart. Answers NotSaved where that file
+        /// refused, and nothing changed.
+        /// </summary>
+        /// <param name="Id">The partner.</param>
+        /// <param name="Status">ALLOWED or BLOCKED.</param>
+        public abstract Task<OCPIOperationResult>  SetLocalAccess(RemoteParty_Id Id, AccessStatus Status);
 
         /// <summary>
         /// The partners whose last change the file of the partners refused

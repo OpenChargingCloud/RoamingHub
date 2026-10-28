@@ -221,7 +221,7 @@ namespace cloud.charging.open.RoamingHub.OCPI
                                          RemoteVersionsURL:                 Spec.TheirVersionsURL!.Value,
                                          RemoteAccessToken:                 Spec.TheirToken!.Value,
                                          RemoteAccessTokenBase64Encoding:   true,
-                                         LocalAccessStatus:                 AccessStatus.ALLOWED,
+                                         LocalAccessStatus:                 Spec.OurTokenStatus,
                                          RemoteStatus:                      RemoteAccessStatus.ONLINE,
                                          Status:                            PartyStatus.ENABLED
                                      )
@@ -230,7 +230,7 @@ namespace cloud.charging.open.RoamingHub.OCPI
                                          Id:                                Spec.Id,
                                          CredentialsRoles:                  roles,
                                          LocalAccessToken:                  Spec.OurToken,
-                                         LocalAccessStatus:                 AccessStatus.ALLOWED,
+                                         LocalAccessStatus:                 Spec.OurTokenStatus,
                                          Status:                            PartyStatus.ENABLED
                                      );
 
@@ -259,6 +259,50 @@ namespace cloud.charging.open.RoamingHub.OCPI
                        : OCPIOperationResult.Failed(
                              result.ErrorResponse ?? "The library declined to remove the peer and did not say why.",
                              result.NotSaved
+                         );
+
+        }
+
+
+        public override async Task<OCPIOperationResult> SetLocalAccess(RemoteParty_Id  Id,
+                                                                       AccessStatus    Status)
+        {
+
+            if (!commonAPI.TryGetRemoteParty(Id, out var party))
+                return OCPIOperationResult.Failed($"There is no peer '{Id}' on OCPI {Label}.");
+
+            if (party.LocalAccessInfos.All(localAccessInfo => localAccessInfo.Status == Status))
+                return OCPIOperationResult.Ok($"The tokens of '{Id}' on OCPI {Label} were {Status} already.");
+
+            // Every token of ours it holds, pending ones as well: a renewal
+            // left open is a token it could come back with.
+            var stored = await commonAPI.AddOrUpdateRemoteParty(
+                                   party.Id,
+                                   party.Roles,
+                                   [
+                                       .. party.LocalAccessInfos.Select(localAccessInfo => new LocalAccessInfo(
+                                                                                               localAccessInfo.AccessToken,
+                                                                                               Status,
+                                                                                               localAccessInfo.TOTPConfig,
+                                                                                               localAccessInfo.IN,
+                                                                                               localAccessInfo.NotBefore,
+                                                                                               localAccessInfo.NotAfter,
+                                                                                               localAccessInfo.AccessTokenIsBase64Encoded,
+                                                                                               localAccessInfo.AllowDowngrades,
+                                                                                               localAccessInfo.Pending
+                                                                                           ))
+                                   ],
+                                   party.RemoteAccessInfos,
+                                   party.Status,
+                                   party.VisibleVersionIds,
+                                   party.Created
+                               );
+
+            return stored.IsSuccess
+                       ? OCPIOperationResult.Ok($"The tokens of '{Id}' on OCPI {Label} are {Status}.")
+                       : OCPIOperationResult.Failed(
+                             stored.ErrorResponse ?? "The library declined to change the peer and did not say why.",
+                             stored.NotSaved
                          );
 
         }
