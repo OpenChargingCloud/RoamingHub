@@ -227,10 +227,11 @@ namespace cloud.charging.open.RoamingHub.Tests
             var served        = await http.GetAsync($"poi/RNs/QA/history/commits/{genesis.Id}");
             var segments      = JObject.Parse(await http.GetStringAsync("poi/RNs/QA/history/archive"))["segments"] as JArray;
 
-            var root          = history.Root.Id;
-
             // After a restart, from the store and the archive beside it.
             await RoamingHub.DisposeAsync();
+
+            // The root once stopped: a compaction still running was waited for, and none started into the store disposed.
+            var root          = history.Root.Id;
 
             var again         = await TestPorts.StartedOnFreshPorts(() => TestRoamingHubs.New(Directory, Configuration, Clock));
 

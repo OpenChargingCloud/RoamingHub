@@ -144,6 +144,8 @@ namespace cloud.charging.open.RoamingHub
 
         private readonly List<RoamingNetworkHistoryFileStore> poiStores = [];
 
+        private readonly List<RoamingNetworkHistory> poiHistories = [];
+
         private readonly List<RoamingNetworkHistoryFileArchive> poiArchives = [];
 
         /// <summary>
@@ -252,6 +254,7 @@ namespace cloud.charging.open.RoamingHub
                     lock (poiLock)
                     {
                         poiStores.Add(store);
+                        poiHistories.Add(history);
 
                         if (archive is not null)
                             poiArchives.Add(archive);
@@ -431,6 +434,7 @@ namespace cloud.charging.open.RoamingHub
                         throw new InvalidOperationException($"The roaming network '{Id}' could not be served.");
 
                     poiStores.Add(store);
+                    poiHistories.Add(history);
 
                     if (archive is not null)
                         poiArchives.Add(archive);
@@ -642,6 +646,12 @@ namespace cloud.charging.open.RoamingHub
 
             lock (poiLock)
             {
+
+                // Detached first: a compaction running in the background is waited for, and none starts into a store disposed.
+                foreach (var history in poiHistories)
+                    history.DetachStore();
+
+                poiHistories.Clear();
 
                 foreach (var store in poiStores)
                     store.Dispose();
