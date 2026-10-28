@@ -195,6 +195,15 @@ namespace cloud.charging.open.RoamingHub.Logging
 
             OCPICall call;
 
+            // Most of these are what a peer sent - its headers, its path, a
+            // status message that echoes it - and each is one line: written
+            // out and cut like an entry of the event log, so that a line break
+            // or a quarter of a megabyte in a header is not what the browser
+            // and the file are handed. The bodies are bodies, and stay as they
+            // came.
+            static String? OneLine(String? Text)
+                => Text is not null ? protocols.WWCP.Node.Logging.EventLog.OneLine(Text) : null;
+
             lock (padlock)
             {
 
@@ -202,23 +211,23 @@ namespace cloud.charging.open.RoamingHub.Logging
                            ++lastId,
                            TimeProvider.GetUtcNow(),
                            Direction,
-                           Peer,
-                           From,
-                           To,
-                           Version,
-                           Module,
-                           Method,
-                           Path,
+                           OneLine(Peer),
+                           OneLine(From),
+                           OneLine(To),
+                           OneLine(Version),
+                           OneLine(Module)!,
+                           OneLine(Method)!,
+                           OneLine(Path)!,
                            HTTPStatusCode,
                            OCPIStatusCode,
-                           OCPIStatusMessage,
+                           OneLine(OCPIStatusMessage),
                            Duration ?? TimeSpan.Zero,
                            RequestSize,
                            ResponseSize,
-                           RequestId,
-                           CorrelationId,
-                           RemoteSocket,
-                           Error,
+                           OneLine(RequestId),
+                           OneLine(CorrelationId),
+                           OneLine(RemoteSocket),
+                           OneLine(Error),
                            RequestBody,
                            ResponseBody
                        );

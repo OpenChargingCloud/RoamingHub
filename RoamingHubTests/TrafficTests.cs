@@ -471,6 +471,46 @@ namespace cloud.charging.open.RoamingHub.Tests
 
         #endregion
 
+        #region WhatAPeerSentStaysOnOneLine()
+
+        /// <summary>
+        /// The headers, the path and a status message that echoes them are
+        /// what a peer sent: a line break or an escape sequence in them is
+        /// written out, and a header of a quarter of a megabyte is cut, as in
+        /// the event log - and the bodies stay as they came.
+        /// </summary>
+        [Test]
+        public void WhatAPeerSentStaysOnOneLine()
+        {
+
+            var escape  = (Char) 0x1B;
+            var traffic = new Logging.OCPITrafficLog();
+
+            var call    = traffic.Add(Direction:          Logging.CallDirection.Inbound,
+                                      Peer:               null,
+                                      From:               "DE-GEF\r\nforged",
+                                      To:                 null,
+                                      Version:            "2.2.1",
+                                      Module:             "versions",
+                                      Method:             "GET",
+                                      Path:               "/ocpi/versions" + escape + "[2J",
+                                      HTTPStatusCode:     200,
+                                      OCPIStatusMessage:  "unknown token\nnext",
+                                      RequestId:          new String('x', 256 * 1024),
+                                      RequestBody:        "{\n}");
+
+            Assert.Multiple(() => {
+                Assert.That(call.From,               Is.EqualTo(@"DE-GEF\r\nforged"));
+                Assert.That(call.Path,               Is.EqualTo("/ocpi/versions" + "\\" + "u001B[2J"));
+                Assert.That(call.OCPIStatusMessage,  Is.EqualTo(@"unknown token\nnext"));
+                Assert.That(call.RequestId!.Length,  Is.LessThan(protocols.WWCP.Node.Logging.EventLog.MaxMessageLength + 40));
+                Assert.That(call.RequestBody,        Is.EqualTo("{\n}"));
+            });
+
+        }
+
+        #endregion
+
     }
 
 }
