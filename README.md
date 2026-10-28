@@ -242,7 +242,7 @@ The `configuration.json` beside it, in the same shape as the EMSP's:
 | `certificates` | where the certificate store is: `directory`, `certificates/` beside the file by default |
 | `roles` | roles beyond the three a hub brings, or what one of them may do |
 | `web` | how the web interface, the JSON API and the sign-in are reached safely: HTTPS of the hub's own - with its store's `tlsServerIdentity` or certbot's PEM files, read again when they change - with HSTS and a port that redirects to it, or the reverse proxies in front that do the HTTPS and are believed when they name the client |
-| `ocpi` | who this hub is - country code, party identification, name - and which versions it offers |
+| `ocpi` | who this hub is - country code, party identification, name - which versions it offers, and in which networks it may reach its peers |
 | `datex2` | which roaming networks are published as DATEX II, to be pulled and pushed to the Mobilithek |
 | `poi` | what the histories of the roaming networks keep, whether the commits they drop are archived, and which roles may set the runtime status of which charging station operators |
 
@@ -297,6 +297,24 @@ effect, the peer uses the new tokens, and it is written down with the next
 change the file takes, or when the hub stops; the log says so where it still
 could not be. A peer that registers here or unregisters meanwhile is answered
 OCPI 3000 with HTTP 500, its token as it was.
+
+A peer tells the hub where to go: the URL its versions are fetched from when
+it registers, and the URLs those lead to. The hub goes to the public internet
+and nowhere else unless `peerNetworks` says so - not to itself, its private,
+shared or link-local networks, the metadata service of a cloud at
+169.254.169.254, nor their IPv6 and NAT64 twins (POI3-ISSUES.md S19). Every
+address a name resolves to is checked when it is dialled, so a name rebound
+to a private address after a first look does not get there; an address that
+is refused is answered like one nobody answers at. Rules come first, in their
+order, the first that matches deciding:
+
+```json
+"ocpi": { "peerNetworks": [ "192.168.7.0/24 => ALLOW", "203.0.113.0/24 => DENY" ] }
+```
+
+A peer in a test network, or on the same machine, needs its network allowed
+here - `"127.0.0.0/8 => ALLOW"` for one on this host; a rule that is none stops
+the start and says which.
 
 ```json
 {

@@ -133,6 +133,32 @@ namespace cloud.charging.open.RoamingHub.Tests
 
         #endregion
 
+        #region LoopbackPeers / OfflineWithLoopbackPeers
+
+        /// <summary>
+        /// The "peerNetworks" rules a test hub needs to reach the stub peers on this host: a hub reaches peers on the
+        /// public internet only, unless its configuration allows a network.
+        /// </summary>
+        public static JArray LoopbackPeers
+
+            => new ("127.0.0.0/8 => ALLOW",
+                    "::1/128 => ALLOW");
+
+        /// <summary>
+        /// Offline, and allowed to reach peers on this host.
+        /// </summary>
+        public static JObject OfflineWithLoopbackPeers
+        {
+            get
+            {
+                var configuration = Offline;
+                configuration.Add("ocpi", new JObject(new JProperty("peerNetworks", LoopbackPeers)));
+                return configuration;
+            }
+        }
+
+        #endregion
+
         #region TemporaryDirectory(Purpose)
 
         /// <summary>

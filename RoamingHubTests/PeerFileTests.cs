@@ -76,7 +76,8 @@ namespace cloud.charging.open.RoamingHub.Tests
                        ))
                    )),
                    new JProperty("ocpi",  new JObject(
-                       new JProperty("versions",  new JArray("2.2.1", "2.3.0"))
+                       new JProperty("versions",      new JArray("2.2.1", "2.3.0")),
+                       new JProperty("peerNetworks",  TestRoamingHubs.LoopbackPeers)
                    ))
                );
 

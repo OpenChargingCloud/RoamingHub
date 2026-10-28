@@ -66,7 +66,8 @@ namespace cloud.charging.open.RoamingHub.Configuration
                                            Boolean?                LocationsAsOpenData   = null,
                                            Boolean?                TariffsAsOpenData     = null,
                                            Boolean?                AllowDowngrades       = null,
-                                           OCPILogging?            Logging               = null)
+                                           OCPILogging?            Logging               = null,
+                                           IReadOnlyList<String>?  PeerNetworks          = null)
     {
 
         #region Data
@@ -129,6 +130,11 @@ namespace cloud.charging.open.RoamingHub.Configuration
         /// </summary>
         public const Int32   MaxExternalURLLength        = 255;
 
+        /// <summary>
+        /// The most rules "peerNetworks" may have.
+        /// </summary>
+        public const Int32   MaxPeerNetworks             = 256;
+
         #endregion
 
         #region Properties
@@ -141,6 +147,29 @@ namespace cloud.charging.open.RoamingHub.Configuration
             => Versions is { Count: > 0 }
                    ? Versions
                    : DefaultVersions;
+
+        /// <summary>
+        /// Where this hub may connect to its peers: the rules of "peerNetworks", e.g. "192.168.7.0/24 => ALLOW" or
+        /// "203.0.113.0/24 => DENY", in their order, the first that matches deciding; then every network no public server
+        /// is reached at denied - this host, private, shared and link-local networks among them; then the public internet
+        /// allowed. A peer hands in the URL its versions are fetched from, and without this it would have the hub call
+        /// the hosts of the network it runs in, with the peer's token in the header.
+        /// </summary>
+        public org.GraphDefined.Vanaheimr.Hermod.SSH.NetworkAcl EffectivePeerNetworks
+        {
+            get
+            {
+
+                var networkAcl = org.GraphDefined.Vanaheimr.Hermod.SSH.NetworkAcl.AllowByDefault();
+
+                // Checked when the section was read.
+                foreach (var rule in PeerNetworks ?? [])
+                    networkAcl.TryAdd(rule, out _);
+
+                return networkAcl.DenyNonPublicNetworks();
+
+            }
+        }
 
         #endregion
 
@@ -166,10 +195,22 @@ namespace cloud.charging.open.RoamingHub.Configuration
                 !ConfigurationReader.TryReadString (JSON, "externalURL",          SectionName,   MaxExternalURLLength, out var externalURL,  out Error) ||
                 !ConfigurationReader.TryReadBoolean(JSON, "locationsAsOpenData",  SectionName,                         out var locationsOpen, out Error) ||
                 !ConfigurationReader.TryReadBoolean(JSON, "tariffsAsOpenData",    SectionName,                         out var tariffsOpen,  out Error) ||
-                !ConfigurationReader.TryReadBoolean(JSON, "allowDowngrades",      SectionName,                         out var downgrades,   out Error))
+                !ConfigurationReader.TryReadBoolean(JSON, "allowDowngrades",      SectionName,                         out var downgrades,   out Error) ||
+                !ConfigurationReader.TryReadStrings(JSON, "peerNetworks",         SectionName,   MaxPeerNetworks, 64,   out var peerNetworks, out Error))
             {
                 return false;
             }
+
+            #region The networks of the peers, each a rule
+
+            foreach (var rule in peerNetworks ?? [])
+                if (!org.GraphDefined.Vanaheimr.Hermod.SSH.NetworkAcl.AllowByDefault().TryAdd(rule, out var ruleError))
+                {
+                    Error = $"'{SectionName}.peerNetworks': {ruleError}";
+                    return false;
+                }
+
+            #endregion
 
             #region The identification, which OCPI is strict about
 
@@ -262,7 +303,8 @@ namespace cloud.charging.open.RoamingHub.Configuration
                                 locationsOpen,
                                 tariffsOpen,
                                 downgrades,
-                                logging
+                                logging,
+                                peerNetworks
                             );
 
             return true;
@@ -293,6 +335,7 @@ namespace cloud.charging.open.RoamingHub.Configuration
             if (TariffsAsOpenData.  HasValue)     json.Add("tariffsAsOpenData",    TariffsAsOpenData.  Value);
             if (AllowDowngrades.    HasValue)     json.Add("allowDowngrades",      AllowDowngrades.    Value);
             if (Logging             is not null)  json.Add("logging",              Logging.ToJSON());
+            if (PeerNetworks        is not null)  json.Add("peerNetworks",         new JArray(PeerNetworks));
 
             return json;
 

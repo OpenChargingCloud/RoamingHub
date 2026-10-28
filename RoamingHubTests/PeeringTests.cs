@@ -48,83 +48,16 @@ namespace cloud.charging.open.RoamingHub.Tests
     /// the direction where this hub has to call somebody - a stub with the
     /// three routes the credentials handshake touches.
     /// </remarks>
-    public class PeeringTests : ARoamingHubTests
+    public class PeeringTests : APeeringTests
     {
 
-        #region (private) Peer(Token)
+        #region Configuration
 
         /// <summary>
-        /// A peer calling this hub with the token it was given, encoded the
-        /// way OCPI 2.2 sends it.
+        /// The stub peers listen on this host: a hub reaches them only where its configuration allows.
         /// </summary>
-        private HttpClient Peer(String Token)
-        {
-
-            var http = new HttpClient { BaseAddress = new Uri(BaseURL) };
-
-            http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
-                                                           "Token",
-                                                           Convert.ToBase64String(Encoding.UTF8.GetBytes(Token))
-                                                       );
-
-            http.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-
-            return http;
-
-        }
-
-        #endregion
-
-        #region (private) AddPeer(HTTP, ...)
-
-        /// <summary>
-        /// Add a peer through the JSON API and hand back the token this hub
-        /// made up for it.
-        /// </summary>
-        private async Task<(String Id, String Token, JObject Answer)> AddPeer(HttpClient  HTTP,
-                                                                              String      Role          = "CPO",
-                                                                              String      CountryCode   = "DE",
-                                                                              String      PartyId       = "GEF",
-                                                                              String?     TheirToken    = null,
-                                                                              String?     VersionsURL   = null)
-        {
-
-            var body = new List<JProperty> {
-                           new ("version",      "2.2.1"),
-                           new ("countryCode",  CountryCode),
-                           new ("partyId",      PartyId),
-                           new ("role",         Role),
-                           new ("name",         $"Test {Role}")
-                       };
-
-            if (TheirToken  is not null)  body.Add(new JProperty("theirToken",  TheirToken));
-            if (VersionsURL is not null)  body.Add(new JProperty("versionsURL", VersionsURL));
-
-            var response = await HTTP.PostAsync("/api/v1/ocpi/partners", JSONBody([.. body]));
-            var text     = await response.Content.ReadAsStringAsync();
-
-            Assert.That(response.StatusCode, Is.EqualTo(HttpStatusCode.Created), $"Adding the peer answered {(Int32) response.StatusCode}: {text}");
-
-            var answer = JObject.Parse(text);
-
-            return (answer.Value<String>("id")!, answer.Value<String>("ourToken")!, answer);
-
-        }
-
-        #endregion
-
-        #region (private static) OCPIResponse(Response)
-
-        private static async Task<JObject> OCPIResponse(HttpResponseMessage Response)
-        {
-
-            var text = await Response.Content.ReadAsStringAsync();
-
-            Assert.That(Response.IsSuccessStatusCode, Is.True, $"{Response.RequestMessage?.Method} {Response.RequestMessage?.RequestUri} answered {(Int32) Response.StatusCode}: {text}");
-
-            return JObject.Parse(text);
-
-        }
+        protected override JObject Configuration
+            => TestRoamingHubs.OfflineWithLoopbackPeers;
 
         #endregion
 

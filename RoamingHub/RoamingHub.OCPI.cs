@@ -330,6 +330,15 @@ namespace cloud.charging.open.RoamingHub
             // change the next start will not know, and the library says so to
             // nobody but this event. Which file and why - not the line, which
             // can hold a session, a CDR or a token.
+            // A peer hands in the URL its versions are fetched from, and the URLs
+            // they lead to: dialled only on the public internet, and in the
+            // networks the configuration allows - checked against every address
+            // a name resolves to, at the moment it is dialled.
+            ocpiAPI.RemoteNetworkAcl = ocpiSettings.EffectivePeerNetworks;
+
+            if (ocpiSettings.PeerNetworks is { Count: > 0 } peerNetworks)
+                Log.Info($"OCPI: peers are reached on the public internet, and as these rules say first: {String.Join("; ", peerNetworks)}.", "ocpi", "security");
+
             ocpiAPI.OnDatabaseLineNotWritten += (timestamp, writer, fileName, line, exception) =>
                 Log.Exception(exception, $"OCPI: a change the next start will not know, because '{fileName}' could not be written", "ocpi", "files");
 
