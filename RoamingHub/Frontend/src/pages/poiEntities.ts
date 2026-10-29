@@ -10,6 +10,7 @@ import { loadOrigins, templateSegments, type Origin, type Origins } from './poiO
 import { loadTrustAnchor, trustAnchorCard, type TrustAnchor } from './poiTrustAnchor';
 import { epochCard, loadEpochs, type Epochs } from './poiEpochs';
 import { loadPriceStatements, priceStatementsCard, signedPricesCard, type PriceStatement } from './poiPrices';
+import { evTalerCard, evTalerMerchantCardOf, loadEVTaler, type EVTalerAt } from './poiEVTaler';
 import { copyText } from '@node/ui';
 
 /**
@@ -49,6 +50,9 @@ import { copyText } from '@node/ui';
  * A charging pool, a charging station and an EVSE show the charging tariff offers covering them, of their operator and
  * of e-mobility providers: every one, or those applying now or at a time, with the status of each now, the list asked
  * again when a status changes by the times of an offer (see poiOffers).
+ *
+ * A charging station operator naming its merchant at a GNU Taler merchant backend shows it as a card of its own, and a
+ * charging pool and an EVSE how charging there is paid with EV Taler, as the POI API tells it (see poiEVTaler).
  */
 
 
@@ -110,6 +114,10 @@ interface Kind {
     offers?:      boolean;
     /** Whether it shows the price statements of it, its pool and its EVSEs: a charging station, an EVSE. */
     prices?:      boolean;
+    /** Whether it shows how charging there is paid with EV Taler: a charging pool, an EVSE. */
+    evTaler?:     boolean;
+    /** Its fields drawn as cards of their own, not among its fields: the EV Taler merchant of an operator. */
+    cards?:       string[];
 }
 
 /** The brands of an operator, pool, station or EVSE: its own, embedded, each leading to its page below it. */
@@ -134,9 +142,10 @@ const kinds: Record<string, Kind> = {
                             listed:  steps => ({ path: `${steps[0]!.path}/CPs`, query: { operatorId: steps[1]!.id, limit: childrenShown } }) },
                           ...operatorCollections.map(collection => listedChildren(collection)),
                           brandsOf('Brands it is a white label for') ],
+              cards:      [ 'evTaler' ],
               parameters: { without: [ 'chargingPools', ...operatorCollections.map(collection => collection.field) ].join(',') } },
 
-    CPs:    { label: 'Charging pool',  icon: 'fa-charging-station',  offers: true,
+    CPs:    { label: 'Charging pool',  icon: 'fa-charging-station',  offers: true,  evTaler: true,
               parameters: { expand: 'gridConnectionPoint' },
               children: [ { field: 'chargingStations',  label: 'Charging stations',  segment: 'CSs',
                             head:  [ 'EVSEs', 'Max power' ],
@@ -150,7 +159,7 @@ const kinds: Record<string, Kind> = {
                                              ((evse.chargingConnectors as { type?: string }[] | undefined) ?? []).map(connector => connector.type ?? '?').join(', ') ] },
                           brandsOf('Brands it also appears under') ] },
 
-    EVSEs:  { label: 'EVSE',  icon: 'fa-plug',  offers: true,  prices: true,
+    EVSEs:  { label: 'EVSE',  icon: 'fa-plug',  offers: true,  prices: true,  evTaler: true,
               children: [ brandsOf('Brands it also appears under') ] },
 
     // A brand of an operator, pool, station or EVSE, below it.
@@ -586,6 +595,9 @@ function entityPage(segment: string): Page {
             // The price statements of it, its pool and its EVSEs, asked once it is drawn.
             let prices:         PriceStatement[] | null             = null;
 
+            // How charging there is paid with EV Taler, asked once it is drawn.
+            let evTaler:        EVTalerAt | null                    = null;
+
             function draw(): void {
 
                 const content  = shell(root, {
@@ -597,7 +609,7 @@ function entityPage(segment: string): Page {
 
                 const fields   = loaded === null
                                      ? []
-                                     : Object.entries(loaded.entity).filter(([ key ]) => !notAField.has(key) && !kind.children?.some(children => children.field === key));
+                                     : Object.entries(loaded.entity).filter(([ key ]) => !notAField.has(key) && !kind.children?.some(children => children.field === key) && !kind.cards?.includes(key));
 
                 // What its templates give it, and the energy meters in it their energy meter templates.
                 const given    = origins === null
@@ -649,6 +661,10 @@ function entityPage(segment: string): Page {
 
                                       ${prices ? signedPricesCard(prices, steps[0]!.path) : nothing}
 
+                                      ${kind.cards?.includes('evTaler') ? evTalerMerchantCardOf(loaded.entity) : nothing}
+
+                                      ${evTaler ? evTalerCard(evTaler, steps[1]!.path) : nothing}
+
                                       ${jsonView(loaded)}
 
                                   </div>`}
@@ -686,6 +702,15 @@ function entityPage(segment: string): Page {
                     // The offers covering it, once it is drawn.
                     if (kind.offers)
                         void loadCoveringOffers();
+
+                    // How charging there is paid with EV Taler, once it is drawn.
+                    if (kind.evTaler)
+                        void loadEVTaler(`${self.path}/evTaler`, ask.signal).then(found => {
+                            if (!cancelled && ask === asking) {
+                                evTaler = found;
+                                draw();
+                            }
+                        });
 
                     // Its price statements, once it is drawn.
                     if (kind.prices)
