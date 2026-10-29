@@ -503,11 +503,14 @@ namespace cloud.charging.open.RoamingHub
                 return Invalid("A roaming network needs an identification, '@id'.");
 
             // Its name and its description - and its context, where it says one - are read as a roaming
-            // network reads them. When it is made is when this hub makes it; given here only as a roaming
-            // network is read with one.
+            // network reads them, which refuses them unless written as it writes them. When it is made is
+            // when this hub makes it, also its last change; given here only as a roaming network is read
+            // with them.
+            var now    = Timestamp.Now.ToISO8601();
             var parsed = new JObject(
-                             new JProperty("@id",      id.ToString()),
-                             new JProperty("created",  Timestamp.Now.ToISO8601())
+                             new JProperty("@id",         id.ToString()),
+                             new JProperty("created",     now),
+                             new JProperty("lastChange",  now)
                          );
 
             foreach (var name in new[] { "@context", "name", "description" })
