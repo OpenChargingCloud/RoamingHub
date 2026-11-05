@@ -875,6 +875,7 @@ A hub brings three roles:
 | `dns`, `nts` | read | read, edit, run | everything |
 | `certificates` | read | read | everything |
 | `peers` | read | read | everything |
+| `log` | read | read | everything |
 | `traffic` | - | read | everything |
 | `poi` | - | - | everything |
 | `poi-status` | - | - | everything, where `statusRoles` binds it |
@@ -913,15 +914,17 @@ group takes effect on their next one, and a refusal names the roles that
 would have been let in - "This needs the hub or systemadmin role." A stream is
 one request answered for hours, so both streams ask again, before every event
 and at every heartbeat: whether the session that opened one is still there,
-or the API key, or the password - a new one ends it - and, for the
-traffic's, whether its reader may still read the traffic. The answer no ends
+or the API key, or the password - a new one ends it - and whether its reader
+may still read the traffic or the log. The answer no ends
 the stream, and the page behind it asks the hub why: signed out goes to the
 sign-in, and a role that went is said on the Traffic page rather than
-retried. The status, the log and its stream are for anybody signed in; the
-clock at `/api/v1/clock`, where every node has it, is `nts:read` on a hub,
-as it was while it sat below the time servers' configuration.
+retried. The status is for anybody signed in; the log and its stream are
+`log:read` on a hub, which both roles it brings carry and an account without
+a role does not, as the log tells what the hub did and was told; the clock at
+`/api/v1/clock`, where every node has it, is `nts:read` on a hub, as it was
+while it sat below the time servers' configuration.
 `GET /api/v1/auth/me` lists what the account signed in may do, spelled out
-resource by resource, and says whether the log is for it - on a hub, always.
+resource by resource, and says whether the log is for it.
 The web interface shows the rest by it: a button its user may not press is
 greyed out, and a menu entry is there only for a page it may open. A page
 below Configuration that a role may open, where it may not read the

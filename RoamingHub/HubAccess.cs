@@ -125,6 +125,7 @@ namespace cloud.charging.open.RoamingHub
                                                       Permission.Read(NodeResources.DNS),
                                                       Permission.Read(NodeResources.NTS),
                                                       Permission.Read(NodeResources.Certificates),
+                                                      Permission.Read(NodeResources.Log),
                                                       Permission.Read(Peers) ],
                                                     "looks at the hub and its peers, and not at their traffic");
 
@@ -149,6 +150,7 @@ namespace cloud.charging.open.RoamingHub
                                                       Permission.Edit(NodeResources.NTS),
                                                       Permission.Run (NodeResources.NTS),
                                                       Permission.Read(NodeResources.Certificates),
+                                                      Permission.Read(NodeResources.Log),
                                                       Permission.Read(Peers),
                                                       Permission.Read(Traffic) ],
                                                     "runs the hub: its name and time servers, and what goes between the peers");

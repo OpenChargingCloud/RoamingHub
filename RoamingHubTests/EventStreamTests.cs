@@ -246,8 +246,9 @@ namespace cloud.charging.open.RoamingHub.Tests
 
         /// <summary>
         /// Taken out of the hub role, an account's stream of the traffic ends at
-        /// its next heartbeat - while the log's stream of the same session goes
-        /// on, because the log is for anybody signed in.
+        /// its next heartbeat - and the log's stream of the same session too, as
+        /// the log needs log:read on a hub, which no role of the account carries
+        /// any longer (POI3-ISSUES.md S29).
         /// </summary>
         /// <remarks>
         /// What an account may do is asked of the node on every request, so
@@ -287,17 +288,13 @@ namespace cloud.charging.open.RoamingHub.Tests
 
             var trafficLines        = new List<String>();
             var ended               = await EndsWithin(traffic, trafficLines, TimeSpan.FromSeconds(3));
-
-            var afterwards          = "Logged after the role was taken " + Guid.NewGuid().ToString("N")[..8];
-            RoamingHub.Log.Info(afterwards, "test");
-
-            var logGoesOn           = await ReadUntil(log, line => { logLines.Add(line); return line.Contains(afterwards); }, TimeSpan.FromSeconds(10));
+            var logEnded            = await EndsWithin(log,     logLines,     TimeSpan.FromSeconds(3));
 
             var again               = await http.GetAsync("/api/v1/traffic/events", HttpCompletionOption.ResponseHeadersRead);
 
             Assert.Multiple(() => {
                 Assert.That(ended,             Is.True,                             "the traffic's stream went on after its reader had been taken out of the hub role");
-                Assert.That(logGoesOn,         Is.True,                             "the log's stream of the same session ended as well, and it may be read by anybody signed in");
+                Assert.That(logEnded,          Is.True,                             "the log's stream went on after its reader had been taken out of the only role that let it read the log");
                 Assert.That(again.StatusCode,  Is.EqualTo(HttpStatusCode.Forbidden), "opening the traffic's stream again was not refused");
             });
 

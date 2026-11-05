@@ -240,7 +240,7 @@ namespace cloud.charging.open.RoamingHub.Tests
 
             Assert.Multiple(() => {
                 Assert.That(roamingHub.Roles,             Is.EqualTo(new[] { "viewer", "hub", WWCPNode.AdminRole }));
-                Assert.That(roamingHub.Access.Resources,  Is.EqualTo(new[] { "configuration", "dns", "nts", "certificates", "ssh", "peers", "traffic", "poi", "poi-status" }));
+                Assert.That(roamingHub.Access.Resources,  Is.EqualTo(new[] { "configuration", "dns", "nts", "certificates", "ssh", "log", "peers", "traffic", "poi", "poi-status" }));
             });
 
         }
@@ -260,6 +260,7 @@ namespace cloud.charging.open.RoamingHub.Tests
         [TestCase("viewer",       "nts:read",           true)]
         [TestCase("viewer",       "certificates:read",  true)]
         [TestCase("viewer",       "peers:read",         true)]
+        [TestCase("viewer",       "log:read",           true)]
         [TestCase("viewer",       "traffic:read",       false)]
         [TestCase("viewer",       "dns:edit",           false)]
         [TestCase("viewer",       "dns:run",            false)]
@@ -273,6 +274,7 @@ namespace cloud.charging.open.RoamingHub.Tests
         [TestCase("hub",          "nts:run",            true)]
         [TestCase("hub",          "traffic:read",       true)]
         [TestCase("hub",          "peers:read",         true)]
+        [TestCase("hub",          "log:read",           true)]
         [TestCase("hub",          "peers:edit",         false)]
         [TestCase("hub",          "peers:run",          false)]
         [TestCase("hub",          "certificates:edit",  false)]
@@ -286,6 +288,7 @@ namespace cloud.charging.open.RoamingHub.Tests
         [TestCase("systemadmin",  "traffic:read",       true)]
         [TestCase("systemadmin",  "ssh:edit",           true)]
         [TestCase("systemadmin",  "poi:edit",           true)]
+        [TestCase("systemadmin",  "log:read",           true)]
         public void EachRoleMayDoWhatItAlwaysMayDo(String Role, String Permission, Boolean Allowed)
         {
 
@@ -535,6 +538,42 @@ namespace cloud.charging.open.RoamingHub.Tests
                 Assert.That(refused.StatusCode,  Is.EqualTo(HttpStatusCode.Forbidden));
                 Assert.That(refusal,             Does.Contain("This needs the viewer or hub or systemadmin role."),
                             "the clock asks for nts:read on a hub, which the file's role does not carry");
+            });
+
+        }
+
+        #endregion
+
+        #region TheLogNeedsItsOwnPermission()
+
+        /// <summary>
+        /// The log is read with log:read on a hub, not by every account signed
+        /// in (POI3-ISSUES.md S29): a viewer reads it, a role of the file
+        /// without log:read is told who may - the page and the event stream
+        /// alike.
+        /// </summary>
+        [Test]
+        public async Task TheLogNeedsItsOwnPermission()
+        {
+
+            await StartedHub("""
+                             {
+                               "nts":   { "groups": { "legal": { "enabled": false } } },
+                               "roles": { "support": [ "dns:read" ] }
+                             }
+                             """);
+
+            using var viewer     = await SignedInAs("viewer4",    "viewer");
+            using var support    = await SignedInAs("supporter3", "support");
+
+            var read             = await viewer. GetAsync("api/v1/logs");
+            var refused          = await support.GetAsync("api/v1/logs");
+            var refusal          = await refused.Content.ReadAsStringAsync();
+
+            Assert.Multiple(() => {
+                Assert.That(read.StatusCode,     Is.EqualTo(HttpStatusCode.OK));
+                Assert.That(refused.StatusCode,  Is.EqualTo(HttpStatusCode.Forbidden));
+                Assert.That(refusal,             Does.Contain("This needs the viewer or hub or systemadmin role."));
             });
 
         }

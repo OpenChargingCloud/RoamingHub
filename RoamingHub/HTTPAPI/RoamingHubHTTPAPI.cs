@@ -141,6 +141,21 @@ namespace cloud.charging.open.RoamingHub
 
         #endregion
 
+        #region (protected override) ToReadTheLog
+
+        /// <summary>
+        /// The log is read with its own permission on a hub, not by every
+        /// account signed in: it tells what this hub did and was told, and an
+        /// account without a role is nobody who runs or watches it
+        /// (POI3-ISSUES.md S29). Both roles a hub brings have it - the viewer
+        /// too, as the presence of the peers it may look at comes on the same
+        /// stream; a role of the file says itself.
+        /// </summary>
+        protected override Permission? ToReadTheLog
+            => Permission.Read(NodeResources.Log);
+
+        #endregion
+
     }
 
 }
