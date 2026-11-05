@@ -176,6 +176,8 @@ namespace cloud.charging.open.RoamingHub.Tests
                                                                                  "datex2.publications[0].mobilithek.staticPublicationId")]
         [TestCase("mobilithek",          "{ \"staticPublicationId\": 1, \"dynamicPublicationId\": 2, \"url\": \"ftp://mobilithek.info\" }",
                                                                                  "datex2.publications[0].mobilithek.url")]
+        [TestCase("mobilithek",          "{ \"staticPublicationId\": 1, \"dynamicPublicationId\": 2, \"url\": \"http://mobilithek.info:8443/mobilithek/api/v1.0/publication/\" }",
+                                                                                 "datex2.publications[0].mobilithek.url' must be an absolute https URL")]
         public void WhatIsWrongIsNamed(String   Field,
                                        String?  Value,
                                        String   Named)

@@ -365,7 +365,9 @@ namespace cloud.charging.open.RoamingHub.Configuration
                 return false;
             }
 
-            if (url is not null && (!Uri.TryCreate(url, UriKind.Absolute, out var uri) || uri.Scheme is not ("https" or "http")))
+            // https alone: over http the publications would go out in clear and without the client certificate the
+            // Mobilithek knows the provider by (POI3-ISSUES.md S30).
+            if (url is not null && (!Uri.TryCreate(url, UriKind.Absolute, out var uri) || uri.Scheme != Uri.UriSchemeHttps))
             {
                 Error = $"'{Path}.url' must be an absolute https URL, e.g. \"https://mobilithek.info:8443/mobilithek/api/v1.0/publication/\".";
                 return false;

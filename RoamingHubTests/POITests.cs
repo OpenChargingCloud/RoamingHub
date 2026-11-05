@@ -758,7 +758,7 @@ namespace cloud.charging.open.RoamingHub.Tests
                                                 $"{NewPath}/QA/CABs");
 
             // GraphDefined states its release itself.
-            var release            = new TransparencySoftware(TransparencySoftware_Id.Parse("chargy-1.5.0"),
+            var release            = new TransparencySoftware(TransparencySoftware_Id.Parse("GraphDefined:chargy-1.5.0"),
                                                               ImmutableI18NString.Create(Languages.en, "Chargy"),
                                                               TransparencySoftwareVersion.Parse("1.5.0"),
                                                               [ org.GraphDefined.Vanaheimr.Hermod.OpenSourceLicense.AGPL3 ]);
@@ -773,15 +773,15 @@ namespace cloud.charging.open.RoamingHub.Tests
                         new JProperty("chargingStationModel",               "Wallbox-22"),
                         new JProperty("hardwareRevisions",                  new JArray("1.0")),
                         new JProperty("firmwareVersions",                   new JArray("1.0")),
-                        new JProperty("verifiedTransparencySoftwareIds",    new JArray("chargy-1.5.0")),
+                        new JProperty("verifiedTransparencySoftwareIds",    new JArray("GraphDefined:chargy-1.5.0")),
                         new JProperty("compatibleTransparencySoftwareIds",  new JArray()),
                         new JProperty("legislation",                        Legislation));
 
-            var bsiCertificate     = await Post(admin, Certificate("BSI-2026-1", "CRA"), $"{NewPath}/QA/CABs/BSI/TSCs");
-            var bsiAgain           = await Post(admin, Certificate("BSI-2026-1", "CRA"), $"{NewPath}/QA/CABs/BSI/TSCs");
-            var notNotified        = await Post(admin, Certificate("BSI-2026-2", "MID"), $"{NewPath}/QA/CABs/BSI/TSCs");
-            var ptbCertificate     = await Post(admin, Certificate("PTB-2026-1", "MID"), $"{NewPath}/QA/CABs/PTB/TSCs");
-            var byAnybody          = await Post(anybody, Certificate("BSI-2026-3", "CRA"), $"{NewPath}/QA/CABs/BSI/TSCs");
+            var bsiCertificate     = await Post(admin, Certificate("BSI:2026-1", "CRA"), $"{NewPath}/QA/CABs/BSI/TSCs");
+            var bsiAgain           = await Post(admin, Certificate("BSI:2026-1", "CRA"), $"{NewPath}/QA/CABs/BSI/TSCs");
+            var notNotified        = await Post(admin, Certificate("BSI:2026-2", "MID"), $"{NewPath}/QA/CABs/BSI/TSCs");
+            var ptbCertificate     = await Post(admin, Certificate("PTB:2026-1", "MID"), $"{NewPath}/QA/CABs/PTB/TSCs");
+            var byAnybody          = await Post(anybody, Certificate("BSI:2026-3", "CRA"), $"{NewPath}/QA/CABs/BSI/TSCs");
 
             var bsiText            = await bsi.           Content.ReadAsStringAsync();
             var bsiCertificateText = await bsiCertificate.Content.ReadAsStringAsync();
@@ -790,7 +790,8 @@ namespace cloud.charging.open.RoamingHub.Tests
 
             var makers             = JArray. Parse(await anybody.GetStringAsync("poi/RNs/QA/TSMs"));
             var releases           = JArray. Parse(await anybody.GetStringAsync("poi/RNs/QA/TSMs/GraphDefined/TSs"));
-            var served             = JObject.Parse(await anybody.GetStringAsync("poi/RNs/QA/CABs/BSI/certificates/BSI-2026-1"));
+            var served             = JObject.Parse(await anybody.GetStringAsync("poi/RNs/QA/CABs/BSI/certificates/BSI:2026-1"));
+            var servedEncoded      = JObject.Parse(await anybody.GetStringAsync("poi/RNs/QA/CABs/BSI/certificates/" + Uri.EscapeDataString("BSI:2026-1")));
             var bodies             = JArray. Parse(await anybody.GetStringAsync("poi/RNs/QA/CABs"));
 
             Assert.Multiple(() => {
@@ -803,7 +804,7 @@ namespace cloud.charging.open.RoamingHub.Tests
                 Assert.That(bsi.StatusCode,                                                    Is.EqualTo(HttpStatusCode.Created), bsiText);
 
                 Assert.That(addRelease.StatusCode,                                             Is.EqualTo(HttpStatusCode.Created), addRelease.Text);
-                Assert.That(releases.Select(entry => entry["@id"]?.Value<String>()),           Is.EqualTo(new[] { "chargy-1.5.0" }));
+                Assert.That(releases.Select(entry => entry["@id"]?.Value<String>()),           Is.EqualTo(new[] { "GraphDefined:chargy-1.5.0" }));
                 Assert.That(makers.  Select(entry => entry["@id"]?.Value<String>()),           Is.EqualTo(new[] { "GraphDefined" }));
 
                 Assert.That(bsiCertificate.StatusCode,                                         Is.EqualTo(HttpStatusCode.Created), bsiCertificateText);
