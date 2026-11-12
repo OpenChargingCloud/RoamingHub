@@ -31,6 +31,7 @@ using cloud.charging.open.protocols.WWCP.Node.Configuration;
 using cloud.charging.open.protocols.WWCP.Node.Logging;
 using cloud.charging.open.protocols.WWCP.Node.SecureShell;
 
+using cloud.charging.open.RoamingHub.CommandLine;
 using cloud.charging.open.RoamingHub.Configuration;
 using cloud.charging.open.RoamingHub.Logging;
 
@@ -419,6 +420,16 @@ namespace cloud.charging.open.RoamingHub
 
             // After the points of interest, whose roaming networks they publish: see RoamingHub.DatexII.cs.
             BuildDatexII(configuration.DatexII);
+
+            #endregion
+
+            #region What somebody signed in over SSH gets
+
+            // A roaming hub's command line, with its commands beside the
+            // node's - whichever program runs this hub, not only the program
+            // RoamingHubCLI. Before the node starts, as the node asks; a
+            // program with a command line of its own sets another after this.
+            CommandLines = (terminal, caller) => new HubCLI(this, terminal, caller);
 
             #endregion
 

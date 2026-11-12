@@ -40,6 +40,7 @@ what goes between them.
 | Who may do what | three roles - `viewer`, `hub` and `systemadmin` - over the node's resources and the hub's four, `peers`, `traffic`, `poi` and `poi-status`, and whatever the configuration file adds |
 | The web interface | all of the above in a browser: the traffic as it happens, the peers, the name servers, the time servers, the certificates and the log |
 | HubClientInfo | who is on this hub and whether they can be reached, over OCPI and on the Peers page |
+| The command line | the node's, with the hub's `roamingNetworks` and `roamingNetworkOperator` beside its commands - at the console of whichever program runs the hub, and over SSH |
 | The points of interest | roaming networks of POI 3 below `/poi`, public: operated by this hub, which is a roaming network operator with keys of its own, and filled by change sets their owners sign; their runtime status set over the WebSocket of a history by the charging station operators among the peers, and by accounts bound to an operator |
 
 **What is not here yet.** Forwarding what one peer sends to another, which is
@@ -942,6 +943,14 @@ mid-word neither lands inside the command nor waits for it:
 roamingHub.ShareConsoleWith(cli.WriteBlock);   // line off, entry whole, line back
 ```
 
+What is typed there is the hub's command line, `HubCLI`: the node's commands
+and the hub's own, `roamingNetworks` and `roamingNetworkOperator`, which live
+here and not in the program that runs the hub. The hub hands the same command
+line to whoever signs in over SSH by itself, so a hub run by the tests has the
+same commands as one run by RoamingHubCLI; a new command is a new file in
+`RoamingHub/CommandLine` and nothing else. A program with commands of its own
+derives from `HubCLI` and sets `CommandLines` anew after the hub was made.
+
 
 ## The tests
 
@@ -1020,6 +1029,16 @@ full status as a snapshot to the dynamic one. None of them asks a name server
 or a time server anything. And the hub's own code is held to what the kit
 holds every kind's to, SourceRules: nothing it says puts "a" or "an" in front
 of a name it is handed.
+
+The command line: the hub hands its own to a session over SSH, with
+`roamingNetworks` and `roamingNetworkOperator` beside the node's commands; a
+hub without roaming networks says how one is made; one made at the console is
+operated by this hub, listed, shown and named by the operator; a grid operator
+without keys is in it at once, a charging station operator with keys waits for
+the proof that it holds them, and a kind of party that is none is refused; a
+key replaced and a new name reach the networks operated; what is typed wrongly
+is answered by its usage; and an account that may only look, over SSH, sees
+the networks and is refused everything that signs, with nothing changed.
 
 What the node below does on its own - the configuration file and its
 sections, the log and the console, the time servers and what they are held
