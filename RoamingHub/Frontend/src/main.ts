@@ -38,8 +38,9 @@ startNode({
     //
     // Each entry carries what its page asks for. A role from the
     // configuration file may read the configuration and not the store, or
-    // the name servers and not the peers; the three roles a hub brings read
-    // all of them, so for them nothing is hidden.
+    // the name servers and not the peers; the viewer, the hub and the
+    // administrators read all of them, so for them nothing is hidden, and
+    // the node's support reads none of them.
     menu: [
         { path: '/traffic',  label: 'Traffic',  icon: 'fa-right-left',  permission: [ 'traffic:read' ] },
         nodeMenu.configuration([

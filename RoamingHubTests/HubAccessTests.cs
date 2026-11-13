@@ -225,22 +225,25 @@ namespace cloud.charging.open.RoamingHub.Tests
         #endregion
 
 
-        #region AHubKnowsItsResourcesAndItsThreeRoles()
+        #region AHubKnowsItsResourcesAndItsFourRoles()
 
         /// <summary>
-        /// The node brings the administrators, and the hub its own viewer and
-        /// its operator - the viewer in the node's place, so that the one
-        /// every node calls "viewer" is the one that cannot read the traffic.
+        /// The node brings the administrators and the support, and the hub its
+        /// own viewer and its operator - the viewer in the node's place, so
+        /// that the one every node calls "viewer" is the one that cannot read
+        /// the traffic. The resources are the node's twelve and the hub's four.
         /// </summary>
         [Test]
-        public void AHubKnowsItsResourcesAndItsThreeRoles()
+        public void AHubKnowsItsResourcesAndItsFourRoles()
         {
 
             var roamingHub = Hub();
 
             Assert.Multiple(() => {
-                Assert.That(roamingHub.Roles,             Is.EqualTo(new[] { "viewer", "hub", WWCPNode.AdminRole }));
-                Assert.That(roamingHub.Access.Resources,  Is.EqualTo(new[] { "configuration", "dns", "nts", "certificates", "ssh", "log", "peers", "traffic", "poi", "poi-status" }));
+                Assert.That(roamingHub.Roles,             Is.EqualTo(new[] { "viewer", "support", "hub", WWCPNode.AdminRole }));
+                Assert.That(roamingHub.Access.Resources,  Is.EqualTo(new[] { "configuration", "dns", "nts", "certificates", "ssh", "log",
+                                                                              "node", "reset", "reset-immediate", "state", "firmware", "signatures",
+                                                                              "peers", "traffic", "poi", "poi-status" }));
             });
 
         }
@@ -253,7 +256,9 @@ namespace cloud.charging.open.RoamingHub.Tests
         /// What each role could do before roles were data, permission by
         /// permission: the viewer looks at everything but the traffic, the
         /// operator also repoints and asks and reads the traffic, and only the
-        /// administrators touch the peers and the certificates.
+        /// administrators touch the peers and the certificates. The node's
+        /// support sees what is going on and restarts an idle hub, and looks
+        /// at nothing of the hub's.
         /// </summary>
         [TestCase("viewer",       "configuration:read", true)]
         [TestCase("viewer",       "dns:read",           true)]
@@ -289,6 +294,15 @@ namespace cloud.charging.open.RoamingHub.Tests
         [TestCase("systemadmin",  "ssh:edit",           true)]
         [TestCase("systemadmin",  "poi:edit",           true)]
         [TestCase("systemadmin",  "log:read",           true)]
+
+        [TestCase("support",      "state:read",         true)]
+        [TestCase("support",      "state:run",          true)]
+        [TestCase("support",      "reset:run",          true)]
+        [TestCase("support",      "reset-immediate:run",false)]
+        [TestCase("support",      "configuration:read", false)]
+        [TestCase("support",      "log:read",           false)]
+        [TestCase("support",      "peers:read",         false)]
+        [TestCase("support",      "traffic:read",       false)]
         public void EachRoleMayDoWhatItAlwaysMayDo(String Role, String Permission, Boolean Allowed)
         {
 
@@ -449,19 +463,19 @@ namespace cloud.charging.open.RoamingHub.Tests
             await StartedHub("""
                              {
                                "nts":   { "groups": { "legal": { "enabled": false } } },
-                               "roles": { "support": [ "dns:read", "traffic:read" ] }
+                               "roles": { "helpdesk": [ "dns:read", "traffic:read" ] }
                              }
                              """);
 
-            using var support  = await SignedInAs("supporter", "support");
+            using var helpdesk = await SignedInAs("helpdesk1", "helpdesk");
 
-            var dns            = await support.GetAsync("api/v1/configuration/dns");
-            var traffic        = await support.GetAsync("api/v1/traffic");
-            var nts            = await support.GetAsync("api/v1/configuration/nts");
+            var dns            = await helpdesk.GetAsync("api/v1/configuration/dns");
+            var traffic        = await helpdesk.GetAsync("api/v1/traffic");
+            var nts            = await helpdesk.GetAsync("api/v1/configuration/nts");
             var refusal        = await nts.Content.ReadAsStringAsync();
 
             Assert.Multiple(() => {
-                Assert.That(hub!.Roles,          Is.EqualTo(new[] { "viewer", "hub", "support", WWCPNode.AdminRole }));
+                Assert.That(hub!.Roles,          Is.EqualTo(new[] { "viewer", "support", "hub", "helpdesk", WWCPNode.AdminRole }));
                 Assert.That(dns.StatusCode,      Is.EqualTo(HttpStatusCode.OK));
                 Assert.That(traffic.StatusCode,  Is.EqualTo(HttpStatusCode.OK));
                 Assert.That(nts.StatusCode,      Is.EqualTo(HttpStatusCode.Forbidden));
@@ -522,15 +536,15 @@ namespace cloud.charging.open.RoamingHub.Tests
             await StartedHub("""
                              {
                                "nts":   { "groups": { "legal": { "enabled": false } } },
-                               "roles": { "support": [ "dns:read", "traffic:read" ] }
+                               "roles": { "helpdesk": [ "dns:read", "traffic:read" ] }
                              }
                              """);
 
             using var viewer     = await SignedInAs("viewer3",    "viewer");
-            using var support    = await SignedInAs("supporter2", "support");
+            using var helpdesk   = await SignedInAs("helpdesk2",  "helpdesk");
 
             var read             = await viewer. GetAsync("api/v1/clock");
-            var refused          = await support.GetAsync("api/v1/clock");
+            var refused          = await helpdesk.GetAsync("api/v1/clock");
             var refusal          = await refused.Content.ReadAsStringAsync();
 
             Assert.Multiple(() => {
@@ -559,15 +573,15 @@ namespace cloud.charging.open.RoamingHub.Tests
             await StartedHub("""
                              {
                                "nts":   { "groups": { "legal": { "enabled": false } } },
-                               "roles": { "support": [ "dns:read" ] }
+                               "roles": { "helpdesk": [ "dns:read" ] }
                              }
                              """);
 
             using var viewer     = await SignedInAs("viewer4",    "viewer");
-            using var support    = await SignedInAs("supporter3", "support");
+            using var helpdesk   = await SignedInAs("helpdesk3",  "helpdesk");
 
             var read             = await viewer. GetAsync("api/v1/logs");
-            var refused          = await support.GetAsync("api/v1/logs");
+            var refused          = await helpdesk.GetAsync("api/v1/logs");
             var refusal          = await refused.Content.ReadAsStringAsync();
 
             Assert.Multiple(() => {

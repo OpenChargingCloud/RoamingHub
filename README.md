@@ -37,7 +37,7 @@ what goes between them.
 | The base | WWCP_Node's - name resolution, the time source, the certificate store, the accounts, the event log, and the JSON API every node answers with its event stream, to which the hub adds its own routes |
 | The peering | a peer added, a token handed out, and the credentials exchanged in **either** direction |
 | The traffic | every OCPI call that touched this hub, both ways, with the two parties of it - on its own page and its own stream |
-| Who may do what | three roles - `viewer`, `hub` and `systemadmin` - over the node's resources and the hub's four, `peers`, `traffic`, `poi` and `poi-status`, and whatever the configuration file adds |
+| Who may do what | four roles - `viewer`, `support`, `hub` and `systemadmin` - over the node's resources and the hub's four, `peers`, `traffic`, `poi` and `poi-status`, and whatever the configuration file adds |
 | The web interface | all of the above in a browser: the traffic as it happens, the peers, the name servers, the time servers, the certificates and the log |
 | HubClientInfo | who is on this hub and whether they can be reached, over OCPI and on the Peers page |
 | The command line | the node's, with the hub's `roamingNetworks` and `roamingNetworkOperator` beside its commands - at the console of whichever program runs the hub, and over SSH |
@@ -558,8 +558,9 @@ keys are listed.
 | `POST /api/v1/certificates/reload` | read the directory again |
 | `GET` / `PATCH` / `DELETE /api/v1/certificates/{id}` | one certificate; a `PATCH` sets `active`, `label` and `usages` |
 
-Reading it is `certificates:read`, which all three roles have; changing it is
-`certificates:edit`, which only a `systemadmin` has.
+Reading it is `certificates:read`, which the viewer, the hub and the
+administrators have; changing it is `certificates:edit`, which only a
+`systemadmin` has.
 
 
 ## The points of interest
@@ -858,8 +859,10 @@ to, or that it is not made yet.
 A role is a user group of the accounts, and what it may do is a list of
 permissions, each an operation on a resource: `dns:edit`. The operations are
 the node's three - `read`, `edit`, and `run` for asking a server something -
-and the resources are the node's four, `configuration`, `dns`, `nts` and
-`certificates`, and the hub's four:
+and the resources are the node's twelve - `configuration`, `dns`, `nts`,
+`certificates`, `ssh` and `log`, and the six a signer of OCPP messages may be
+asked about, `node`, `reset`, `reset-immediate`, `state`, `firmware` and
+`signatures` - and the hub's four:
 
 | Resource | |
 |---|---|
@@ -868,18 +871,20 @@ and the resources are the node's four, `configuration`, `dns`, `nts` and
 | `poi` | the roaming networks of the points of interest - edited: a new one made, operated by this hub, and a party added to one, signed with the keys of this hub; reading them needs nothing, as the POI API is public, and what is in them changes by change sets their owners sign, not by a role |
 | `poi-status` | the runtime status of the roaming networks - edited: set over the WebSocket of a history with an API key, and only that of the charging station operators the `poi` section binds the role to (`statusRoles`, see [The points of interest](#the-points-of-interest)) |
 
-A hub brings three roles:
+A hub has four roles:
 
-| | `viewer` | `hub` | `systemadmin` |
-|---|---|---|---|
-| `configuration` | read | read | everything |
-| `dns`, `nts` | read | read, edit, run | everything |
-| `certificates` | read | read | everything |
-| `peers` | read | read | everything |
-| `log` | read | read | everything |
-| `traffic` | - | read | everything |
-| `poi` | - | - | everything |
-| `poi-status` | - | - | everything, where `statusRoles` binds it |
+| | `viewer` | `support` | `hub` | `systemadmin` |
+|---|---|---|---|---|
+| `configuration` | read | - | read | everything |
+| `dns`, `nts` | read | - | read, edit, run | everything |
+| `certificates` | read | - | read | everything |
+| `peers` | read | - | read | everything |
+| `log` | read | - | read | everything |
+| `traffic` | - | - | read | everything |
+| `state` | - | read, run | - | everything |
+| `reset` | - | run | - | everything |
+| `poi` | - | - | - | everything |
+| `poi-status` | - | - | - | everything, where `statusRoles` binds it |
 
 `systemadmin` is the node's: it may do everything, the first account goes
 there, and nobody but the node says what it may do, because a role that could
@@ -899,11 +904,16 @@ everything, and on a hub that would include the traffic - what the peers say
 to each other, which is their business passing through and not something
 everybody who may look at the configuration should read.
 
+The `support` is the node's, as every node has it: an operator's telephone
+support, who sees what is going on and has it reported again (`state`) and
+restarts the hub once it is idle (`reset`), and reads nothing of the hub's -
+not its configuration, not its log, not its traffic.
+
 The `roles` section of the configuration file adds roles, or says differently
 what `viewer` or `hub` may do:
 
 ```json
-"roles": { "support": [ "configuration:read", "dns:read", "nts:read", "traffic:read" ] }
+"roles": { "helpdesk": [ "configuration:read", "dns:read", "nts:read", "traffic:read" ] }
 ```
 
 A role there naming a resource a hub does not have stops the start, because a
@@ -979,7 +989,7 @@ permission, and a call arriving on the stream while it is open.
 
 Beside those: the traffic's stream as a proxy sees it, saying so while the
 peers are quiet, ending with the role that let it in, and ended when the hub
-stops; who may do what - what each of the three roles may and may not do, the
+stops; who may do what - what each of the four roles may and may not do, the
 viewer kept out of the traffic and the hub role out of the peering over the
 API, a refusal naming the roles that would have been let in, a role the
 configuration file adds heard by the API, and the clock read with the time
