@@ -194,6 +194,13 @@ namespace cloud.charging.open.RoamingHub
             var what = $"the {POIStatusUpdate.KindText(StatusUpdate.Kind)} of the {StatusUpdate.EntityType} '{StatusUpdate.EntityId}' " +
                        $"in the roaming network '{RoamingNetworkIdOf(Request)}'";
 
+            // Followed at another server: its status is set there, and comes from there.
+            if (RoamingNetwork_Id.TryParse(RoamingNetworkIdOf(Request), out var roamingNetworkId) && IsFollowed(roamingNetworkId))
+            {
+                Log.Warning($"'{Login}' was refused {what}: this hub follows it at another server, where its status is set.", "poi", "status");
+                return false;
+            }
+
             if (!TryIdentifyPOIClient(Request, out var client, out var refusal))
             {
                 Log.Warning($"'{Login}' was refused {what}: {refusal}.", "poi", "status");

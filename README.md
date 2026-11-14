@@ -715,6 +715,32 @@ here, or a quorum of several holders, is not changed: a holder is named at its
 own hub. As with an identity key replaced, the trust anchor of each roaming
 network is another one afterwards, and whoever pinned the old one needs it.
 
+A hub **follows a roaming network of another server** (`RoamingHub.Follow.cs`):
+a copy of it, kept current over the WebSocket of its history there, stored
+below `poi/` and served like the ones made here. It is followed by its trust
+anchor, the text of its QR code or its URL, as its operator hands it out:
+`FollowRoamingNetwork(trustAnchor, url?)` in C#, `POST /api/v1/poi/followed`
+with `{"trustAnchor": "…", "url"?: "…"}`, or `roamingNetworks follow <trust
+anchor> [at <url>]` at the command line, `poi:edit`. The trust anchor names
+where the roaming network is, `~/RNs/{RN_Id}`, unless another URL is given.
+201 once its copy is here, 202 where the other server gave none within 15
+seconds and the hub keeps trying, 400 where it is nothing to follow, 409 where
+a roaming network of that identification is served already. What comes from the
+other server is taken only as the trust anchor lets it be trusted: signed as
+the roaming network operator by a signing key the version certifies, by an
+identity key the trust anchor leads to. A version stating the keys of its
+operator anew is followed where the keys trusted so far signed that, and the
+trust anchor as far as it was followed is kept beside the copy, in
+`followed.json`, with the URL: the next start serves the copy and catches up.
+Nothing of a roaming network followed is changed from here - a change set or a
+runtime status sent for it is refused, and its operator's keys are neither
+replaced nor named from here. `roamingNetworks unfollow <id>` or
+`DELETE /api/v1/poi/followed/{id}` ends it and deletes the copy;
+`roamingNetworks` and `GET /api/v1/poi/followed`, public, show what is
+followed, whether it is connected and what went wrong last. It is the second
+step of several hubs operating one roaming network together, see
+[SHAREHOLDERS.md](SHAREHOLDERS.md).
+
 Everything else in a roaming network comes as change sets, which the hub takes
 from everybody, over HTTP and over the WebSocket of its history: what a change
 set may change is decided by the signatures of its owners, which every commit

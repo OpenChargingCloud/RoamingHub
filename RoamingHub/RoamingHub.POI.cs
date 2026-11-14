@@ -201,8 +201,10 @@ namespace cloud.charging.open.RoamingHub
                                         HTMLView:      WebInterfacePage) {
 
                                 // Everybody may submit: what a change set changes is the business of
-                                // the signatures of its owners, which every commit checks.
-                                AuthorizeChangeSetSubmission  = (request, changeSet) => true,
+                                // the signatures of its owners, which every commit checks. But not for a
+                                // roaming network followed at another server: it would be a commit of the
+                                // copy here alone - see RoamingHub.Follow.cs.
+                                AuthorizeChangeSetSubmission  = (request, changeSet) => !IsFollowed(changeSet.RoamingNetworkId),
 
                                 // Everybody may open the WebSocket of a history and read, and a charging station
                                 // operator among the peers, or an account bound to one, set the runtime status of
@@ -227,6 +229,10 @@ namespace cloud.charging.open.RoamingHub
 
             foreach (var directory in Directory.GetDirectories(POIDirectory).Order(StringComparer.Ordinal))
             {
+
+                // One of another server, followed: its copy, and the peer keeping it current - see RoamingHub.Follow.cs.
+                if (TryFollowStored(directory))
+                    continue;
 
                 RoamingNetworkHistoryFileStore?    store    = null;
                 RoamingNetworkHistoryFileArchive?  archive  = null;
@@ -648,6 +654,9 @@ namespace cloud.charging.open.RoamingHub
 
             // Before the roaming networks they publish.
             await DisposeDatexIIAsync();
+
+            // Before the stores of the copies are let go of.
+            await StopFollowing();
 
             await POI.DisposeAsync();
 

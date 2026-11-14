@@ -21,6 +21,7 @@ using Newtonsoft.Json.Linq;
 
 using org.GraphDefined.Vanaheimr.CLI;
 using org.GraphDefined.Vanaheimr.Illias;
+using org.GraphDefined.Vanaheimr.Hermod.HTTP;
 
 using cloud.charging.open.protocols.WWCP.POI;
 using cloud.charging.open.protocols.WWCP.Node.Web;
@@ -96,6 +97,12 @@ namespace cloud.charging.open.RoamingHub.CommandLine
             if (rest[0].Equals("add", StringComparison.OrdinalIgnoreCase))
                 return Task.FromResult(Add(rest[1..]));
 
+            if (rest[0].Equals("follow", StringComparison.OrdinalIgnoreCase) && rest.Length > 1)
+                return Follow(rest[1..]);
+
+            if (rest[0].Equals("unfollow", StringComparison.OrdinalIgnoreCase) && rest.Length == 2)
+                return Unfollow(rest[1]);
+
             if (!RoamingNetwork_Id.TryParse(rest[0], out var roamingNetworkId))
                 return Task.FromResult<String[]>([ $"Usage: {Help()}" ]);
 
@@ -115,10 +122,10 @@ namespace cloud.charging.open.RoamingHub.CommandLine
 
         public override String Help()
 
-            => $"{CommandName} [add <id> [<name>] | <id> [add chargingStationOperator|eMobilityProvider|gridOperator|parkingOperator|" +
+            => $"{CommandName} [add <id> [<name>] | follow <trust anchor> [at <url>] | unfollow <id> | <id> [add chargingStationOperator|eMobilityProvider|gridOperator|parkingOperator|" +
                 "chargingStationManufacturer|energyMeterManufacturer|transparencySoftwareManufacturer|conformityAssessmentBody <id> " +
                 "signingKey <key> identityKey <key> [signingKey <key> | identityKey <key> ...] [homepage <url>] [<name>]]] - the roaming networks of the points of interest, " +
-                "a new one operated by this hub, one of them, and a new party of one";
+                "a new one operated by this hub, one of another server followed by its trust anchor or followed no longer, one of them, and a new party of one";
 
         #endregion
 
@@ -145,9 +152,71 @@ namespace cloud.charging.open.RoamingHub.CommandLine
 
             }
 
+            // The ones of other servers, with those that have no copy here yet.
+            foreach (var followed in cli.Hub.FollowedRoamingNetworks)
+                lines.Add($"{followed.Id}  followed at {followed.URL}, {(followed.IsConnected ? "connected" : "not connected")}" +
+                          (followed.History is null     ? ", no copy here yet"  : "") +
+                          (followed.Error is String why ? $": {why}"            : ""));
+
             return lines.Count > 0
                        ? [ .. lines ]
                        : [ $"This hub serves no roaming network yet: '{CommandName} add <id> [<name>]' makes one, operated by this hub, '{cli.Hub.NetworkOperator.Id}'." ];
+
+        }
+
+        #endregion
+
+        #region (private) Follow(Arguments) / Unfollow(Id)
+
+        /// <summary>
+        /// roamingNetworks follow &lt;trust anchor&gt; [at &lt;url&gt;]: the trust anchor as its URL, or as the text of its QR
+        /// code, which may have spaces in it.
+        /// </summary>
+        private async Task<String[]> Follow(String[] Arguments)
+        {
+
+            if (!cli.MayDo(Permission.Edit(HubAccess.POI), $"{CommandName} follow", out var refused))
+                return [ refused ];
+
+            URL? url = null;
+
+            if (Arguments.Length > 2 && Arguments[^2].Equals("at", StringComparison.OrdinalIgnoreCase))
+            {
+
+                if (!URL.TryParse(Arguments[^1], out var parsed))
+                    return [ $"'{Arguments[^1]}' is no URL. Usage: {Help()}" ];
+
+                url        = parsed;
+                Arguments  = Arguments[..^2];
+
+            }
+
+            var result = await cli.Hub.FollowRoamingNetwork(String.Join(" ", Arguments), url);
+
+            if (result.Success)
+                cli.Hub.Log.Notice($"{cli.Caller.Asker} had the roaming network '{result.RoamingNetworkId}' followed.",
+                                   cli.Caller.Tags("poi", "follow", "security"));
+
+            return [ result.Message ];
+
+        }
+
+        private async Task<String[]> Unfollow(String Id)
+        {
+
+            if (!cli.MayDo(Permission.Edit(HubAccess.POI), $"{CommandName} unfollow", out var refused))
+                return [ refused ];
+
+            if (!RoamingNetwork_Id.TryParse(Id, out var roamingNetworkId))
+                return [ $"Usage: {Help()}" ];
+
+            var result = await cli.Hub.UnfollowRoamingNetwork(roamingNetworkId);
+
+            if (result.Success)
+                cli.Hub.Log.Notice($"{cli.Caller.Asker} had the roaming network '{roamingNetworkId}' followed no longer.",
+                                   cli.Caller.Tags("poi", "follow", "security"));
+
+            return [ result.Message ];
 
         }
 

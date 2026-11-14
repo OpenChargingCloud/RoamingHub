@@ -9,7 +9,7 @@ sections 4.1 and 8.6; example A1 there plays it with three organizations in one 
 | Phase | What | State |
 |---|---|---|
 | 1 | The hub names itself as the holder of its keys | built |
-| 2 | A hub follows a roaming network of another hub | open |
+| 2 | A hub follows a roaming network of another hub | built |
 | 3 | A hub signs the commits it follows, and attests with a quorum | open |
 | 4 | A hub is admitted as a shareholder, is dismissed, resigns | open |
 | 5 | Operating under a quorum: what waits for the others | open |
@@ -23,8 +23,9 @@ waiting for signatures (`history.CoSign`, `~/RNs/{id}/history/changeSets/pending
 later (`TryAddSignatures`); the key statements one after the other, leading from an old trust anchor to the keys of
 today; and `RoamingNetworkPeer`, by which one server follows the history of another.
 
-**The hub lacks:** it follows no roaming network of another server; its keys named no holder; and where a roaming
-network has a quorum of several holders, it states the keys of its operator no more.
+**The hub lacked:** it followed no roaming network of another server, and its keys named no holder (phases 1 and
+2). **It lacks still:** where a roaming network has a quorum of several holders, it states the keys of its
+operator no more.
 
 **WWCP POI lacks:** a way to sign one key statement on several machines. A key statement is content of the change
 set that enters it, so it is signed completely before that change set is made.
@@ -98,13 +99,41 @@ keys.
 
 ## Phase 2: a hub follows a roaming network of another
 
-`roamingNetworks follow <URL> <trust anchor>`: read `~/RNs/{id}` there, check it against the trust anchor, start a
-history from the checked version and keep it current with a `RoamingNetworkPeer`. Served below `/poi` like the
-roaming networks made here, changed from here by nobody: this hub is no shareholder of its operator. Useful alone,
-as a copy elsewhere.
+Built. A copy of a roaming network of another server, kept current over the WebSocket of its history there and
+served below `/poi` like the roaming networks made here. Useful alone, as a copy elsewhere.
 
-Open: where the trust anchor is kept and how it is replaced; what the pages show of a roaming network followed;
-what happens to OCPI and DATEX II, which read the roaming networks of this hub.
+- **By its trust anchor.** `roamingNetworks follow <trust anchor> [at <url>]` at the prompt,
+  `POST /api/v1/poi/followed` with `{"trustAnchor": "…", "url"?: "…"}` over HTTP, `FollowRoamingNetwork(…)` in C#.
+  The trust anchor is the text of its QR code or its URL, as its operator hands it out; it names where the roaming
+  network is, `~/RNs/{id}`, unless another URL is given. The answer waits 15 seconds for the first copy, and says
+  so where there is none yet: this hub keeps trying.
+- **Taken only as the trust anchor lets it be trusted** (`RoamingNetworkFollowerTrust` in WWCP POI): the first
+  copy by the peer, anchored in the trust anchor; every commit after it where it is signed as the roaming network
+  operator by a signing key its version certifies, by an identity key the trust anchor leads to. A roaming network
+  of the same identification that others operate is not taken.
+- **The trust anchor is followed.** A version stating the keys of its operator anew is taken where the keys
+  trusted so far signed that, as the key statements follow one another: a holder joins, one leaves. The trust
+  anchor as far as it was followed is kept beside the copy, in `followed.json` in its directory below `poi`, with
+  the URL.
+- **After a restart** the hub serves the copy it has and catches up.
+- **Changed from here by nobody.** This hub is no shareholder of its operator. A change set and a runtime status
+  sent here for a roaming network followed are refused, as they would be a commit of this copy alone; nothing of
+  the copy is pushed back. Its operator's keys are not replaced or named from here.
+- **`roamingNetworks unfollow <id>`**, `DELETE /api/v1/poi/followed/{id}`: followed no longer, and the copy
+  deleted, as the roaming network itself is where it was followed. `roamingNetworks` and
+  `GET /api/v1/poi/followed` show what is followed, whether it is connected, and what went wrong last.
+
+Open:
+
+- **An identity key replaced at once** at the operator, or its holder named (phase 1), ends the following: the key
+  statement of the new key is signed by it alone, so nothing leads there from the trust anchor here. Followed again
+  with the new trust anchor, after `unfollow`. The same for a trust anchor older than the copy the other server
+  starts this hub from.
+- **A hub does not say where its roaming networks are:** the `urls` of a roaming network it makes are empty, so
+  the trust anchor it serves names the URL it was asked at.
+- **What the pages show** of a roaming network followed, and a form to follow one.
+- **OCPI and DATEX II** read the roaming networks of this hub: whether a copy is published by them is not decided,
+  and DATEX II does not publish it.
 
 
 ## Phase 3: signing what is followed

@@ -58,6 +58,9 @@ namespace cloud.charging.open.RoamingHub
             AddHandler(HTTPPath.Root + "v1/poi/roamingNetworkOperator/name",                PutNetworkOperatorName,     HTTPMethod.PUT);
             AddHandler(HTTPPath.Root + "v1/poi/roamingNetworkOperator/holder",              PutNetworkOperatorHolder,   HTTPMethod.PUT);
             AddHandler(HTTPPath.Root + "v1/poi/RNs",                                        PostRoamingNetwork,         HTTPMethod.POST);
+            AddHandler(HTTPPath.Root + "v1/poi/followed",                                   GetFollowed,                HTTPMethod.GET);
+            AddHandler(HTTPPath.Root + "v1/poi/followed",                                   PostFollowed,               HTTPMethod.POST);
+            AddHandler(HTTPPath.Root + "v1/poi/followed/{roamingNetworkId}",                DeleteFollowed,             HTTPMethod.DELETE);
             AddHandler(HTTPPath.Root + "v1/poi/RNs/{roamingNetworkId}/{parties}",           PostParty,                  HTTPMethod.POST);
             // Variable as the path of a party, which a literal segment would hide.
             AddHandler(HTTPPath.Root + "v1/poi/RNs/{roamingNetworkId}/{parties}/{partyId}/{children}", PostCertificate, HTTPMethod.POST);
@@ -201,6 +204,109 @@ namespace cloud.charging.open.RoamingHub
             return JSONResponse(Request,
                                 Update.Success ? HTTPStatusCode.OK : HTTPStatusCode.MultiStatus,
                                 json);
+
+        }
+
+        #endregion
+
+        #region (private) GetFollowed(Request) / PostFollowed(Request) / DeleteFollowed(Request)
+
+        /// <summary>
+        /// GET /api/v1/poi/followed: the roaming networks of other servers this hub follows, {"followed": [ {"@id",
+        /// "url", "connected", "revision"?, "commit"?, "trustAnchor", "error"?} ]} - public, as their copies are.
+        /// </summary>
+        private Task<HTTPResponse> GetFollowed(HTTPRequest Request)
+
+            => Task.FromResult(
+                   JSONResponse(Request,
+                                HTTPStatusCode.OK,
+                                new JObject(new JProperty("followed", new JArray(RoamingHub.FollowedRoamingNetworks.Select(network => network.ToJSON())))))
+               );
+
+        /// <summary>
+        /// POST /api/v1/poi/followed with {"trustAnchor": "…", "url"?: "…"}: follow a roaming network of another server
+        /// by its trust anchor, the text of its QR code or its URL; at the given URL, ~/RNs/{RN_Id} there, or at the
+        /// first one its trust anchor names.
+        /// </summary>
+        /// <remarks>
+        /// 201 with what is followed once its copy is here, 202 where the other server did not give one in time and this
+        /// hub keeps trying, 400 where it is nothing to follow, 409 where a roaming network of that identification is
+        /// served here already.
+        /// </remarks>
+        private async Task<HTTPResponse> PostFollowed(HTTPRequest Request)
+        {
+
+            if (!TryAuthorize(Request, Permission.Edit(HubAccess.POI), true, out var user, out var refused))
+                return refused;
+
+            if (!TryParseJSONObject(Request, out var json, out var errorResponse))
+                return errorResponse;
+
+            if (json["trustAnchor"] is not JValue { Type: JTokenType.String } trustAnchor)
+                return ErrorJSON(Request, HTTPStatusCode.BadRequest, "A roaming network is followed with {\"trustAnchor\": \"…\", \"url\"?: \"…\"}.");
+
+            URL? url = null;
+
+            if (json["url"] is JToken urlJSON)
+            {
+
+                if (urlJSON is not JValue { Type: JTokenType.String } urlText || !URL.TryParse(urlText.Value<String>()!, out var parsed))
+                    return ErrorJSON(Request, HTTPStatusCode.BadRequest, "The \"url\" of a roaming network to follow is a URL, ~/RNs/{RN_Id} at the other server.");
+
+                url = parsed;
+
+            }
+
+            var result = await RoamingHub.FollowRoamingNetwork(trustAnchor.Value<String>()!, url);
+
+            if (!result.Success)
+                return ErrorJSON(Request,
+                                 result.Status == RoamingNetworkFollowingStatus.Exists
+                                     ? HTTPStatusCode.Conflict
+                                     : HTTPStatusCode.BadRequest,
+                                 result.Message);
+
+            Log.Notice($"'{user.Id}' had the roaming network '{result.RoamingNetworkId}' followed.", "poi", "web", "follow", "security");
+
+            var followed = RoamingHub.FollowedRoamingNetworks.FirstOrDefault(network => network.Id == result.RoamingNetworkId)?.ToJSON() ?? [];
+
+            followed["message"] = result.Message;
+
+            return JSONResponse(Request,
+                                result.Status == RoamingNetworkFollowingStatus.Synchronized
+                                    ? HTTPStatusCode.Created
+                                    : HTTPStatusCode.Accepted,
+                                followed);
+
+        }
+
+        /// <summary>
+        /// DELETE /api/v1/poi/followed/{roamingNetworkId}: follow it no longer; its copy here is deleted.
+        /// </summary>
+        /// <remarks>
+        /// 200 with what became of it, 404 where this hub follows no such roaming network.
+        /// </remarks>
+        private async Task<HTTPResponse> DeleteFollowed(HTTPRequest Request)
+        {
+
+            if (!TryAuthorize(Request, Permission.Edit(HubAccess.POI), true, out var user, out var refused))
+                return refused;
+
+            var parameters = Request.ParsedURLParameters;
+
+            if (parameters.Length < 1 || !RoamingNetwork_Id.TryParse(parameters[0], out var roamingNetworkId))
+                return ErrorJSON(Request, HTTPStatusCode.NotFound, "A roaming network is followed no longer at .../followed/{roamingNetworkId}.");
+
+            var result = await RoamingHub.UnfollowRoamingNetwork(roamingNetworkId);
+
+            if (!result.Success)
+                return ErrorJSON(Request, HTTPStatusCode.NotFound, result.Message);
+
+            Log.Notice($"'{user.Id}' had the roaming network '{roamingNetworkId}' followed no longer.", "poi", "web", "follow", "security");
+
+            return JSONResponse(Request,
+                                HTTPStatusCode.OK,
+                                new JObject(new JProperty("@id", roamingNetworkId.ToString()), new JProperty("message", result.Message)));
 
         }
 

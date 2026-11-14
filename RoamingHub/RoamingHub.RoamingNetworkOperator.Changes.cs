@@ -485,8 +485,10 @@ namespace cloud.charging.open.RoamingHub
         private IEnumerable<RoamingNetworkHistory> HistoriesOfTheNetworkOperator()
         {
 
+            // Not the ones followed at another server, whoever operates them: nothing of them is changed from here.
             foreach (var network in POI.RoamingNetworks.OrderBy(network => network.Id.ToString(), StringComparer.OrdinalIgnoreCase).ToArray())
                 if (network.Operator?.Id == NetworkOperator.Id &&
+                    !IsFollowed(network.Id)                     &&
                     POI.TryGetRoamingNetworkHistory(network.Id, out var history))
                 {
                     yield return history;
