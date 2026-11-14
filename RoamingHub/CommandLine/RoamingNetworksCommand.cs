@@ -115,6 +115,21 @@ namespace cloud.charging.open.RoamingHub.CommandLine
             if (rest[1].Equals("sign", StringComparison.OrdinalIgnoreCase) && rest.Length <= 3)
                 return Sign(roamingNetworkId, rest.Length == 3 ? rest[2] : null);
 
+            if (rest[1].Equals("shareholders", StringComparison.OrdinalIgnoreCase) && rest.Length == 2)
+                return Task.FromResult(Shareholders(roamingNetworkId));
+
+            if (rest[1].Equals("join", StringComparison.OrdinalIgnoreCase) && (rest.Length == 2 || (rest.Length == 4 && rest[2].Equals("at", StringComparison.OrdinalIgnoreCase))))
+                return Join(roamingNetworkId, rest.Length == 4 ? rest[3] : null);
+
+            if (rest[1].Equals("admit", StringComparison.OrdinalIgnoreCase) && rest.Length > 2)
+                return ChangeShareholders(roamingNetworkId, "admit", String.Join(" ", rest[2..]));
+
+            if (rest[1].Equals("dismiss", StringComparison.OrdinalIgnoreCase) && rest.Length > 2)
+                return ChangeShareholders(roamingNetworkId, "dismiss", String.Join(" ", rest[2..]));
+
+            if (rest[1].Equals("resign", StringComparison.OrdinalIgnoreCase) && rest.Length == 2 && cli.Hub.NetworkOperator.Holder is String self)
+                return ChangeShareholders(roamingNetworkId, "dismiss", self);
+
             return Task.FromResult<String[]>([ $"Usage: {Help()}" ]);
 
         }
@@ -125,10 +140,10 @@ namespace cloud.charging.open.RoamingHub.CommandLine
 
         public override String Help()
 
-            => $"{CommandName} [add <id> [<name>] | follow <trust anchor> [at <url>] | unfollow <id> | <id> [sign [<commit>] | add chargingStationOperator|eMobilityProvider|gridOperator|parkingOperator|" +
+            => $"{CommandName} [add <id> [<name>] | follow <trust anchor> [at <url>] | unfollow <id> | <id> [sign [<commit>] | shareholders | join [at <url>] | admit <holder> | dismiss <holder> | resign | add chargingStationOperator|eMobilityProvider|gridOperator|parkingOperator|" +
                 "chargingStationManufacturer|energyMeterManufacturer|transparencySoftwareManufacturer|conformityAssessmentBody <id> " +
                 "signingKey <key> identityKey <key> [signingKey <key> | identityKey <key> ...] [homepage <url>] [<name>]]] - the roaming networks of the points of interest, " +
-                "a new one operated by this hub, one of another server followed by its trust anchor or followed no longer, one of them, a commit of one followed signed as a holder of the keys of its operator, and a new party of one";
+                "a new one operated by this hub, one of another server followed by its trust anchor or followed no longer, one of them, a commit of one followed signed as a holder of the keys of its operator, who holds those keys, asking to hold them as well, admitting who asked, dismissing a holder or resigning, and a new party of one";
 
         #endregion
 
@@ -164,6 +179,89 @@ namespace cloud.charging.open.RoamingHub.CommandLine
             return lines.Count > 0
                        ? [ .. lines ]
                        : [ $"This hub serves no roaming network yet: '{CommandName} add <id> [<name>]' makes one, operated by this hub, '{cli.Hub.NetworkOperator.Id}'." ];
+
+        }
+
+        #endregion
+
+        #region (private) Shareholders(RoamingNetworkId) / Join(RoamingNetworkId, URL) / ChangeShareholders(RoamingNetworkId, What, Holder)
+
+        private String[] Shareholders(RoamingNetwork_Id RoamingNetworkId)
+        {
+
+            if (!cli.Hub.POI.TryGetRoamingNetworkHistory(RoamingNetworkId, out var history) ||
+                history.Head.RoamingNetwork.Operator is not RoamingNetworkOperator networkOperator)
+            {
+                return [ $"This hub serves no roaming network '{RoamingNetworkId}'." ];
+            }
+
+            var holders  = POIPartyKeys.Holders(networkOperator.IdentityKeys).Order(StringComparer.Ordinal).ToArray();
+            var lines    = new List<String> {
+                               $"The keys of the operator '{networkOperator.Id}' of the roaming network '{RoamingNetworkId}' are held by {holders.Length}, {networkOperator.MinConsensus} of them deciding:"
+                           };
+
+            foreach (var holder in holders)
+                lines.Add($"  {(holder.Length > 0 ? holder : "(unnamed)")}{(holder == cli.Hub.NetworkOperator.Holder && cli.Hub.NetworkOperator.SigningKeyIdIn(history.Head.RoamingNetwork) is not null ? ", this hub" : "")}  " +
+                          $"identity key(s) {String.Join(", ", networkOperator.IdentityKeys.Where(key => key.HolderOrUnnamed == holder).Select(key => key.Id[..16] + "…"))}, " +
+                          $"signing key(s) {String.Join(", ", networkOperator.SigningKeys.Where(key => key.HolderOrUnnamed == holder).Select(key => key.Id[..16] + "…"))}");
+
+            foreach (var change in cli.Hub.ShareholdersOf(RoamingNetworkId)?["changes"]?.OfType<JObject>() ?? [])
+                lines.Add($"  waiting: {change["kind"]} '{change["holder"]}', its key statement signed by {change["keyStatement"]?["signatures"]?.Count() ?? 0}" +
+                          (change["changeSet"] is JToken changeSet ? $", change set {changeSet}" : ", no change set yet"));
+
+            if (cli.Hub.IsFollowed(RoamingNetworkId))
+                lines.Add("  what waits is told where it is followed.");
+
+            return [ .. lines ];
+
+        }
+
+        private async Task<String[]> Join(RoamingNetwork_Id  RoamingNetworkId,
+                                          String?            URLText)
+        {
+
+            if (!cli.MayDo(Permission.Edit(HubAccess.POI), $"{CommandName} {RoamingNetworkId} join", out var refused))
+                return [ refused ];
+
+            URL? url = null;
+
+            if (URLText is not null)
+            {
+
+                if (!URL.TryParse(URLText, out var parsed))
+                    return [ $"'{URLText}' is no URL. Usage: {Help()}" ];
+
+                url = parsed;
+
+            }
+
+            var result = await cli.Hub.JoinRoamingNetworkOperator(RoamingNetworkId, url);
+
+            if (result.Success)
+                cli.Hub.Log.Notice($"{cli.Caller.Asker} had this hub ask to hold, or sign for holding, the keys of the operator of the roaming network '{RoamingNetworkId}'.",
+                                   cli.Caller.Tags("poi", "shareholders", "security"));
+
+            return [ result.Message ];
+
+        }
+
+        private async Task<String[]> ChangeShareholders(RoamingNetwork_Id  RoamingNetworkId,
+                                                        String             What,
+                                                        String             Holder)
+        {
+
+            if (!cli.MayDo(Permission.Edit(HubAccess.POI), $"{CommandName} {RoamingNetworkId} {What}", out var refused))
+                return [ refused ];
+
+            var result = What == "admit"
+                             ? await cli.Hub.AdmitShareholder  (RoamingNetworkId, Holder.Trim())
+                             : await cli.Hub.DismissShareholder(RoamingNetworkId, Holder.Trim());
+
+            if (result.Success)
+                cli.Hub.Log.Notice($"{cli.Caller.Asker} had this hub sign for {(What == "admit" ? "admitting" : "dismissing")} '{Holder.Trim()}' as a holder of the keys of the operator of the roaming network '{RoamingNetworkId}'.",
+                                   cli.Caller.Tags("poi", "shareholders", "security"));
+
+            return [ result.Message ];
 
         }
 

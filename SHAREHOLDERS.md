@@ -11,7 +11,7 @@ sections 4.1 and 8.6; example A1 there plays it with three organizations in one 
 | 1 | The hub names itself as the holder of its keys | built |
 | 2 | A hub follows a roaming network of another hub | built |
 | 3 | A hub signs the commits it follows, and attests with a quorum | built |
-| 4 | A hub is admitted as a shareholder, is dismissed, resigns | open |
+| 4 | A hub is admitted as a shareholder, is dismissed, resigns | built |
 | 5 | Operating under a quorum: what waits for the others | open |
 
 
@@ -57,7 +57,7 @@ set that enters it, so it is signed completely before that change set is made.
 4. **A accepts.** It states the keys of both, a quorum of two, and signs the key statement; the shareholders so far
    and B sign it as well, each at its own hub.
 5. **The change set.** `Admit` makes it of the key statement, complete now; it waits for the identity keys and the
-   signing keys of the quorum so far and for the identity key of B, and is committed once it has them.
+   signing keys of the quorum so far and for the identity key of B, and is committed once it has them (phase 4).
 6. **Both sign from then on.** A commit made at A is checked at B, which adds its signature when told to; with as
    many signatures as the quorum requires, whoever checks `QA` takes it.
 
@@ -183,16 +183,56 @@ Open:
 
 ## Phase 4: admitted, dismissed, resigning
 
-The request of step 3 and the key statement of step 4 are new: a key statement waiting for signatures, as a change
-set waits, at `~/RNs/{id}/keyStatements/pending`, in WWCP POI. From there on it is `Admit` and the change sets
-waiting that are there already.
+Built (`RoamingHub.Shareholders.cs`). Who holds the keys of the operator changes by commands, each doing what its
+hub can do right then, asked for by somebody with `poi:edit`, and saying what is missing. None does the next step
+by itself.
 
-At the prompt: `roamingNetworks <id> shareholders` shows them; `… join <URL> <trust anchor>` asks; `… admit <holder>`
-accepts a request; `… dismiss <holder>` and `… resign` end it. The same over HTTP and on the pages.
+| At the prompt | Over HTTP, below `/api/v1/poi/shareholders/{id}` | What it does |
+|---|---|---|
+| `roamingNetworks <id> shareholders` | `GET` | who holds the keys, how many decide, what waits |
+| `roamingNetworks <id> join [at <url>]` | `POST …/join` | at a hub following: asks; later signs the change set admitting it |
+| `roamingNetworks <id> admit <holder>` | `POST …/admit/{holder}` | at every holder's hub: signs the key statement; later the change set |
+| `roamingNetworks <id> dismiss <holder>` | `POST …/dismiss/{holder}` | the same, to dismiss; begun where the roaming network is made |
+| `roamingNetworks <id> resign` | `POST …/dismiss/{own holder}` | at the hub leaving: signs the change set dismissing it |
 
-`RoamingShareholder` is how the hub then sees itself in a roaming network: its holder name with the identity key and
-the signing key that roaming network names. It replaces what `HubRoamingNetworkOperator` signs with by hand today;
-the keyring, its files and the first start stay there.
+**A change waits where the roaming network is made**, in memory, told to everybody at
+`GET /api/v1/poi/shareholders/{id}`, as all of it is signed: the kind, the holder, the key statement of the holders
+afterwards with the signatures it has, and the change set once it was made. Two things are taken from everybody
+there: a request, `POST …/requests`, which proves itself - its key statement is signed by the identity key it names,
+its certificate by the same - and the key statement of a change with one more signature, `POST
+…/changes/{holder}/keyStatement`, each signature verified.
+
+**Asking.** The hub following makes the request itself: its public identity key, the certificate of its signing key
+as a holder of the keys of that operator, the URL of its copy if it says one, and the key statement of the identity
+keys so far and its own, more than half of the holders deciding, which it signs first.
+
+**The key statement first, then the change set.** A key statement is content of the change set that enters it, so
+it is complete before that change set is made. Every holder signs it at its own hub, until the quorum before and
+its own have, as the key statements follow one another. Then the hub where the roaming network is made, asked
+again, makes the one change set of it - `Admit` or `Dismiss` of WWCP POI - signs it and lets it wait, as every
+change set of the operator waits: for the identity keys and the signing keys of the holders before, and for the
+identity key of the one asking, its proof. Whoever signs it at another hub first sees that it is exactly the change
+set of the change waiting, made again from the copy there.
+
+So one hub admitting a second: `join` there, `admit` here, `join` there. Two admitting a third: `join`, `admit`
+here, `admit` at the second, `admit` here again, `admit` at the second again, `join` at the third. Two of three
+dismiss the third without it; of two the one leaving signs the change set, with `resign`.
+
+Open:
+
+- **A new holder is not vouched for yet.** After a hub was admitted, the head is attested by the hub that made it
+  only, until the others signed that commit (phase 3): until then no further hub gets a first copy, as that is
+  anchored in the attestations of as many holders as decide.
+- **The last but one leaving** leaves one holder stating its keys alone, as the one leaving signs no statement
+  that names it no longer. Whoever follows the roaming network does not get there from the trust anchor it has, and
+  needs the new one. A key statement the holders before sign although it names them no longer would close that; it
+  is a change of WWCP POI.
+- **What waits is forgotten at a restart** of the hub where the roaming network is made, unless its change set
+  was made, which the history keeps: asked again then.
+- **The hub that makes the roaming network does not resign**, and a dismissal begins there.
+- **The URL of a copy** is taken into the roaming network only where it is one over https, `~/RNs/{id}`; a hub
+  does not say its own by itself.
+- **The pages** show none of it.
 
 
 ## Phase 5: operating under a quorum

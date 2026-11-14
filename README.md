@@ -757,6 +757,25 @@ operator takes such a signature from everybody, below `/poi`, as it is one only
 by a signing key the version of the commit certifies. `roamingNetworks <id>`
 says who signed its head as its operator, and how many holders decide.
 
+**Who holds the keys of the operator changes** by commands
+(`RoamingHub.Shareholders.cs`), each doing what its hub can do right then and
+saying what is missing; none does the next step by itself. A hub following a
+roaming network asks to hold the keys of its operator as well with
+`roamingNetworks <id> join [at <url>]` or `POST
+/api/v1/poi/shareholders/{id}/join`: its public identity key, the certificate
+of its signing key and the key statement of the holders so far and itself,
+which it signs. Every hub holding those keys admits it with `roamingNetworks
+<id> admit <holder>` or `POST …/admit/{holder}`: it signs the key statement,
+until the quorum before and its own have; asked again, the hub where the
+roaming network is made makes the change set of it, which waits for the
+signatures of the holders before - `admit` again at their hubs - and for the
+identity key of the one asking, its proof - `join` again there. `dismiss
+<holder>` works the same, begun where the roaming network is made; two of three
+dismiss the third without it, and of two the one leaving signs the change set,
+with `resign`. `roamingNetworks <id> shareholders` and `GET
+/api/v1/poi/shareholders/{id}`, public, show who holds the keys, how many
+decide, and what waits. All of them but the two showing are `poi:edit`.
+
 A head whose commit a hub signed so it **attests** from then on, by itself,
 while it is the head: at once, and again whenever its newest attestation of it
 is older than five minutes, as for the roaming networks it operates. The

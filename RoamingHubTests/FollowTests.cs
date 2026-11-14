@@ -413,6 +413,206 @@ namespace cloud.charging.open.RoamingHub.Tests
 
         #endregion
 
+
+        #region (helper) Followed(Id) / HoldersOf(Hub, Id) / CaughtUp(Id, Followers)
+
+        /// <summary>
+        /// Another hub following the given roaming network of the hub of the fixture.
+        /// </summary>
+        private async Task<RoamingHub> Followed(String Id)
+        {
+
+            var follower  = await AnotherHub();
+            var result    = await follower.FollowRoamingNetwork(TrustAnchorOf(RoamingHub, Id));
+
+            Assert.That(result.Status,  Is.EqualTo(RoamingNetworkFollowingStatus.Synchronized), result.Message);
+
+            return follower;
+
+        }
+
+        private static String[] HoldersOf(RoamingHub Hub, String Id)
+
+            => [ .. POIPartyKeys.Holders(HistoryOf(Hub, Id).Head.RoamingNetwork.Operator!.IdentityKeys).Order(StringComparer.Ordinal) ];
+
+        /// <summary>
+        /// Wait for the copies to be where the roaming network is.
+        /// </summary>
+        private async Task CaughtUp(String Id, params RoamingHub[] Followers)
+        {
+
+            foreach (var follower in Followers)
+                Assert.That(await Until(() => HistoryOf(follower, Id).Head.Commit.Id == HistoryOf(RoamingHub, Id).Head.Commit.Id),
+                            Is.True,
+                            follower.FollowedRoamingNetworks.FirstOrDefault()?.Error ?? "a copy did not catch up");
+
+        }
+
+        #endregion
+
+        #region AHubAsksIsAdmittedAndResigns()
+
+        /// <summary>
+        /// A hub following a roaming network asks to hold the keys of its operator as well, the hub that makes it admits
+        /// it, and it signs the change set admitting it: two of two (SHAREHOLDERS.md, phase 4). Each step is one command
+        /// at one hub, and none does the next by itself. Then it resigns: dismissed by the one staying, signed by both.
+        /// </summary>
+        [Test]
+        public async Task AHubAsksIsAdmittedAndResigns()
+        {
+
+            var id         = RoamingNetwork_Id.Parse("QA");
+
+            Assert.That(RoamingHub.CreateRoamingNetwork(id).Success,  Is.True);
+
+            var follower   = await Followed("QA");
+            var alpha      = RoamingHub.NetworkOperator.Holder!;
+            var beta       = follower.  NetworkOperator.Holder!;
+
+            var nobody     = await RoamingHub.AdmitShareholder(id, beta);
+
+            var asked      = await follower.  JoinRoamingNetworkOperator(id);
+            var askedAgain = await follower.  JoinRoamingNetworkOperator(id);
+            var waiting    = RoamingHub.ShareholdersOf(id);
+            var stillOne   = HoldersOf(RoamingHub, "QA");
+
+            var admitted   = await RoamingHub.AdmitShareholder(id, beta);
+            var notYet     = HoldersOf(RoamingHub, "QA");
+
+            var joined     = await follower.  JoinRoamingNetworkOperator(id);
+            var both       = HoldersOf(RoamingHub, "QA");
+            var quorum     = HistoryOf(RoamingHub, "QA").Head.RoamingNetwork.Operator!.MinConsensus;
+
+            await CaughtUp("QA", follower);
+
+            var holdsKeys  = follower.NetworkOperator.SigningKeyIdIn(HistoryOf(follower, "QA").Head.RoamingNetwork) is not null;
+            var already    = await follower.  JoinRoamingNetworkOperator(id);
+
+            // It resigns: begun where the roaming network is made, by the one staying, signed by the one leaving as well.
+            var dismissed  = await RoamingHub.DismissShareholder(id, beta);
+            var twoStill   = HoldersOf(RoamingHub, "QA");
+            var resigned   = await follower.  DismissShareholder(id, beta);
+            var alone      = HoldersOf(RoamingHub, "QA");
+
+            Assert.Multiple(() => {
+
+                Assert.That(nobody.Status,       Is.EqualTo(ShareholderChangeStatus.NotFound),     nobody.Message);
+
+                Assert.That(asked.Status,        Is.EqualTo(ShareholderChangeStatus.Waiting),      asked.Message);
+                Assert.That(askedAgain.Status,   Is.EqualTo(ShareholderChangeStatus.Waiting),      askedAgain.Message);
+                Assert.That(waiting?["changes"]?[0]?["holder"]?.Value<String>(),   Is.EqualTo(beta));
+                Assert.That(waiting?["changes"]?[0]?["kind"]?.Value<String>(),     Is.EqualTo("admit"));
+                Assert.That(stillOne,            Is.EqualTo(new[] { alpha }),                      "asking admits nobody");
+
+                Assert.That(admitted.Status,     Is.EqualTo(ShareholderChangeStatus.Waiting),      admitted.Message);
+                Assert.That(notYet,              Is.EqualTo(new[] { alpha }),                      "without the proof of the one asking, nobody is admitted");
+
+                Assert.That(joined.Status,       Is.EqualTo(ShareholderChangeStatus.Committed),    joined.Message);
+                Assert.That(both,                Is.EquivalentTo(new[] { alpha, beta }));
+                Assert.That(quorum,              Is.EqualTo(2));
+                Assert.That(holdsKeys,           Is.True,                                          "the copy names the keys of the hub following");
+                Assert.That(already.Status,      Is.EqualTo(ShareholderChangeStatus.NothingToDo),  already.Message);
+
+                Assert.That(dismissed.Status,    Is.EqualTo(ShareholderChangeStatus.Waiting),      dismissed.Message);
+                Assert.That(twoStill,            Is.EquivalentTo(new[] { alpha, beta }),           "of two, nobody is dismissed by the other one alone");
+                Assert.That(resigned.Status,     Is.EqualTo(ShareholderChangeStatus.Committed),    resigned.Message);
+                Assert.That(alone,               Is.EqualTo(new[] { alpha }));
+                Assert.That(HistoryOf(RoamingHub, "QA").Head.RoamingNetwork.Operator!.MinConsensus,  Is.EqualTo(1));
+
+            });
+
+        }
+
+        #endregion
+
+        #region TwoAdmitAThirdAndDismissIt()
+
+        /// <summary>
+        /// Where two decide, both sign: the key statement of the three first, each at its own hub, then the change set
+        /// the hub of the roaming network makes of it, and the one asking its proof. Two of three afterwards; and two of
+        /// the three dismiss the third without it.
+        /// </summary>
+        [Test]
+        public async Task TwoAdmitAThirdAndDismissIt()
+        {
+
+            var id       = RoamingNetwork_Id.Parse("QA");
+
+            Assert.That(RoamingHub.CreateRoamingNetwork(id).Success,  Is.True);
+
+            var second   = await Followed("QA");
+            var alpha    = RoamingHub.NetworkOperator.Holder!;
+            var beta     = second.    NetworkOperator.Holder!;
+
+            // The second one, as in the test before.
+            Assert.That((await second.    JoinRoamingNetworkOperator(id)).Status,  Is.EqualTo(ShareholderChangeStatus.Waiting));
+            Assert.That((await RoamingHub.AdmitShareholder(id, beta)).Status,      Is.EqualTo(ShareholderChangeStatus.Waiting));
+            Assert.That((await second.    JoinRoamingNetworkOperator(id)).Status,  Is.EqualTo(ShareholderChangeStatus.Committed));
+
+            await CaughtUp("QA", second);
+
+            // A head of two holders is one both vouch for: the second signs it, and attests it from then on. Only then a
+            // third hub gets a first copy, which is anchored in the attestations of as many holders as decide.
+            Assert.That((await second.SignFollowedCommit(id)).Status,  Is.EqualTo(RoamingNetworkCommitSigningStatus.Signed));
+
+            Assert.That(await Until(() => HistoryOf(RoamingHub, "QA").CurrentAttestations().Any(attestation => attestation.CommitId == HistoryOf(RoamingHub, "QA").Head.Commit.Id &&
+                                                                                                               attestation.KeyId    == second.NetworkOperator.SigningKey.Id)),
+                        Is.True, "the attestation of the second holder did not arrive");
+
+            var third    = await Followed("QA");
+            var gamma    = third.NetworkOperator.Holder!;
+
+            #region The third one is admitted by both
+
+            var asked        = await third.     JoinRoamingNetworkOperator(id);
+            var byAlpha      = await RoamingHub.AdmitShareholder(id, gamma);    // signs the key statement: one of two
+            var byBeta       = await second.    AdmitShareholder(id, gamma);    // signs it as well
+            var made         = await RoamingHub.AdmitShareholder(id, gamma);    // makes the change set of it, and signs that
+            var tooEarly     = await third.     JoinRoamingNetworkOperator(id); // its proof: but two decide
+            var signedByBeta = await second.    AdmitShareholder(id, gamma);    // the second of the two
+            var three        = HoldersOf(RoamingHub, "QA");
+
+            await CaughtUp("QA", second, third);
+
+            #endregion
+
+            #region And dismissed by both, without it
+
+            var outByAlpha   = await RoamingHub.DismissShareholder(id, gamma);
+            var outByBeta    = await second.    DismissShareholder(id, gamma);
+            var outMade      = await RoamingHub.DismissShareholder(id, gamma);
+            var outSigned    = await second.    DismissShareholder(id, gamma);
+            var two          = HoldersOf(RoamingHub, "QA");
+
+            #endregion
+
+            Assert.Multiple(() => {
+
+                Assert.That(asked.Status,         Is.EqualTo(ShareholderChangeStatus.Waiting),    asked.Message);
+                Assert.That(byAlpha.Status,       Is.EqualTo(ShareholderChangeStatus.Waiting),    byAlpha.Message);
+                Assert.That(byAlpha.Message,      Does.Contain("waits for the other holders"));
+                Assert.That(byBeta.Status,        Is.EqualTo(ShareholderChangeStatus.Waiting),    byBeta.Message);
+                Assert.That(made.Status,          Is.EqualTo(ShareholderChangeStatus.Waiting),    made.Message);
+                Assert.That(made.Message,         Does.Contain("is made and signed by this hub"));
+                Assert.That(tooEarly.Status,      Is.EqualTo(ShareholderChangeStatus.Waiting),    tooEarly.Message);
+                Assert.That(signedByBeta.Status,  Is.EqualTo(ShareholderChangeStatus.Committed),  signedByBeta.Message);
+
+                Assert.That(three,                Is.EquivalentTo(new[] { alpha, beta, gamma }));
+
+                Assert.That(outByAlpha.Status,    Is.EqualTo(ShareholderChangeStatus.Waiting),    outByAlpha.Message);
+                Assert.That(outByBeta.Status,     Is.EqualTo(ShareholderChangeStatus.Waiting),    outByBeta.Message);
+                Assert.That(outMade.Status,       Is.EqualTo(ShareholderChangeStatus.Waiting),    outMade.Message);
+                Assert.That(outSigned.Status,     Is.EqualTo(ShareholderChangeStatus.Committed),  outSigned.Message);
+
+                Assert.That(two,                  Is.EquivalentTo(new[] { alpha, beta }));
+                Assert.That(HistoryOf(RoamingHub, "QA").Head.RoamingNetwork.Operator!.MinConsensus,  Is.EqualTo(2));
+
+            });
+
+        }
+
+        #endregion
+
     }
 
 }

@@ -62,6 +62,14 @@ namespace cloud.charging.open.RoamingHub
             AddHandler(HTTPPath.Root + "v1/poi/followed",                                   PostFollowed,               HTTPMethod.POST);
             AddHandler(HTTPPath.Root + "v1/poi/followed/{roamingNetworkId}",                DeleteFollowed,             HTTPMethod.DELETE);
             AddHandler(HTTPPath.Root + "v1/poi/followed/{roamingNetworkId}/signatures",     PostFollowedSignature,      HTTPMethod.POST);
+
+            // Who holds the keys of the operator of a roaming network, and the changes of that: see RoamingHub.Shareholders.cs.
+            AddHandler(HTTPPath.Root + "v1/poi/shareholders/{roamingNetworkId}",                               GetShareholders,         HTTPMethod.GET);
+            AddHandler(HTTPPath.Root + "v1/poi/shareholders/{roamingNetworkId}/requests",                      PostShareholderRequest,  HTTPMethod.POST);
+            AddHandler(HTTPPath.Root + "v1/poi/shareholders/{roamingNetworkId}/changes/{holder}/keyStatement", PostKeyStatement,        HTTPMethod.POST);
+            AddHandler(HTTPPath.Root + "v1/poi/shareholders/{roamingNetworkId}/join",                          PostJoin,                HTTPMethod.POST);
+            AddHandler(HTTPPath.Root + "v1/poi/shareholders/{roamingNetworkId}/admit/{holder}",                request => PostShareholderChange(request, ShareholderChangeKind.Admit),    HTTPMethod.POST);
+            AddHandler(HTTPPath.Root + "v1/poi/shareholders/{roamingNetworkId}/dismiss/{holder}",              request => PostShareholderChange(request, ShareholderChangeKind.Dismiss),  HTTPMethod.POST);
             AddHandler(HTTPPath.Root + "v1/poi/RNs/{roamingNetworkId}/{parties}",           PostParty,                  HTTPMethod.POST);
             // Variable as the path of a party, which a literal segment would hide.
             AddHandler(HTTPPath.Root + "v1/poi/RNs/{roamingNetworkId}/{parties}/{partyId}/{children}", PostCertificate, HTTPMethod.POST);
@@ -379,6 +387,155 @@ namespace cloud.charging.open.RoamingHub
                                     new JProperty("commit",      result.Commit?.Id.ToString()),
                                     new JProperty("signatures",  new JArray(result.Commit?.Signatures.Select(signature => signature.ToJSON(Embedded: true)) ?? []))
                                 ));
+
+        }
+
+        #endregion
+
+        #region (private) Shareholders: GetShareholders / PostShareholderRequest / PostKeyStatement / PostJoin / PostShareholderChange
+
+        private HTTPResponse ShareholderResponse(HTTPRequest              Request,
+                                                 ShareholderChangeResult  Result,
+                                                 Boolean                  FromAnotherHub)
+
+            => Result.Success
+                   ? JSONResponse(Request,
+                                  Result.Status switch {
+                                      ShareholderChangeStatus.Committed  => HTTPStatusCode.Created,
+                                      ShareholderChangeStatus.Waiting    => HTTPStatusCode.Accepted,
+                                      _                                  => HTTPStatusCode.OK
+                                  },
+                                  new JObject(
+                                      new JProperty("status",   Result.Status.ToString().ToLowerInvariant()),
+                                      new JProperty("message",  Result.Message)
+                                  ))
+                   : ErrorJSON(Request,
+                               Result.Status switch {
+                                   ShareholderChangeStatus.NotFound  => HTTPStatusCode.NotFound,
+                                   ShareholderChangeStatus.Refused   => FromAnotherHub ? HTTPStatusCode.Conflict : HTTPStatusCode.BadGateway,
+                                   _                                 => HTTPStatusCode.BadRequest
+                               },
+                               Result.Message);
+
+        /// <summary>
+        /// GET /api/v1/poi/shareholders/{roamingNetworkId}: who holds the keys of the operator of a roaming network made
+        /// here, how many of them decide, and the changes of that waiting - public, as all of it is signed.
+        /// </summary>
+        private Task<HTTPResponse> GetShareholders(HTTPRequest Request)
+
+            => Task.FromResult(
+                   Request.ParsedURLParameters.Length >= 1 &&
+                   RoamingNetwork_Id.TryParse(Request.ParsedURLParameters[0], out var roamingNetworkId) &&
+                   RoamingHub.ShareholdersOf(roamingNetworkId) is JObject shareholders
+                       ? JSONResponse(Request, HTTPStatusCode.OK, shareholders)
+                       : ErrorJSON   (Request, HTTPStatusCode.NotFound, "This hub makes no such roaming network.")
+               );
+
+        /// <summary>
+        /// POST /api/v1/poi/shareholders/{roamingNetworkId}/requests: a hub following the roaming network asks to hold
+        /// the keys of its operator as well, {"identityKey", "signingKeyCertificate", "keyStatement", "url"?} - from
+        /// everybody, as it proves itself: the key statement is signed by the identity key it names.
+        /// </summary>
+        private Task<HTTPResponse> PostShareholderRequest(HTTPRequest Request)
+        {
+
+            if (Request.ParsedURLParameters.Length < 1 || !RoamingNetwork_Id.TryParse(Request.ParsedURLParameters[0], out var roamingNetworkId))
+                return Task.FromResult(ErrorJSON(Request, HTTPStatusCode.NotFound, "This hub makes no such roaming network."));
+
+            // As the text it is: a timestamp is signed as it is written.
+            if (RoamingHub.ReadJSON(Request.HTTPBody is { Length: > 0 } body ? System.Text.Encoding.UTF8.GetString(body) : "") is not JObject json)
+                return Task.FromResult(ErrorJSON(Request, HTTPStatusCode.BadRequest, "The request must be a JSON object."));
+
+            return Task.FromResult(ShareholderResponse(Request, RoamingHub.TakeShareholderRequest(roamingNetworkId, json), true));
+
+        }
+
+        /// <summary>
+        /// POST /api/v1/poi/shareholders/{roamingNetworkId}/changes/{holder}/keyStatement: the key statement of a
+        /// change waiting, with the signature of another holder - from everybody, as each signature is verified.
+        /// </summary>
+        private Task<HTTPResponse> PostKeyStatement(HTTPRequest Request)
+        {
+
+            if (Request.ParsedURLParameters.Length < 2 || !RoamingNetwork_Id.TryParse(Request.ParsedURLParameters[0], out var roamingNetworkId))
+                return Task.FromResult(ErrorJSON(Request, HTTPStatusCode.NotFound, "This hub makes no such roaming network."));
+
+            if (RoamingHub.ReadJSON(Request.HTTPBody is { Length: > 0 } body ? System.Text.Encoding.UTF8.GetString(body) : "") is not JObject json)
+                return Task.FromResult(ErrorJSON(Request, HTTPStatusCode.BadRequest, "The request must be a JSON object."));
+
+            return Task.FromResult(ShareholderResponse(Request,
+                                                       RoamingHub.TakeKeyStatementSignatures(roamingNetworkId, Uri.UnescapeDataString(Request.ParsedURLParameters[1]), json),
+                                                       true));
+
+        }
+
+        /// <summary>
+        /// POST /api/v1/poi/shareholders/{roamingNetworkId}/join with {"url"?: "…"}: ask to hold the keys of the
+        /// operator of a roaming network this hub follows, or sign the change set admitting it once it waits.
+        /// </summary>
+        private async Task<HTTPResponse> PostJoin(HTTPRequest Request)
+        {
+
+            if (!TryAuthorize(Request, Permission.Edit(HubAccess.POI), true, out var user, out var refused))
+                return refused;
+
+            if (Request.ParsedURLParameters.Length < 1 || !RoamingNetwork_Id.TryParse(Request.ParsedURLParameters[0], out var roamingNetworkId))
+                return ErrorJSON(Request, HTTPStatusCode.NotFound, "This hub follows no such roaming network.");
+
+            URL? url = null;
+
+            if (Request.HTTPBody is { Length: > 0 })
+            {
+
+                if (!TryParseJSONObject(Request, out var json, out var errorResponse))
+                    return errorResponse;
+
+                if (json["url"] is JToken urlJSON)
+                {
+
+                    if (urlJSON.Type != JTokenType.String || !URL.TryParse(urlJSON.Value<String>()!, out var parsed))
+                        return ErrorJSON(Request, HTTPStatusCode.BadRequest, "The \"url\" of the copy of this hub is a URL, ~/RNs/{RN_Id} over https.");
+
+                    url = parsed;
+
+                }
+
+            }
+
+            var result = await RoamingHub.JoinRoamingNetworkOperator(roamingNetworkId, url);
+
+            if (result.Success)
+                Log.Notice($"'{user.Id}' had this hub ask to hold, or sign for holding, the keys of the operator of the roaming network '{roamingNetworkId}'.", "poi", "web", "shareholders", "security");
+
+            return ShareholderResponse(Request, result, false);
+
+        }
+
+        /// <summary>
+        /// POST /api/v1/poi/shareholders/{roamingNetworkId}/admit/{holder} or …/dismiss/{holder}: admit who asked, or
+        /// dismiss a holder, as far as this hub can right now.
+        /// </summary>
+        private async Task<HTTPResponse> PostShareholderChange(HTTPRequest            Request,
+                                                               ShareholderChangeKind  Kind)
+        {
+
+            if (!TryAuthorize(Request, Permission.Edit(HubAccess.POI), true, out var user, out var refused))
+                return refused;
+
+            if (Request.ParsedURLParameters.Length < 2 || !RoamingNetwork_Id.TryParse(Request.ParsedURLParameters[0], out var roamingNetworkId))
+                return ErrorJSON(Request, HTTPStatusCode.NotFound, "This hub serves no such roaming network.");
+
+            var holder = Uri.UnescapeDataString(Request.ParsedURLParameters[1]);
+
+            var result = Kind == ShareholderChangeKind.Admit
+                             ? await RoamingHub.AdmitShareholder  (roamingNetworkId, holder)
+                             : await RoamingHub.DismissShareholder(roamingNetworkId, holder);
+
+            if (result.Success)
+                Log.Notice($"'{user.Id}' had this hub sign for {(Kind == ShareholderChangeKind.Admit ? "admitting" : "dismissing")} '{holder}' as a holder of the keys of the operator of the roaming network '{roamingNetworkId}'.",
+                           "poi", "web", "shareholders", "security");
+
+            return ShareholderResponse(Request, result, false);
 
         }
 
