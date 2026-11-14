@@ -130,6 +130,15 @@ namespace cloud.charging.open.RoamingHub.CommandLine
             if (rest[1].Equals("resign", StringComparison.OrdinalIgnoreCase) && rest.Length == 2 && cli.Hub.NetworkOperator.Holder is String self)
                 return ChangeShareholders(roamingNetworkId, "dismiss", self);
 
+            if (rest[1].Equals("restate", StringComparison.OrdinalIgnoreCase) && rest.Length == 2)
+                return ChangeShareholders(roamingNetworkId, "restate", "");
+
+            if (rest[1].Equals("pending", StringComparison.OrdinalIgnoreCase) && rest.Length == 2)
+                return Pending(roamingNetworkId);
+
+            if ((rest[1].Equals("approve", StringComparison.OrdinalIgnoreCase) || rest[1].Equals("refuse", StringComparison.OrdinalIgnoreCase)) && rest.Length == 3)
+                return Decide(roamingNetworkId, rest[2], rest[1].Equals("approve", StringComparison.OrdinalIgnoreCase));
+
             return Task.FromResult<String[]>([ $"Usage: {Help()}" ]);
 
         }
@@ -140,10 +149,10 @@ namespace cloud.charging.open.RoamingHub.CommandLine
 
         public override String Help()
 
-            => $"{CommandName} [add <id> [<name>] | follow <trust anchor> [at <url>] | unfollow <id> | <id> [sign [<commit>] | shareholders | join [at <url>] | admit <holder> | dismiss <holder> | resign | add chargingStationOperator|eMobilityProvider|gridOperator|parkingOperator|" +
+            => $"{CommandName} [add <id> [<name>] | follow <trust anchor> [at <url>] | unfollow <id> | <id> [sign [<commit>] | shareholders | join [at <url>] | admit <holder> | dismiss <holder> | resign | restate | pending | approve <change set> | refuse <change set> | add chargingStationOperator|eMobilityProvider|gridOperator|parkingOperator|" +
                 "chargingStationManufacturer|energyMeterManufacturer|transparencySoftwareManufacturer|conformityAssessmentBody <id> " +
                 "signingKey <key> identityKey <key> [signingKey <key> | identityKey <key> ...] [homepage <url>] [<name>]]] - the roaming networks of the points of interest, " +
-                "a new one operated by this hub, one of another server followed by its trust anchor or followed no longer, one of them, a commit of one followed signed as a holder of the keys of its operator, who holds those keys, asking to hold them as well, admitting who asked, dismissing a holder or resigning, and a new party of one";
+                "a new one operated by this hub, one of another server followed by its trust anchor or followed no longer, one of them, a commit of one followed signed as a holder of the keys of its operator, who holds those keys, asking to hold them as well, admitting who asked, dismissing a holder or resigning, stating its keys anew together, the change sets waiting for signatures and one of them approved or refused, and a new party of one";
 
         #endregion
 
@@ -253,12 +262,76 @@ namespace cloud.charging.open.RoamingHub.CommandLine
             if (!cli.MayDo(Permission.Edit(HubAccess.POI), $"{CommandName} {RoamingNetworkId} {What}", out var refused))
                 return [ refused ];
 
-            var result = What == "admit"
-                             ? await cli.Hub.AdmitShareholder  (RoamingNetworkId, Holder.Trim())
-                             : await cli.Hub.DismissShareholder(RoamingNetworkId, Holder.Trim());
+            var result = What switch {
+                             "admit"    => await cli.Hub.AdmitShareholder   (RoamingNetworkId, Holder.Trim()),
+                             "dismiss"  => await cli.Hub.DismissShareholder (RoamingNetworkId, Holder.Trim()),
+                             _          => await cli.Hub.RestateOperatorKeys(RoamingNetworkId)
+                         };
 
             if (result.Success)
-                cli.Hub.Log.Notice($"{cli.Caller.Asker} had this hub sign for {(What == "admit" ? "admitting" : "dismissing")} '{Holder.Trim()}' as a holder of the keys of the operator of the roaming network '{RoamingNetworkId}'.",
+                cli.Hub.Log.Notice(What == "restate"
+                                       ? $"{cli.Caller.Asker} had this hub sign for stating the keys of the operator of the roaming network '{RoamingNetworkId}' anew."
+                                       : $"{cli.Caller.Asker} had this hub sign for {(What == "admit" ? "admitting" : "dismissing")} '{Holder.Trim()}' as a holder of the keys of the operator of the roaming network '{RoamingNetworkId}'.",
+                                   cli.Caller.Tags("poi", "shareholders", "security"));
+
+            return [ result.Message ];
+
+        }
+
+        /// <summary>
+        /// roamingNetworks &lt;id&gt; pending: the change sets waiting for signatures, each with what it changes and what it
+        /// waits for, so that whoever approves one has seen it.
+        /// </summary>
+        private async Task<String[]> Pending(RoamingNetwork_Id RoamingNetworkId)
+        {
+
+            if (await cli.Hub.PendingChangeSetsOf(RoamingNetworkId) is not JArray pending)
+                return [ $"This hub serves no roaming network '{RoamingNetworkId}', or where it is followed could not be asked." ];
+
+            if (pending.Count == 0)
+                return [ $"No change set of the roaming network '{RoamingNetworkId}' waits for signatures." ];
+
+            var lines = new List<String>();
+
+            foreach (var waiting in pending.OfType<JObject>())
+            {
+
+                var changeSet = waiting["changeSet"] as JObject;
+
+                lines.Add($"{changeSet?["@id"]}  {(changeSet?["description"] as JObject)?.Properties().FirstOrDefault()?.Value}".TrimEnd() +
+                          $"  signed by {changeSet?["signatures"]?.Count() ?? 0}");
+
+                foreach (var change in changeSet?["changes"]?.OfType<JObject>() ?? [])
+                    lines.Add($"  {change["kind"]} {change["entityType"]} '{change["entityId"]}'{(change["propertyName"] is JToken property ? $" ({property})" : "")}");
+
+                foreach (var missing in waiting["missing"]?.Values<String>() ?? [])
+                    lines.Add($"  waits: {missing}");
+
+            }
+
+            lines.Add($"'{CommandName} {RoamingNetworkId} approve <change set>' signs one as a holder of the keys of its operator, 'refuse <change set>' withdraws it.");
+
+            return [ .. lines ];
+
+        }
+
+        private async Task<String[]> Decide(RoamingNetwork_Id  RoamingNetworkId,
+                                            String             ChangeSetId,
+                                            Boolean            Approve)
+        {
+
+            if (!cli.MayDo(Permission.Edit(HubAccess.POI), $"{CommandName} {RoamingNetworkId} {(Approve ? "approve" : "refuse")}", out var refused))
+                return [ refused ];
+
+            if (!ChangeSet_Id.TryParse(ChangeSetId, out var changeSetId))
+                return [ $"'{ChangeSetId}' is no identification of a change set. Usage: {Help()}" ];
+
+            var result = Approve
+                             ? await cli.Hub.ApprovePendingChangeSet(RoamingNetworkId, changeSetId)
+                             : await cli.Hub.RefusePendingChangeSet (RoamingNetworkId, changeSetId);
+
+            if (result.Success)
+                cli.Hub.Log.Notice($"{cli.Caller.Asker} had this hub {(Approve ? "sign" : "withdraw")} the change set '{changeSetId}' of the roaming network '{RoamingNetworkId}'.",
                                    cli.Caller.Tags("poi", "shareholders", "security"));
 
             return [ result.Message ];

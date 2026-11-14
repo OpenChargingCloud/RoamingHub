@@ -776,6 +776,22 @@ with `resign`. `roamingNetworks <id> shareholders` and `GET
 /api/v1/poi/shareholders/{id}`, public, show who holds the keys, how many
 decide, and what waits. All of them but the two showing are `poi:edit`.
 
+Where several hold the keys of the operator, **what it owns waits for the
+others** (`RoamingHub.Pending.cs`): a party the hub adds is a change set
+waiting for signatures, where it was added at once while one decided.
+`roamingNetworks <id> pending` and `GET /api/v1/poi/shareholders/{id}/pending`,
+public, show the change sets waiting, each with what it changes and what it
+waits for - at a hub following, as the server followed tells them.
+`roamingNetworks <id> approve <change set>` or `POST
+…/pending/{changeSet}/approve` signs one as a holder of the keys of the
+operator, with the signing key of this hub and, where a change needs identity
+keys, its identity key; `refuse` withdraws it. The keys of the operator are
+stated anew together, `roamingNetworks <id> restate` or `POST …/restate` at
+every holder's hub, as the hub does it by itself only where one decides; its
+log says once, a week before the key statement ends, that it is due. All of
+them but the two showing are `poi:edit`, and none happens by itself. A hub
+replacing its own keys keeps one a roaming network it follows names.
+
 A head whose commit a hub signed so it **attests** from then on, by itself,
 while it is the head: at once, and again whenever its newest attestation of it
 is older than five minutes, as for the roaming networks it operates. The

@@ -62,6 +62,8 @@ namespace cloud.charging.open.RoamingHub
 
         private ITimer? attestationTimer;
 
+        private readonly HashSet<(RoamingNetwork_Id, DateTimeOffset)> keyStatementsSaidToEnd = [];
+
         #endregion
 
 
@@ -139,9 +141,19 @@ namespace cloud.charging.open.RoamingHub
             var current          = networkOperator.KeyStatement;
 
             // With a quorum of several holders, its key statement needs the signatures of the others as well: not stated
-            // anew here alone (SPECIFICATION.md of WWCP POI, section 4.1).
+            // anew here alone (SPECIFICATION.md of WWCP POI, section 4.1), but by all of them, when told to - see
+            // RestateOperatorKeys in RoamingHub.Shareholders.cs. Said once per key statement, when it is about to end.
             if (networkOperator.MinConsensus > 1)
+            {
+
+                if (current is not null && current.ValidUntil - Now < KeyStatementRenewal && keyStatementsSaidToEnd.Add((network.Id, current.ValidUntil)))
+                    Log.Warning($"The key statement of the operator of the roaming network '{network.Id}' ends at {current.ValidUntil.ToISO8601()}: " +
+                                $"its {networkOperator.MinConsensus} holders state its keys anew together, '{CommandLine.RoamingNetworksCommand.CommandName} {network.Id} restate' at each hub.",
+                                "poi", "shareholders", "security");
+
                 return null;
+
+            }
 
             if (current is not null                                         &&
                 current.ValidUntil - Now >= KeyStatementRenewal             &&

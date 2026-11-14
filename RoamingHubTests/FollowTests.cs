@@ -30,7 +30,9 @@ using cloud.charging.open.protocols.WWCP.POI;
 using cloud.charging.open.protocols.WWCP.Node.TestKit;
 
 // Those of POI 3, not those of WWCP_Core the OCPI side knows.
-using RoamingNetwork  = cloud.charging.open.protocols.WWCP.POI.RoamingNetwork;
+using RoamingNetwork              = cloud.charging.open.protocols.WWCP.POI.RoamingNetwork;
+using ChargingStationOperator     = cloud.charging.open.protocols.WWCP.POI.ChargingStationOperator;
+using ChargingStationOperator_Id  = cloud.charging.open.protocols.WWCP.POI.ChargingStationOperator_Id;
 
 #endregion
 
@@ -606,6 +608,121 @@ namespace cloud.charging.open.RoamingHub.Tests
 
                 Assert.That(two,                  Is.EquivalentTo(new[] { alpha, beta }));
                 Assert.That(HistoryOf(RoamingHub, "QA").Head.RoamingNetwork.Operator!.MinConsensus,  Is.EqualTo(2));
+
+            });
+
+        }
+
+        #endregion
+
+        #region UnderAQuorumWhatTheOperatorOwnsWaitsForTheOthers()
+
+        /// <summary>
+        /// Where two decide, the hub that makes the roaming network adds no party alone (SHAREHOLDERS.md, phase 5): its
+        /// change set waits, the other holder sees it at its own hub and approves it, or refuses it, which withdraws
+        /// it. The keys of the operator are stated anew by both, each at its hub. And a key this hub holds of an
+        /// operator it follows is kept when it replaces its own.
+        /// </summary>
+        [Test]
+        public async Task UnderAQuorumWhatTheOperatorOwnsWaitsForTheOthers()
+        {
+
+            var id         = RoamingNetwork_Id.Parse("QA");
+
+            Assert.That(RoamingHub.CreateRoamingNetwork(id).Success,  Is.True);
+
+            var second     = await Followed("QA");
+            var beta       = second.NetworkOperator.Holder!;
+            var qa         = HistoryOf(RoamingHub, "QA");
+
+            Assert.That((await second.    JoinRoamingNetworkOperator(id)).Status,  Is.EqualTo(ShareholderChangeStatus.Waiting));
+            Assert.That((await RoamingHub.AdmitShareholder(id, beta)).Status,      Is.EqualTo(ShareholderChangeStatus.Waiting));
+            Assert.That((await second.    JoinRoamingNetworkOperator(id)).Status,  Is.EqualTo(ShareholderChangeStatus.Committed));
+
+            await CaughtUp("QA", second);
+
+            Boolean Names(String Id)
+                => qa.Head.RoamingNetwork.TryGetChargingStationOperatorById(ChargingStationOperator_Id.Parse(Id), out _);
+
+            #region A party waits for the second holder, who approves it
+
+            // Signed by this hub and by the identity key of the party, its proof: at one holder it would be added now.
+            var added        = POITests.AddedParty(RoamingHub, "QA", "DE*QAK");
+            var addingId     = qa.PendingChangeSets.Single().Id;
+
+            var waitsAtFirst = await RoamingHub.PendingChangeSetsOf(id);
+            var waitsAtOther = await second.    PendingChangeSetsOf(id);
+            var notYet       = Names("DE*QAK");
+
+            var approved     = await second.ApprovePendingChangeSet(id, addingId);
+            var there        = Names("DE*QAK");
+            var approvedTwice= await second.ApprovePendingChangeSet(id, addingId);
+
+            await CaughtUp("QA", second);
+
+            #endregion
+
+            #region Another one is refused: withdrawn
+
+            var another      = POITests.AddedParty(RoamingHub, "QA", "DE*QAL");
+            var refused      = await second.RefusePendingChangeSet(id, qa.PendingChangeSets.Single().Id);
+            var waitsNoMore  = await RoamingHub.PendingChangeSetsOf(id);
+            var notThere     = Names("DE*QAL");
+
+            #endregion
+
+            #region The keys of the operator are stated anew by both
+
+            var statedBefore = qa.Head.RoamingNetwork.Operator!.KeyStatement!;
+
+            await Task.Delay(50);
+
+            var restated1    = await RoamingHub.RestateOperatorKeys(id);    // begins, and signs the key statement
+            var restated2    = await second.    RestateOperatorKeys(id);    // signs it as well
+            var restated3    = await RoamingHub.RestateOperatorKeys(id);    // makes the change set, and signs it
+            var restated4    = await second.    RestateOperatorKeys(id);    // signs it: committed
+            var statedAfter  = qa.Head.RoamingNetwork.Operator!.KeyStatement!;
+
+            await CaughtUp("QA", second);
+
+            #endregion
+
+            #region A key held of an operator followed is kept
+
+            var heldBefore   = second.NetworkOperator.SigningKeyIdIn(HistoryOf(second, "QA").Head.RoamingNetwork);
+            var rotated      = second.RotateNetworkOperatorKey(POIKeyKind.Signing);
+            var heldAfter    = second.NetworkOperator.SigningKeyIdIn(HistoryOf(second, "QA").Head.RoamingNetwork);
+
+            #endregion
+
+            Assert.Multiple(() => {
+
+                Assert.That(added.Success,                                         Is.False, "it waits for the second holder");
+                Assert.That(waitsAtFirst?.Count,                                   Is.EqualTo(1));
+                Assert.That(waitsAtOther?[0]?["changeSet"]?["@id"]?.Value<String>(),  Is.EqualTo(addingId.ToString()), "told at the hub following as well");
+                Assert.That(notYet,                                                Is.False, "one of two adds no party");
+
+                Assert.That(approved.Status,                                       Is.EqualTo(ShareholderChangeStatus.Committed), approved.Message);
+                Assert.That(there,                                                 Is.True);
+                Assert.That(approvedTwice.Status,                                  Is.EqualTo(ShareholderChangeStatus.NotFound),  approvedTwice.Message);
+
+                Assert.That(another.Success,                                       Is.False);
+                Assert.That(refused.Status,                                        Is.EqualTo(ShareholderChangeStatus.Committed), refused.Message);
+                Assert.That(refused.Message,                                       Does.Contain("is withdrawn"));
+                Assert.That(waitsNoMore?.Count,                                    Is.EqualTo(0));
+                Assert.That(notThere,                                              Is.False);
+
+                Assert.That(restated1.Status,                                      Is.EqualTo(ShareholderChangeStatus.Waiting),   restated1.Message);
+                Assert.That(restated2.Status,                                      Is.EqualTo(ShareholderChangeStatus.Waiting),   restated2.Message);
+                Assert.That(restated3.Status,                                      Is.EqualTo(ShareholderChangeStatus.Waiting),   restated3.Message);
+                Assert.That(restated4.Status,                                      Is.EqualTo(ShareholderChangeStatus.Committed), restated4.Message);
+                Assert.That(statedAfter.SignedAt,                                  Is.GreaterThan(statedBefore.SignedAt));
+                Assert.That(statedAfter.Signatures,                                Has.Length.EqualTo(2));
+                Assert.That(statedAfter.MinConsensus,                              Is.EqualTo(2));
+
+                Assert.That(rotated.Success,                                       Is.True, rotated.Message);
+                Assert.That(heldBefore,                                            Is.Not.Null);
+                Assert.That(heldAfter,                                             Is.EqualTo(heldBefore), "the key the roaming network followed names is not forgotten");
 
             });
 

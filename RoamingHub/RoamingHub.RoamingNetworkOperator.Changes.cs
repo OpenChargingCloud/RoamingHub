@@ -501,17 +501,19 @@ namespace cloud.charging.open.RoamingHub
         #region (private) KeysNamedByTheNetworks(Kind)
 
         /// <summary>
-        /// The keys of the given kind of the roaming network operator this hub is that the roaming networks it
-        /// serves name, as their heads have it.
+        /// The keys of the given kind that the operators of the roaming networks this hub serves name, as their heads
+        /// have it: of the ones it operates, and of the ones it follows, whose operator it may hold keys of as one of
+        /// several - a key one of them names is not forgotten, whoever that operator is.
         /// </summary>
         private IReadOnlySet<String> KeysNamedByTheNetworks(POIKeyKind Kind)
 
-            => HistoriesOfTheNetworkOperator().
-                   SelectMany(history => Kind == POIKeyKind.Signing
-                                             ? history.Head.RoamingNetwork.Operator!.SigningKeys
-                                             : history.Head.RoamingNetwork.Operator!.IdentityKeys).
-                   Select(key => key.Id).
-                   ToHashSet(StringComparer.Ordinal);
+            => POI.RoamingNetworks.ToArray().
+                   Where     (network => network.Operator is not null).
+                   SelectMany(network => Kind == POIKeyKind.Signing
+                                             ? network.Operator!.SigningKeys
+                                             : network.Operator!.IdentityKeys).
+                   Select    (key => key.Id).
+                   ToHashSet (StringComparer.Ordinal);
 
         #endregion
 

@@ -12,7 +12,7 @@ sections 4.1 and 8.6; example A1 there plays it with three organizations in one 
 | 2 | A hub follows a roaming network of another hub | built |
 | 3 | A hub signs the commits it follows, and attests with a quorum | built |
 | 4 | A hub is admitted as a shareholder, is dismissed, resigns | built |
-| 5 | Operating under a quorum: what waits for the others | open |
+| 5 | Operating under a quorum: what waits for the others | built, replacing keys open |
 
 
 ## What is there, and what is missing
@@ -237,8 +237,37 @@ Open:
 
 ## Phase 5: operating under a quorum
 
-What waits is shown and signed: `roamingNetworks <id> pending`, `… sign <change set>`, `… refuse <change set>`. The
-key statement is stated anew before it ends by all of them, as in phase 4. A signing key is replaced by its holder
-alone, an identity key by the quorum.
+Built, but for replacing keys (`RoamingHub.Pending.cs`, and `Restate` in `RoamingHub.Shareholders.cs`).
 
-Open: whether a shareholder renews its signing key alone as the specification says, in the hub as it is built.
+- **What waits is shown.** `roamingNetworks <id> pending` at the prompt, `GET
+  /api/v1/poi/shareholders/{id}/pending` over HTTP: the change sets waiting for signatures, each with what it
+  changes and what it waits for. At the hub where the roaming network is made they are those of its history; at
+  another holder's hub they are read where it is followed. A party the hub of the roaming network adds waits there
+  now, where it was added at once while one decided.
+- **Approved, or refused.** `roamingNetworks <id> approve <change set>` signs it as one of the holders of the keys
+  of the operator - with the signing key of this hub, and with its identity key where a change needs identity
+  keys - and it is committed once as many signed as decide. `roamingNetworks <id> refuse <change set>` withdraws
+  it, signed by this hub as an owner of one of its changes: it waits no longer, for anybody. `POST
+  …/pending/{changeSet}/approve` and `…/refuse` over HTTP. Neither happens by itself.
+- **The keys are stated anew together.** Where one decides, the hub states the keys of its operator anew by itself
+  before their statement ends; where several decide it does not, and says so in its log, once, a week before.
+  `roamingNetworks <id> restate` at every holder's hub, `POST …/restate`: the same keys and the same quorum, from
+  now, as a change of the shareholders is made - the key statement first, signed by each, then the change set of
+  it, made where the roaming network is made and signed by each with its signing key.
+- **A key held of an operator followed is kept.** A hub replacing its own signing key or identity key forgets the
+  old one only where no roaming network it serves names it: also not one it follows, whose operator it holds keys
+  of with others.
+
+Open:
+
+- **Replacing a key under a quorum.** A hub that holds keys of an operator with others does not replace them
+  there: `roamingNetworkOperator rotate` changes the roaming networks this hub makes and holds one voice in alone,
+  is refused where several decide, and leaves what it follows as it is, where its old key goes on signing. A
+  holder replacing its signing key alone, as the specification says, and its identity key with the quorum, both
+  through the hub where the roaming network is made, is not built.
+- **A change set approved is not looked at by the hub.** Whoever approves it has seen what `pending` shows; the
+  hub signs what it is told to.
+- **What waits at the hub where the roaming network is made is not signed by it again** when it made the change
+  set itself: its signature is on it. A change set somebody else sent there, e.g. another holder, it approves like
+  every holder.
+- **The pages** show none of it.

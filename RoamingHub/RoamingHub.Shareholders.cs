@@ -46,7 +46,12 @@ namespace cloud.charging.open.RoamingHub
         /// <summary>
         /// One shareholder less: dismissed by the others, or resigning.
         /// </summary>
-        Dismiss
+        Dismiss,
+
+        /// <summary>
+        /// The same shareholders: their key statement stated anew, before it ends.
+        /// </summary>
+        Restate
 
     }
 
@@ -154,7 +159,11 @@ namespace cloud.charging.open.RoamingHub
         {
 
             var json = new JObject(
-                           new JProperty("kind",          Kind == ShareholderChangeKind.Admit ? "admit" : "dismiss"),
+                           new JProperty("kind",          Kind switch {
+                                                              ShareholderChangeKind.Admit    => "admit",
+                                                              ShareholderChangeKind.Dismiss  => "dismiss",
+                                                              _                              => "restate"
+                                                          }),
                            new JProperty("holder",        Holder),
                            new JProperty("keyStatement",  KeyStatement.ToJSON(Embedded: true))
                        );
@@ -195,7 +204,11 @@ namespace cloud.charging.open.RoamingHub
             if (!RoamingNetworkKeyStatement.TryParse(statementJSON, out var keyStatement, out ErrorResponse))
                 return false;
 
-            var kind = JSON["kind"]?.Value<String>() == "dismiss" ? ShareholderChangeKind.Dismiss : ShareholderChangeKind.Admit;
+            var kind = JSON["kind"]?.Value<String>() switch {
+                           "dismiss"  => ShareholderChangeKind.Dismiss,
+                           "restate"  => ShareholderChangeKind.Restate,
+                           _          => ShareholderChangeKind.Admit
+                       };
 
             POIPublicKey?                         identityKey  = null;
             RoamingNetworkSigningKeyCertificate?  certificate  = null;
@@ -239,13 +252,17 @@ namespace cloud.charging.open.RoamingHub
                              ? identityKey!.Holder
                              : JSON["holder"]?.Value<String>();
 
-            if (!HubRoamingNetworkOperator.IsHolderName(holder))
+            // Stating the keys anew is of all holders, and names none.
+            if (kind == ShareholderChangeKind.Restate)
+                holder = "";
+
+            else if (!HubRoamingNetworkOperator.IsHolderName(holder))
             {
                 ErrorResponse = "It names no holder.";
                 return false;
             }
 
-            Change         = new ShareholderChange(kind, RoamingNetworkId, holder, keyStatement, identityKey, certificate, url, changeSetId);
+            Change         = new ShareholderChange(kind, RoamingNetworkId, holder!, keyStatement, identityKey, certificate, url, changeSetId);
             ErrorResponse  = null;
             return true;
 
@@ -564,6 +581,16 @@ namespace cloud.charging.open.RoamingHub
 
             => ChangeShareholders(ShareholderChangeKind.Dismiss, RoamingNetworkId, Holder);
 
+        /// <summary>
+        /// State the keys of the operator of the given roaming network anew, together with the other holders
+        /// (SHAREHOLDERS.md, phase 5): the same identity keys and the same quorum, valid from now, as far as this hub can
+        /// right now. Begun at the hub where the roaming network is made; where one holder decides, that hub does it by
+        /// itself before the key statement ends.
+        /// </summary>
+        public Task<ShareholderChangeResult> RestateOperatorKeys(RoamingNetwork_Id RoamingNetworkId)
+
+            => ChangeShareholders(ShareholderChangeKind.Restate, RoamingNetworkId, "");
+
         #endregion
 
 
@@ -574,7 +601,17 @@ namespace cloud.charging.open.RoamingHub
                                                                        String                 Holder)
         {
 
-            var what = Kind == ShareholderChangeKind.Admit ? $"admitting '{Holder}'" : $"dismissing '{Holder}'";
+            var what     = Kind switch {
+                               ShareholderChangeKind.Admit    => $"admitting '{Holder}'",
+                               ShareholderChangeKind.Dismiss  => $"dismissing '{Holder}'",
+                               _                              => "stating the keys of the operator anew"
+                           };
+
+            var command  = Kind switch {
+                               ShareholderChangeKind.Admit    => $"admit {Holder}",
+                               ShareholderChangeKind.Dismiss  => $"dismiss {Holder}",
+                               _                              => "restate"
+                           };
 
             #region At the hub where the roaming network is made
 
@@ -625,6 +662,27 @@ namespace cloud.charging.open.RoamingHub
 
                     #endregion
 
+                    #region Stating the keys anew begins here as well: the same keys, the same quorum, from now
+
+                    if (change is null && Kind == ShareholderChangeKind.Restate)
+                    {
+
+                        change = new ShareholderChange(ShareholderChangeKind.Restate,
+                                                       RoamingNetworkId,
+                                                       "",
+                                                       NetworkOperator.StateKeysOf(RoamingNetworkId,
+                                                                                   head.Operator!.Id,
+                                                                                   head.Operator.IdentityKeys,
+                                                                                   head.Operator.MinConsensus,
+                                                                                   TimeProvider.GetUtcNow(),
+                                                                                   KeyStatementValidity));
+
+                        shareholderChanges[(RoamingNetworkId, "")] = change;
+
+                    }
+
+                    #endregion
+
                     if (change is null || change.Kind != Kind)
                         return new (ShareholderChangeStatus.NotFound,
                                     Kind == ShareholderChangeKind.Admit
@@ -663,17 +721,14 @@ namespace cloud.charging.open.RoamingHub
                     if (!IsSignedByItsQuorums(change, head, out var missing))
                         return new (ShareholderChangeStatus.Waiting,
                                     $"The key statement {what} is signed by this hub. It waits for the other holders: {missing} " +
-                                    $"Each signs it with '{CommandLine.RoamingNetworksCommand.CommandName} {RoamingNetworkId} {(Kind == ShareholderChangeKind.Admit ? "admit" : "dismiss")} {Holder}' at its hub.");
+                                    $"Each signs it with '{CommandLine.RoamingNetworksCommand.CommandName} {RoamingNetworkId} {command}' at its hub.");
 
                     #region The key statement is signed: the change set of it, signed by this hub, waits for the others
 
                     try
                     {
 
-                        var changeSet  = NetworkOperator.SignAsShareholder(
-                                             NetworkOperator.SignAsShareholder(ChangeSetOf(change, head)!, POIKeyKind.Identity),
-                                             POIKeyKind.Signing
-                                         );
+                        var changeSet  = SignedAsAHolder(ChangeSetOf(change, head)!, Kind);
 
                         var result     = history.CoSign(changeSet);
 
@@ -739,7 +794,7 @@ namespace cloud.charging.open.RoamingHub
                     if (waiting.KeyStatement.IdentityKeys.All(key => key.Id != NetworkOperator.IdentityKey.Id))
                         return new (ShareholderChangeStatus.Waiting, $"The key statement {what} is one of those who stay: this hub signs the change set of it, once it is made at '{network.URL}'.");
 
-                    var (status, answer) = await Post($"{ShareholdersURL(network)}/changes/{Uri.EscapeDataString(Holder)}/keyStatement",
+                    var (status, answer) = await Post($"{ShareholdersURL(network)}/changes/{(Holder.Length > 0 ? Uri.EscapeDataString(Holder) : "-")}/keyStatement",
                                                       NetworkOperator.CoSign(waiting.KeyStatement).ToJSON(Embedded: true));
 
                     return status is >= 200 and < 300
@@ -763,7 +818,7 @@ namespace cloud.charging.open.RoamingHub
 
                 return await SendChangeSetSignatures(network,
                                                      changeSet,
-                                                     NetworkOperator.SignAsShareholder(NetworkOperator.SignAsShareholder(changeSet, POIKeyKind.Identity), POIKeyKind.Signing),
+                                                     SignedAsAHolder(changeSet, Kind),
                                                      what);
 
                 #endregion
@@ -851,6 +906,22 @@ namespace cloud.charging.open.RoamingHub
             else
             {
 
+                if (Change.Kind == ShareholderChangeKind.Restate)
+                {
+
+                    // The same keys and the same quorum, lasting longer than the one it follows.
+                    if (statement.MinConsensus != networkOperator.MinConsensus)
+                        return $"The key statement states the minConsensus {statement.MinConsensus}, not the {networkOperator.MinConsensus} of the operator: stating its keys anew changes nothing.";
+
+                    if (statement.ValidUntil <= networkOperator.KeyStatement.ValidUntil)
+                        return "The key statement does not last longer than the one of the roaming network.";
+
+                    return statement.IdentityKeys.Length == networkOperator.IdentityKeys.Length && networkOperator.IdentityKeys.All(key => statement.IdentityKeys.Contains(key))
+                               ? null
+                               : $"The key statement does not name the identity keys of the operator: the roaming network '{Head.Id}' names others by now.";
+
+                }
+
                 if (!holdersBefore.Contains(Change.Holder))
                     return $"'{Change.Holder}' holds no keys of the operator of the roaming network '{Head.Id}'.";
 
@@ -931,13 +1002,26 @@ namespace cloud.charging.open.RoamingHub
             {
 
                 var description = Like?.Description ?? ImmutableI18NString.Create(Languages.en,
-                                                           Change.Kind == ShareholderChangeKind.Admit
-                                                               ? $"'{Change.Holder}' holds the keys of the roaming network operator as well"
-                                                               : $"'{Change.Holder}' holds the keys of the roaming network operator no longer");
+                                                           Change.Kind switch {
+                                                               ShareholderChangeKind.Admit    => $"'{Change.Holder}' holds the keys of the roaming network operator as well",
+                                                               ShareholderChangeKind.Dismiss  => $"'{Change.Holder}' holds the keys of the roaming network operator no longer",
+                                                               _                              => "The keys of the roaming network operator stated anew by their holders"
+                                                           });
 
-                return Change.Kind == ShareholderChangeKind.Admit
-                           ? Head.Admit  (Change.IdentityKey!, Change.SigningKeyCertificate!, Change.KeyStatement, Change.URL, description, Like?.Metadata, Like?.CreatedAt)
-                           : Head.Dismiss(Change.Holder,                                      Change.KeyStatement, null,       description, Like?.Metadata, Like?.CreatedAt);
+                return Change.Kind switch {
+
+                           ShareholderChangeKind.Admit    => Head.Admit  (Change.IdentityKey!, Change.SigningKeyCertificate!, Change.KeyStatement, Change.URL, description, Like?.Metadata, Like?.CreatedAt),
+                           ShareholderChangeKind.Dismiss  => Head.Dismiss(Change.Holder,                                      Change.KeyStatement, null,       description, Like?.Metadata, Like?.CreatedAt),
+
+                           _                              => Head.CreateChangeSet([ RoamingNetworkChange.UpdateProperty(Head.Operator!,
+                                                                                                                        RoamingNetworkKeyStatement.JSONProperty,
+                                                                                                                        null,
+                                                                                                                        Change.KeyStatement.ToJSON(Embedded: true)) ],
+                                                                                  description,
+                                                                                  Like?.Metadata,
+                                                                                  Like?.CreatedAt)
+
+                       };
 
             }
             catch when (Like is not null)
@@ -946,6 +1030,21 @@ namespace cloud.charging.open.RoamingHub
             }
 
         }
+
+        #endregion
+
+        #region (private) SignedAsAHolder(ChangeSet, Kind)
+
+        /// <summary>
+        /// The given change set signed by this hub as one of the holders before: with its identity key and its signing
+        /// key where who holds the keys changes, with its signing key where they are stated anew, which is data.
+        /// </summary>
+        private RoamingNetworkChangeSet SignedAsAHolder(RoamingNetworkChangeSet  ChangeSet,
+                                                        ShareholderChangeKind    Kind)
+
+            => Kind == ShareholderChangeKind.Restate
+                   ? NetworkOperator.SignAsShareholder(ChangeSet, POIKeyKind.Signing)
+                   : NetworkOperator.SignAsShareholder(NetworkOperator.SignAsShareholder(ChangeSet, POIKeyKind.Identity), POIKeyKind.Signing);
 
         #endregion
 

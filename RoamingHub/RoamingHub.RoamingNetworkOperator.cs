@@ -537,6 +537,24 @@ namespace cloud.charging.open.RoamingHub
                    ? Shareholder().SignWithSigningKey (ChangeSet)
                    : Shareholder().SignWithIdentityKey(ChangeSet);
 
+        /// <summary>
+        /// The withdrawal of the given change set waiting for signatures, signed with the current signing key of this
+        /// hub as one of the holders of the keys of a roaming network operator that owns one of its changes.
+        /// </summary>
+        public RoamingNetworkChangeSetWithdrawal WithdrawAsShareholder(RoamingNetworkChangeSet  ChangeSet,
+                                                                       DateTimeOffset           Now)
+        {
+
+            var shareholder = Shareholder();
+
+            return RoamingNetworkChangeSetWithdrawal.Create(ChangeSet,
+                                                            shareholder.SigningKey.Private,
+                                                            shareholder.SigningKeyId,
+                                                            shareholder.SigningKey.Algorithm,
+                                                            Now);
+
+        }
+
         #endregion
 
 
