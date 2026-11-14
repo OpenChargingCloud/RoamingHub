@@ -10,7 +10,7 @@ sections 4.1 and 8.6; example A1 there plays it with three organizations in one 
 |---|---|---|
 | 1 | The hub names itself as the holder of its keys | built |
 | 2 | A hub follows a roaming network of another hub | built |
-| 3 | A hub signs the commits it follows, and attests with a quorum | commits built, attesting open |
+| 3 | A hub signs the commits it follows, and attests with a quorum | built |
 | 4 | A hub is admitted as a shareholder, is dismissed, resigns | open |
 | 5 | Operating under a quorum: what waits for the others | open |
 
@@ -40,7 +40,9 @@ set that enters it, so it is signed completely before that change set is made.
    hub made before names itself later, once, by replacing its keys.
 3. **Nothing is signed for another by itself.** A hub signs a commit or a change set of another shareholder when
    somebody allowed to change its points of interest says so, and never on its own. Signing commits automatically
-   may come later; change sets of the operator stay with a person.
+   may come later; change sets of the operator stay with a person. One thing follows from a signature and is left
+   to the hub: a head whose commit it signed, when told to, it attests again and again while it is the head, as an
+   attestation says no more than that it still is.
 4. **Hubs talk over the POI API**, below `/poi`: everything exchanged is signed, so nothing between two hubs needs
    an account at the other.
 
@@ -138,7 +140,7 @@ Open:
 
 ## Phase 3: signing what is followed
 
-Signing commits is built; attesting with a quorum is open.
+Built.
 
 - **A commit is signed when told to.** `roamingNetworks <id> sign [<commit>]` at the prompt,
   `POST /api/v1/poi/followed/{id}/signatures` with `{"commit"?: "…"}` over HTTP, `SignFollowedCommit(…)` in C#:
@@ -159,14 +161,21 @@ Signing commits is built; attesting with a quorum is open.
   this phase admits the hub following by hand with them.
 - `roamingNetworks <id>` says who signed its head as its operator, and how many of how many holders decide.
 
+- **A head signed is a head attested.** An attestation says that a head is the current one, and is valid for a
+  quarter of an hour; where two decide, a proof needs the attestations of two holders, and so does the first copy a
+  new server following takes. Told to every quarter of an hour, nobody would keep that up. So a hub attests by
+  itself the head of a roaming network followed whose commit it signed, when it was told to: at once, and again
+  whenever its newest attestation of it is older than five minutes, as it does for the roaming networks it
+  operates. What was decided is the commit, by somebody; saying again that it still is the head is left to the
+  hub. A head nobody signed here is not attested, whatever the timer does.
+- **Sent where it is followed** as well, and taken there as the signature of a commit is: `addAttestations` over
+  the WebSocket of the history, `POI_API.VerifyAttestation` in WWCP POI. From there it goes to everybody
+  following, and into the proofs and the first copies that server gives.
+
 Open:
 
-- **Attesting with a quorum.** A hub attests the heads of the roaming networks it operates every few minutes, as
-  an attestation says that a head is the current one and is valid for a quarter of an hour. Where two decide, a
-  proof needs the attestations of two holders, and so does the first copy a new server following takes. Attested
-  when told to only, nobody would keep that up; attested by itself, a hub signs for a head somebody else made.
-  Not decided: attest by itself only the heads whose commit this hub signed, when told to, would keep decision 3
-  for what is decided - the commit - and leave the repeating to the hub.
+- **A new head is not attested by the others** until each of them signed its commit: between a commit and the
+  signatures of the others, a proof of the head has the attestations of the hub that made it only.
 - **Which commits are signed.** The head, or one named: a commit below the head that lacks a signature is not
   shown as such, and not signed with the head.
 - **What a reader is told** of a commit that has not the signatures of its quorum yet.

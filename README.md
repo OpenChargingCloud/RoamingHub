@@ -757,6 +757,14 @@ operator takes such a signature from everybody, below `/poi`, as it is one only
 by a signing key the version of the commit certifies. `roamingNetworks <id>`
 says who signed its head as its operator, and how many holders decide.
 
+A head whose commit a hub signed so it **attests** from then on, by itself,
+while it is the head: at once, and again whenever its newest attestation of it
+is older than five minutes, as for the roaming networks it operates. The
+attestations are sent where the roaming network is followed, which takes them
+as it takes the signatures, so that a head is attested by as many holders as
+its quorum requires and a proof of it is taken by whoever pinned them. A head
+nobody signed at this hub is not attested by it.
+
 Everything else in a roaming network comes as change sets, which the hub takes
 from everybody, over HTTP and over the WebSocket of its history: what a change
 set may change is decided by the signatures of its owners, which every commit

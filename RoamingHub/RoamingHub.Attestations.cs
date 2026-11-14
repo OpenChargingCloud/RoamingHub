@@ -232,6 +232,10 @@ namespace cloud.charging.open.RoamingHub
                 }
             }
 
+            // The heads of the roaming networks followed whose commit this hub signed, as one of the holders of the keys of
+            // their operator: see RoamingHub.Follow.cs.
+            AttestFollowed(now);
+
             return stated;
 
         }

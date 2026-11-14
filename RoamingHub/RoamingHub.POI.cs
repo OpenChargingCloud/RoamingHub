@@ -214,6 +214,10 @@ namespace cloud.charging.open.RoamingHub
                                                                                                 !IsFollowed(commit.RoamingNetworkId),
                                 VerifyCommitSignature         = VerifyOperatorCommitSignature,
 
+                                // And an attestation of a head, by the same keys: so that a head is attested by as
+                                // many holders as its quorum requires.
+                                VerifyAttestation             = VerifyOperatorAttestation,
+
                                 // Everybody may open the WebSocket of a history and read, and a charging station
                                 // operator among the peers, or an account bound to one, set the runtime status of
                                 // what it owns: see RoamingHub.POIStatus.cs.

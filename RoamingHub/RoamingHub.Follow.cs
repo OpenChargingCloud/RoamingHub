@@ -527,6 +527,9 @@ namespace cloud.charging.open.RoamingHub
             // In the copy here at once: it comes back from there as well, and is known then.
             history.TryAddSignatures(commit.Id, [ signature ], network.Trust.VerifyCommitSignature, out var signed, out _, out _);
 
+            // Signed, so attested from now on while it is the head: see AttestFollowed.
+            AttestFollowed(network, TimeProvider.GetUtcNow());
+
             Log.Notice($"The commit '{commit.Id}' of the roaming network '{RoamingNetworkId}', revision {commit.Revision}, was signed as '{NetworkOperator.Holder}', " +
                        $"one of the holders of the keys of its operator '{head.RoamingNetwork.Operator?.Id}'.",
                        "poi", "follow", "security");
@@ -537,6 +540,122 @@ namespace cloud.charging.open.RoamingHub
                         signed ?? commit);
 
         }
+
+        #endregion
+
+        #region (private) AttestFollowed(Now) / AttestFollowed(Network, Now) / VerifyOperatorAttestation(Attestation)
+
+        /// <summary>
+        /// Attest the heads of the roaming networks followed that this hub signed (AttestFollowed(Network, Now)).
+        /// </summary>
+        private void AttestFollowed(DateTimeOffset Now)
+        {
+
+            foreach (var network in FollowedRoamingNetworks)
+            {
+                try
+                {
+                    AttestFollowed(network, Now);
+                }
+                catch (Exception e)
+                {
+                    Log.Exception(e, $"The roaming network '{network.Id}' followed could not be attested.", "poi", "follow", "security");
+                }
+            }
+
+        }
+
+        /// <summary>
+        /// Attest the head of the given roaming network followed as one of the holders of the keys of its operator, and
+        /// send the attestation where it is followed: only a head whose commit this hub signed, when it was told to,
+        /// and only once its newest attestation of it is older than the interval of the history. An attestation says
+        /// that a head is the current one, for a quarter of an hour: what was decided is the commit, by somebody; saying
+        /// again that it still is the head is left to the hub. A head nobody signed here is not attested.
+        /// </summary>
+        /// <returns>The attestations made.</returns>
+        private IReadOnlyList<RoamingNetworkAttestation> AttestFollowed(FollowedRoamingNetwork  Network,
+                                                                        DateTimeOffset          Now)
+        {
+
+            if (Network.History is not RoamingNetworkHistory history || Network.Peer is not RoamingNetworkPeer peer)
+                return [];
+
+            var head = history.Head;
+
+            if (NetworkOperator.CommitSignerIn(head.RoamingNetwork) is not RoamingNetworkCommitSigner signer)
+                return [];
+
+            if (!head.Commit.Signatures.Any(signature => signature.KeyId == signer.KeyId && signature.Role == signer.Role))
+                return [];
+
+            if (history.CurrentAttestations(Now).Any(attestation => attestation.CommitId == head.Commit.Id  &&
+                                                                    attestation.KeyId    == signer.KeyId    &&
+                                                                    attestation.Role     == signer.Role     &&
+                                                                    Now - attestation.SignedAt < history.AttestationInterval))
+            {
+                return [];
+            }
+
+            var made = new List<RoamingNetworkAttestation>();
+
+            foreach (var eTag in head.Commit.ETags.Where(eTag => eTag.Format == ETagFormat.EffectiveTree))
+            {
+
+                var attestation = signer.Attest(Network.Id,
+                                                head.Commit.Id,
+                                                head.Commit.Revision,
+                                                eTag,
+                                                Now,
+                                                Now + history.AttestationValidity);
+
+                if (history.TryAddAttestation(attestation, Network.Trust.VerifyAttestation(() => head.RoamingNetwork), out var error, Now))
+                    made.Add(attestation);
+                else
+                    Log.Warning($"The attestation of the head of the roaming network '{Network.Id}' followed was not taken by its copy here: {error}", "poi", "follow", "security");
+
+            }
+
+            if (made.Count > 0)
+                _ = SendAttestations(Network, peer, made);
+
+            return made;
+
+        }
+
+        private async Task SendAttestations(FollowedRoamingNetwork                    Network,
+                                            RoamingNetworkPeer                        Peer,
+                                            IReadOnlyList<RoamingNetworkAttestation>  Attestations)
+        {
+
+            try
+            {
+
+                using var timeout = new CancellationTokenSource(FollowTimeout);
+
+                await Peer.AddAttestationsAsync(Attestations, timeout.Token);
+
+            }
+            catch (Exception e)
+            {
+                Log.Warning($"The attestation of the head of the roaming network '{Network.Id}' was not taken at '{Network.URL}': {e.Message}", "poi", "follow", "security");
+            }
+
+        }
+
+        /// <summary>
+        /// Whether the given attestation another server sends is one of the operator of a roaming network made here: by a
+        /// signing key its head certifies, valid when it signed and one that may sign for the party.
+        /// </summary>
+        private Boolean VerifyOperatorAttestation(RoamingNetworkAttestation Attestation)
+
+            => Attestation.Role == RoamingNetworkCommitSignatureRoles.RoamingNetworkOperator       &&
+               !IsFollowed(Attestation.RoamingNetworkId)                                           &&
+               POI.TryGetRoamingNetworkHistory(Attestation.RoamingNetworkId, out var history)      &&
+               history.Head.RoamingNetwork.Operator?.SigningKeyCertificates.
+                   FirstOrDefault(certificate => certificate.SigningKey.Id == Attestation.KeyId          &&
+                                                 certificate.SigningKey.IsValidAt(Attestation.SignedAt)  &&
+                                                 certificate.SigningKey.MaySign(POIKeyUsages.Party)) is RoamingNetworkSigningKeyCertificate certified &&
+               Attestation.VerifySignature(certified.SigningKey.Key.ToPublicKey(), certified.SigningKey.Id, out _);
 
         #endregion
 

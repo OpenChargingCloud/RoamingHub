@@ -357,8 +357,26 @@ namespace cloud.charging.open.RoamingHub.Tests
 
             var before     = RoamingHub.OperatorSignersOf(qa.Head.Commit, qa.Head.RoamingNetwork);
 
+            // What whoever checks the roaming network pins now: both holders, two deciding.
+            var trustAnchor  = qa.Head.RoamingNetwork.CreateTrustAnchor(statement, URLOf(RoamingHub, "QA"));
+
+            Boolean AttestedByTheFollower()
+                => qa.CurrentAttestations().Any(attestation => attestation.CommitId == qa.Head.Commit.Id &&
+                                                               attestation.KeyId    == beta.SigningKey.Id);
+
+            // A head nobody signed here is not attested by itself, whatever the timer does.
+            follower.KeepAttesting();
+            await Task.Delay(500);
+
+            var unsignedAttested  = AttestedByTheFollower();
+            var vouchedByOne      = qa.VerifyHead(trustAnchor, out _);
+
             var signed     = await follower.SignFollowedCommit(id);
             var arrived    = await Until(() => qa.Head.Commit.Signatures.Length == 2);
+
+            // Signed, so attested: by both holders now, as the quorum requires.
+            var attested   = await Until(AttestedByTheFollower);
+            var vouched    = qa.VerifyHead(trustAnchor, out var vouchingError);
             var again      = await follower.SignFollowedCommit(id);
 
             var unknown    = await follower.SignFollowedCommit(RoamingNetwork_Id.Parse("PROD"));
@@ -379,6 +397,11 @@ namespace cloud.charging.open.RoamingHub.Tests
 
                 Assert.That(RoamingHub.OperatorSignersOf(HistoryOf(follower, "QA").Head.Commit, HistoryOf(follower, "QA").Head.RoamingNetwork),
                             Is.EquivalentTo(new[] { alpha.Holder, beta.Holder }), "in the copy as well");
+
+                Assert.That(unsignedAttested,                                                 Is.False, "a head this hub did not sign is not attested by it");
+                Assert.That(vouchedByOne,                                                     Is.False, "one of two holders attesting is no quorum");
+                Assert.That(attested,                                                         Is.True,  "the attestation did not arrive where the roaming network is followed");
+                Assert.That(vouched,                                                          Is.True,  vouchingError);
 
                 Assert.That(again.Status,                                                     Is.EqualTo(RoamingNetworkCommitSigningStatus.AlreadySigned));
                 Assert.That(unknown.Status,                                                   Is.EqualTo(RoamingNetworkCommitSigningStatus.NotFollowed));
