@@ -689,6 +689,7 @@ namespace cloud.charging.open.RoamingHub.Tests
 
             #region A key held of an operator followed is kept
 
+            // Replaced in what this hub makes only: what it follows names the old one still, which is kept for it.
             var heldBefore   = second.NetworkOperator.SigningKeyIdIn(HistoryOf(second, "QA").Head.RoamingNetwork);
             var rotated      = second.RotateNetworkOperatorKey(POIKeyKind.Signing);
             var heldAfter    = second.NetworkOperator.SigningKeyIdIn(HistoryOf(second, "QA").Head.RoamingNetwork);
@@ -723,6 +724,103 @@ namespace cloud.charging.open.RoamingHub.Tests
                 Assert.That(rotated.Success,                                       Is.True, rotated.Message);
                 Assert.That(heldBefore,                                            Is.Not.Null);
                 Assert.That(heldAfter,                                             Is.EqualTo(heldBefore), "the key the roaming network followed names is not forgotten");
+
+            });
+
+        }
+
+        #endregion
+
+        #region AHolderRenewsItsSigningKeyAloneAndNoIdentityKey()
+
+        /// <summary>
+        /// Where two decide, each holder renews its own signing key alone, with its identity key (SPECIFICATION.md of
+        /// WWCP POI, section 4.1): the hub that makes the roaming network there, and the hub following by a change set
+        /// of its certificate sent there. Its commits and its attestations are signed by the new key from then on. An
+        /// identity key says who holds the keys, which is decided together: it is not replaced by its holder alone.
+        /// </summary>
+        [Test]
+        public async Task AHolderRenewsItsSigningKeyAloneAndNoIdentityKey()
+        {
+
+            var id         = RoamingNetwork_Id.Parse("QA");
+
+            Assert.That(RoamingHub.CreateRoamingNetwork(id).Success,  Is.True);
+
+            var second     = await Followed("QA");
+            var alpha      = RoamingHub.NetworkOperator.Holder!;
+            var beta       = second.    NetworkOperator.Holder!;
+            var qa         = HistoryOf(RoamingHub, "QA");
+
+            Assert.That((await second.    JoinRoamingNetworkOperator(id)).Status,  Is.EqualTo(ShareholderChangeStatus.Waiting));
+            Assert.That((await RoamingHub.AdmitShareholder(id, beta)).Status,      Is.EqualTo(ShareholderChangeStatus.Waiting));
+            Assert.That((await second.    JoinRoamingNetworkOperator(id)).Status,  Is.EqualTo(ShareholderChangeStatus.Committed));
+
+            await CaughtUp("QA", second);
+
+            String SigningKeyOf(String Holder)
+                => qa.Head.RoamingNetwork.Operator!.SigningKeys.Single(key => key.Holder == Holder).Id;
+
+            #region The hub that makes it
+
+            var alphaOld     = RoamingHub.NetworkOperator.SigningKey.Id;
+            var byAlpha      = await RoamingHub.RotateNetworkOperatorKeyEverywhere(POIKeyKind.Signing);
+            var alphaNew     = RoamingHub.NetworkOperator.SigningKey.Id;
+            var alphaNamed   = SigningKeyOf(alpha);
+            var alphaSigned  = qa.Head.Commit.Signatures.Select(signature => signature.KeyId).ToArray();
+            var alphaProved  = qa.Head.Commit.ChangeSet!.Signatures.Select(signature => signature.KeyId).ToArray();
+
+            await CaughtUp("QA", second);
+
+            #endregion
+
+            #region The hub following
+
+            var betaOld      = second.NetworkOperator.SigningKey.Id;
+            var byBeta       = await second.RotateNetworkOperatorKeyEverywhere(POIKeyKind.Signing);
+            var betaNew      = second.NetworkOperator.SigningKey.Id;
+            var betaNamed    = SigningKeyOf(beta);
+            var betaProved   = qa.Head.Commit.ChangeSet!.Signatures.Select(signature => signature.KeyId).ToArray();
+
+            await CaughtUp("QA", second);
+
+            // Its new key signs what it follows from then on.
+            var signed       = await second.SignFollowedCommit(id);
+            var signedWith   = HistoryOf(second, "QA").Head.Commit.Signatures.Select(signature => signature.KeyId).ToArray();
+
+            #endregion
+
+            #region No identity key
+
+            var identityOld  = RoamingHub.NetworkOperator.IdentityKey.Id;
+            var noIdentity   = await RoamingHub.RotateNetworkOperatorKeyEverywhere(POIKeyKind.Identity);
+            var noIdentity2  = await second.    RotateNetworkOperatorKeyEverywhere(POIKeyKind.Identity);
+            var identityNow  = qa.Head.RoamingNetwork.Operator!.IdentityKeys.Single(key => key.Holder == alpha).Id;
+
+            #endregion
+
+            Assert.Multiple(() => {
+
+                Assert.That(byAlpha.Success,          Is.True, byAlpha.Message);
+                Assert.That(alphaNew,                 Is.Not.EqualTo(alphaOld));
+                Assert.That(alphaNamed,               Is.EqualTo(alphaNew));
+                Assert.That(alphaSigned,              Is.EqualTo(new[] { alphaNew }),                                 "the commit by the new key");
+                Assert.That(alphaProved,              Is.EqualTo(new[] { RoamingHub.NetworkOperator.IdentityKey.Id }), "the change set by its identity key, alone");
+
+                Assert.That(byBeta.Success,           Is.True, byBeta.Message);
+                Assert.That(byBeta.Changed.Select(changed => changed.ToString()),  Does.Contain("QA"));
+                Assert.That(betaNew,                  Is.Not.EqualTo(betaOld));
+                Assert.That(betaNamed,                Is.EqualTo(betaNew));
+                Assert.That(betaProved,               Is.EqualTo(new[] { second.NetworkOperator.IdentityKey.Id }));
+
+                Assert.That(signed.Status,            Is.EqualTo(RoamingNetworkCommitSigningStatus.Signed), signed.Message);
+                Assert.That(signedWith,               Does.Contain(betaNew));
+
+                Assert.That(noIdentity.Success,       Is.False);
+                Assert.That(noIdentity.Message,       Does.Contain("replaced by them together"));
+                Assert.That(noIdentity2.Success,      Is.False);
+                Assert.That(noIdentity2.Message,      Does.Contain("replaced by them together"));
+                Assert.That(identityNow,              Is.EqualTo(identityOld));
 
             });
 

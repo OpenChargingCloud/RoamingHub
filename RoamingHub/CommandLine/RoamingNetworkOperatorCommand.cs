@@ -89,10 +89,10 @@ namespace cloud.charging.open.RoamingHub.CommandLine
             {
 
                 if (rest[1].Equals("signingKey",  StringComparison.OrdinalIgnoreCase))
-                    return Task.FromResult(Rotated(POIKeyKind.Signing));
+                    return Rotated(POIKeyKind.Signing);
 
                 if (rest[1].Equals("identityKey", StringComparison.OrdinalIgnoreCase))
-                    return Task.FromResult(Rotated(POIKeyKind.Identity));
+                    return Rotated(POIKeyKind.Identity);
 
             }
 
@@ -154,7 +154,7 @@ namespace cloud.charging.open.RoamingHub.CommandLine
 
         #region (private) Rotated(Kind)
 
-        private String[] Rotated(POIKeyKind Kind)
+        private async Task<String[]> Rotated(POIKeyKind Kind)
         {
 
             var kind = Kind == POIKeyKind.Signing ? "signingKey" : "identityKey";
@@ -162,7 +162,8 @@ namespace cloud.charging.open.RoamingHub.CommandLine
             if (!cli.MayDo(Permission.Edit(HubAccess.POI), $"{CommandName} rotate {kind}", out var refused))
                 return [ refused ];
 
-            var result = cli.Hub.RotateNetworkOperatorKey(Kind);
+            // In the roaming networks it makes, and in those it follows whose operator it holds keys of.
+            var result = await cli.Hub.RotateNetworkOperatorKeyEverywhere(Kind);
 
             cli.Hub.Log.Notice($"{cli.Caller.Asker} replaced the {(Kind == POIKeyKind.Signing ? "signing" : "identity")} key of the roaming network operator '{cli.Hub.NetworkOperator.Id}'.",
                                cli.Caller.Tags("poi", "security"));

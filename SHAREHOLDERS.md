@@ -12,7 +12,7 @@ sections 4.1 and 8.6; example A1 there plays it with three organizations in one 
 | 2 | A hub follows a roaming network of another hub | built |
 | 3 | A hub signs the commits it follows, and attests with a quorum | built |
 | 4 | A hub is admitted as a shareholder, is dismissed, resigns | built |
-| 5 | Operating under a quorum: what waits for the others | built, replacing keys open |
+| 5 | Operating under a quorum: what waits for the others | built, replacing an identity key open |
 
 
 ## What is there, and what is missing
@@ -237,7 +237,8 @@ Open:
 
 ## Phase 5: operating under a quorum
 
-Built, but for replacing keys (`RoamingHub.Pending.cs`, and `Restate` in `RoamingHub.Shareholders.cs`).
+Built, but for replacing an identity key (`RoamingHub.Pending.cs`, and `Restate` and
+`RotateNetworkOperatorKeyEverywhere` in `RoamingHub.Shareholders.cs`).
 
 - **What waits is shown.** `roamingNetworks <id> pending` at the prompt, `GET
   /api/v1/poi/shareholders/{id}/pending` over HTTP: the change sets waiting for signatures, each with what it
@@ -258,13 +259,27 @@ Built, but for replacing keys (`RoamingHub.Pending.cs`, and `Restate` in `Roamin
   old one only where no roaming network it serves names it: also not one it follows, whose operator it holds keys
   of with others.
 
+- **A holder renews its signing key alone.** `roamingNetworkOperator rotate signingKey` replaces the signing key
+  of this hub in every roaming network it makes and in every one it follows whose operator it holds keys of. Where
+  several decide, the change is one of its own certificate only, signed by its identity key, alone, as the
+  specification lets a holder renew its signing keys without the others: committed at once where the roaming
+  network is made, sent there by a hub following. Its commits, its signatures and its attestations are by the new
+  key from then on; the old one is kept until no roaming network names it.
+
 Open:
 
-- **Replacing a key under a quorum.** A hub that holds keys of an operator with others does not replace them
-  there: `roamingNetworkOperator rotate` changes the roaming networks this hub makes and holds one voice in alone,
-  is refused where several decide, and leaves what it follows as it is, where its old key goes on signing. A
-  holder replacing its signing key alone, as the specification says, and its identity key with the quorum, both
-  through the hub where the roaming network is made, is not built.
+- **Replacing an identity key under a quorum.** An identity key says who holds the keys, which is decided
+  together. `roamingNetworkOperator rotate identityKey` is refused, before a key is made, while this hub holds its
+  identity key with others in a roaming network it makes or follows: one keyring for all, so none is replaced
+  where one of them could not name the new one. To be built as example A11 of WWCP POI does it, in two changes of
+  the shareholders: the new identity key next to the old one first, both of the same holder, its key statement
+  signed by the quorum before and by the new key, its proof; then the old one out, its key statement signed with
+  the new one, which both name. So the key statements follow one another, and whoever follows the roaming network
+  gets there. Done so where one holder decides as well, it would close what is open of phases 1 and 2: an identity
+  key replaced at once ends the following.
+- **The keys a hub signs with as a shareholder are its current ones**, not those a roaming network names: while a
+  copy has not caught up with a signing key renewed, what this hub signs for that roaming network is by a key it
+  does not name yet.
 - **A change set approved is not looked at by the hub.** Whoever approves it has seen what `pending` shows; the
   hub signs what it is told to.
 - **What waits at the hub where the roaming network is made is not signed by it again** when it made the change

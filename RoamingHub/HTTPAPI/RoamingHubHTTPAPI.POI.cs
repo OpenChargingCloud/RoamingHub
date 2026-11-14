@@ -109,19 +109,20 @@ namespace cloud.charging.open.RoamingHub
         /// 200 with what became of it and the operator as it is now; 207 where a roaming network refused it, which
         /// keeps the key it names.
         /// </remarks>
-        private Task<HTTPResponse> PostRotateKey(HTTPRequest  Request,
-                                                 POIKeyKind   Kind)
+        private async Task<HTTPResponse> PostRotateKey(HTTPRequest  Request,
+                                                       POIKeyKind   Kind)
         {
 
             if (!TryAuthorize(Request, Permission.Edit(HubAccess.POI), true, out var user, out var refused))
-                return Task.FromResult(refused);
+                return refused;
 
-            var result = RoamingHub.RotateNetworkOperatorKey(Kind);
+            // In the roaming networks it makes, and in those it follows whose operator it holds keys of.
+            var result = await RoamingHub.RotateNetworkOperatorKeyEverywhere(Kind);
 
             Log.Notice($"'{user.Id}' replaced the {(Kind == POIKeyKind.Signing ? "signing" : "identity")} key of the roaming network operator '{RoamingHub.NetworkOperator.Id}'.",
                        "poi", "web", "security");
 
-            return Task.FromResult(NetworkOperatorUpdated(Request, result));
+            return NetworkOperatorUpdated(Request, result);
 
         }
 

@@ -88,6 +88,29 @@ namespace cloud.charging.open.RoamingHub
 
                 var now       = Timestamp.Now;
                 var kind      = Kind == POIKeyKind.Signing ? "signing" : "identity";
+
+                // Where several hold the keys of an operator, who holds them is decided together, and an identity key says
+                // who: it is not replaced by its holder alone (SHAREHOLDERS.md). One keyring for all this hub holds keys
+                // of, so none is made while one roaming network it makes or follows could not name it.
+                if (Kind == POIKeyKind.Identity)
+                {
+
+                    var held    = NetworkOperator.IdentityKey.Id;
+                    var shared  = POI.RoamingNetworks.ToArray().
+                                      Where(network => network.Operator is RoamingNetworkOperator networkOperator &&
+                                                       networkOperator.MinConsensus > 1                            &&
+                                                       networkOperator.IdentityKeys.Any(key => key.Id == held)).
+                                      ToArray();
+
+                    if (shared.Length > 0)
+                        return new ($"The identity key of the roaming network operator '{NetworkOperator.Id}' is not replaced: this hub holds it with others in " +
+                                    $"{String.Join(", ", shared.Select(network => $"'{network.Id}'"))}, where an identity key is replaced by them together, which is not built.",
+                                    [],
+                                    shared.ToDictionary(network => network.Id,
+                                                        network => $"{network.Operator!.MinConsensus} holders of the keys of its operator decide"));
+
+                }
+
                 var oldKey    = Kind == POIKeyKind.Signing ? NetworkOperator.SigningKey : NetworkOperator.IdentityKey;
                 var newKey    = NetworkOperator.MakeKey(Kind);
                 var changed   = new List<RoamingNetwork_Id>();
@@ -101,6 +124,14 @@ namespace cloud.charging.open.RoamingHub
                     if (NetworkOperator.HeldKeyIdOf(network, Kind) is not String heldKeyId)
                     {
                         refused[network.Id] = $"it names no {kind} key of the roaming network operator held here";
+                        continue;
+                    }
+
+                    // Where several hold the keys, who holds them is decided together, and an identity key says who: it
+                    // is not replaced by its holder alone (SHAREHOLDERS.md). A signing key is, see below.
+                    if (Kind == POIKeyKind.Identity && network.Operator!.MinConsensus > 1)
+                    {
+                        refused[network.Id] = $"{network.Operator.MinConsensus} holders of the keys of its operator decide: an identity key is replaced by them together, which is not built";
                         continue;
                     }
 
@@ -146,7 +177,12 @@ namespace cloud.charging.open.RoamingHub
                                                     Description: new ImmutableI18NString(I18NString.Create(Languages.en, $"The {kind} key {heldKeyId[..16]}… of the roaming network operator " +
                                                                                                                          $"'{NetworkOperator.Id}' replaced by {newKey.Id[..16]}…."))
                                                 ),
-                                                Kind
+                                                // Where several hold the keys, a holder renews its own signing key with its
+                                                // identity key, alone: a change of its certificates only (SPECIFICATION.md of
+                                                // WWCP POI, section 4.1). Its signing key is one voice of several there.
+                                                Kind == POIKeyKind.Signing && network.Operator!.MinConsensus > 1
+                                                    ? POIKeyKind.Identity
+                                                    : Kind
                                             );
 
                         // The key statement and the certificates are data, signed by the signing key as well; and the new

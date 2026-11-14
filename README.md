@@ -792,6 +792,17 @@ log says once, a week before the key statement ends, that it is due. All of
 them but the two showing are `poi:edit`, and none happens by itself. A hub
 replacing its own keys keeps one a roaming network it follows names.
 
+Where several hold the keys, each **renews its own signing key alone**:
+`roamingNetworkOperator rotate signingKey`, `POST
+/api/v1/poi/roamingNetworkOperator/signingKey/rotate` or
+`RotateNetworkOperatorKeyEverywhere(Signing)` replaces the signing key of this
+hub in every roaming network it makes and in every one it follows whose
+operator it holds keys of - there by a change set of its own certificate,
+signed by its identity key, sent where the roaming network is followed. An
+identity key says who holds the keys: `rotate identityKey` is refused, before
+a key is made, while this hub holds it with others in a roaming network it
+makes or follows.
+
 A head whose commit a hub signed so it **attests** from then on, by itself,
 while it is the head: at once, and again whenever its newest attestation of it
 is older than five minutes, as for the roaming networks it operates. The

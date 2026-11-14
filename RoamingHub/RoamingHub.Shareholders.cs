@@ -594,6 +594,94 @@ namespace cloud.charging.open.RoamingHub
         #endregion
 
 
+        #region RotateNetworkOperatorKeyEverywhere(Kind)
+
+        /// <summary>
+        /// Replace the current signing key or identity key of this hub by a new one: in every roaming network it makes
+        /// (RotateNetworkOperatorKey), and, a signing key, in every roaming network it follows whose operator it holds
+        /// keys of as well - there a holder renews its own signing key with its identity key, alone, by a change set
+        /// of its certificate sent where the roaming network is followed. An identity key is not replaced where
+        /// several decide.
+        /// </summary>
+        /// <param name="Kind">Which of its keys.</param>
+        public async Task<RoamingNetworkOperatorUpdate> RotateNetworkOperatorKeyEverywhere(POIKeyKind Kind)
+        {
+
+            var oldKeyId  = (Kind == POIKeyKind.Signing ? NetworkOperator.SigningKey : NetworkOperator.IdentityKey).Id;
+            var update    = RotateNetworkOperatorKey(Kind);
+            var changed   = update.Changed.ToList();
+            var refused   = update.Refused.ToDictionary(entry => entry.Key, entry => entry.Value);
+            var now       = TimeProvider.GetUtcNow();
+
+            foreach (var network in FollowedRoamingNetworks)
+            {
+
+                if (network.History?.Head.RoamingNetwork is not RoamingNetwork head || head.Operator is not RoamingNetworkOperator networkOperator)
+                    continue;
+
+                // Only where it names the key replaced: this hub holds it of that operator.
+                if (!(Kind == POIKeyKind.Signing ? networkOperator.SigningKeys : networkOperator.IdentityKeys).Any(key => key.Id == oldKeyId))
+                    continue;
+
+                if (Kind == POIKeyKind.Identity)
+                {
+                    refused[network.Id] = "this hub holds the keys of its operator with others: an identity key is replaced by them together, which is not built";
+                    continue;
+                }
+
+                try
+                {
+
+                    var changeSet = NetworkOperator.SignAsShareholder(
+                                        head.CreateChangeSet(
+                                            [
+                                                RoamingNetworkChange.UpdateProperty(networkOperator,
+                                                                                    RoamingNetworkSigningKeyCertificate.JSONProperty,
+                                                                                    null,
+                                                                                    new JArray(networkOperator.SigningKeyCertificates.
+                                                                                                   Where (certificate => certificate.SigningKey.Id != oldKeyId).
+                                                                                                   Append(NetworkOperator.CertifySigningKeyFor(networkOperator.Id, now)).
+                                                                                                   Select(certificate => certificate.ToJSON(Embedded: true))))
+                                            ],
+                                            Description: ImmutableI18NString.Create(Languages.en, $"'{NetworkOperator.Holder}' renews its signing key as a holder of the keys of the roaming network operator")
+                                        ),
+                                        POIKeyKind.Identity
+                                    );
+
+                    var (status, answer) = await Post($"{network.URL.ToString().TrimEnd('/')}/history/changeSets/pending", changeSet.ToJSON());
+
+                    if (status is >= 200 and < 300 && answer?["status"]?.Value<String>() is "committed" or "alreadyCommitted")
+                    {
+                        changed.Add(network.Id);
+                        Log.Notice($"The signing key of this hub, '{NetworkOperator.Holder}', as a holder of the keys of the operator of the roaming network '{network.Id}' is {NetworkOperator.SigningKey.Id[..16]}… now.", "poi", "shareholders", "security");
+                    }
+                    else
+                        refused[network.Id] = $"'{network.URL}' did not take it: {Description(answer)}";
+
+                }
+                catch (Exception e)
+                {
+                    refused[network.Id] = e.Message;
+                }
+
+            }
+
+            return changed.Count == update.Changed.Count && refused.Count == update.Refused.Count
+                       ? update
+                       : new (update.Message +
+                              (changed.Count > update.Changed.Count
+                                   ? $" Also in the roaming network(s) followed {String.Join(", ", changed.Skip(update.Changed.Count))}, where this hub holds keys of the operator."
+                                   : "") +
+                              (refused.Count > update.Refused.Count
+                                   ? $" Not in the roaming network(s) followed {String.Join("; ", refused.Where(entry => !update.Refused.ContainsKey(entry.Key)).Select(entry => $"'{entry.Key}': {entry.Value}"))}."
+                                   : ""),
+                              changed,
+                              refused);
+
+        }
+
+        #endregion
+
         #region (private) ChangeShareholders(Kind, RoamingNetworkId, Holder)
 
         private async Task<ShareholderChangeResult> ChangeShareholders(ShareholderChangeKind  Kind,
