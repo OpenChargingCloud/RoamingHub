@@ -104,6 +104,8 @@ namespace cloud.charging.open.RoamingHub
                         continue;
                     }
 
+                    var signersBefore = history.Signers;
+
                     try
                     {
 
@@ -152,19 +154,22 @@ namespace cloud.charging.open.RoamingHub
                         if (Kind == POIKeyKind.Identity)
                             changeSet = NetworkOperator.ProveIdentityKey(NetworkOperator.Sign(network, changeSet, POIKeyKind.Signing), newKey);
 
+                        // Its commits are signed by the new signing key from this one on: the version it leads to certifies
+                        // the old one no longer, and a history refuses a commit signed by a key it takes its role from.
+                        if (Kind == POIKeyKind.Signing &&
+                            NetworkOperator.CommitSignerOf(newKey.Id) is RoamingNetworkCommitSigner signer)
+                        {
+                            history.Signers = [ signer ];
+                        }
+
                         var result     = history.Commit(changeSet);
 
                         if (!result.IsCommitted)
                         {
+                            // Still the old key's: the roaming network names it as before.
+                            history.Signers     = signersBefore;
                             refused[network.Id] = result.ErrorResponse ?? "its history refused the commit";
                             continue;
-                        }
-
-                        // Its commits are signed by the new signing key from now on.
-                        if (Kind == POIKeyKind.Signing &&
-                            NetworkOperator.CommitSigner(history.Head.RoamingNetwork) is RoamingNetworkCommitSigner signer)
-                        {
-                            history.Signers = [ signer ];
                         }
 
                         // And its heads attested by it, the current one now.
@@ -175,6 +180,10 @@ namespace cloud.charging.open.RoamingHub
                     }
                     catch (Exception e)
                     {
+                        // Signed by what signed it before, unless the commit was made: then its head names the new key.
+                        if (history.Head.RoamingNetwork.Operator?.SigningKeys.Any(key => key.Id == newKey.Id) != true)
+                            history.Signers = signersBefore;
+
                         refused[network.Id] = e.Message;
                     }
 

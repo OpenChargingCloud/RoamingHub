@@ -363,6 +363,29 @@ namespace cloud.charging.open.RoamingHub
 
         #endregion
 
+        #region (internal) CommitSignerOf(SigningKeyId)
+
+        /// <summary>
+        /// What signs commits with the given signing key held here, in the role of the roaming network operator: also
+        /// one no roaming network names yet, as the commit that enters it is signed by it already. Null where it is not
+        /// held here.
+        /// </summary>
+        internal RoamingNetworkCommitSigner? CommitSignerOf(String SigningKeyId)
+        {
+
+            lock (keysLock)
+                return HeldKeys(POIKeyKind.Signing).TryGetValue(SigningKeyId, out var held)
+                           ? new RoamingNetworkCommitSigner(held.Key,
+                                                            SigningKeyId,
+                                                            COSEAlgorithm.ES256,
+                                                            RoamingNetworkCommitSignatureRoles.RoamingNetworkOperator,
+                                                            Id.ToString())
+                           : null;
+
+        }
+
+        #endregion
+
 
         #region StateKeys(RoamingNetworkId, IdentityKeys, Now, Validity)
 

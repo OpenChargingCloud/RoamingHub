@@ -150,9 +150,11 @@ namespace cloud.charging.open.RoamingHub.Tests
                 Assert.That(prod.Head.Commit.Revision,                                                Is.EqualTo(1));
                 Assert.That(rotation.Revision,                                                        Is.EqualTo(2));
 
-                // The change set is signed by the key it replaces; so is the commit, made before the new key was named.
+                // The change set is signed by the key it replaces, which the version before it names; the commit by the
+                // new one, as the version it leads to certifies the old one no longer: a history refuses a commit signed
+                // by a key it takes its role from, and whoever checks it would not take that signature.
                 Assert.That(rotation.ChangeSet!.Signatures.Select(signature => signature.KeyId),      Is.EqualTo(new[] { old.Id }));
-                Assert.That(rotation.Signatures.Single().KeyId,                                       Is.EqualTo(old.Id));
+                Assert.That(rotation.Signatures.Single().KeyId,                                       Is.EqualTo(current.Id));
 
                 // From then on, the new one signs.
                 Assert.That(added.Success,                                                            Is.True, added.Message);
