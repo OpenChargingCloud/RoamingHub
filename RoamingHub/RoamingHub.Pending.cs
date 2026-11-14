@@ -168,7 +168,7 @@ namespace cloud.charging.open.RoamingHub
                 if (!Approve)
                 {
 
-                    var withdrawal = NetworkOperator.WithdrawAsShareholder(changeSet, TimeProvider.GetUtcNow());
+                    var withdrawal = NetworkOperator.WithdrawAsShareholder(changeSet, TimeProvider.GetUtcNow(), history.Head.RoamingNetwork);
 
                     if (!isFollowed)
                     {
@@ -209,12 +209,13 @@ namespace cloud.charging.open.RoamingHub
                 var signed = changeSet;
 
                 if (changeSet.Signatures.All(signature => signature.KeyId != signingKeyId))
-                    signed = NetworkOperator.SignAsShareholder(signed, POIKeyKind.Signing);
+                    signed = NetworkOperator.SignAsShareholder(signed, POIKeyKind.Signing, history.Head.RoamingNetwork);
 
-                if (missing.Any(what => what.Contains("identity key", StringComparison.Ordinal)) &&
-                    changeSet.Signatures.All(signature => signature.KeyId != NetworkOperator.IdentityKey.Id))
+                if (missing.Any(what => what.Contains("identity key", StringComparison.Ordinal))           &&
+                    NetworkOperator.IdentityKeyIdIn(history.Head.RoamingNetwork) is String identityKeyId   &&
+                    changeSet.Signatures.All(signature => signature.KeyId != identityKeyId))
                 {
-                    signed = NetworkOperator.SignAsShareholder(signed, POIKeyKind.Identity);
+                    signed = NetworkOperator.SignAsShareholder(signed, POIKeyKind.Identity, history.Head.RoamingNetwork);
                 }
 
                 if (signed.Signatures.Length == changeSet.Signatures.Length)

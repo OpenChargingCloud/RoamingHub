@@ -130,6 +130,9 @@ namespace cloud.charging.open.RoamingHub.CommandLine
             if (rest[1].Equals("resign", StringComparison.OrdinalIgnoreCase) && rest.Length == 2 && cli.Hub.NetworkOperator.Holder is String self)
                 return ChangeShareholders(roamingNetworkId, "dismiss", self);
 
+            if (rest[1].Equals("rekey", StringComparison.OrdinalIgnoreCase) && rest.Length > 2)
+                return ChangeShareholders(roamingNetworkId, "rekey", String.Join(" ", rest[2..]));
+
             if (rest[1].Equals("restate", StringComparison.OrdinalIgnoreCase) && rest.Length == 2)
                 return ChangeShareholders(roamingNetworkId, "restate", "");
 
@@ -149,10 +152,10 @@ namespace cloud.charging.open.RoamingHub.CommandLine
 
         public override String Help()
 
-            => $"{CommandName} [add <id> [<name>] | follow <trust anchor> [at <url>] | unfollow <id> | <id> [sign [<commit>] | shareholders | join [at <url>] | admit <holder> | dismiss <holder> | resign | restate | pending | approve <change set> | refuse <change set> | add chargingStationOperator|eMobilityProvider|gridOperator|parkingOperator|" +
+            => $"{CommandName} [add <id> [<name>] | follow <trust anchor> [at <url>] | unfollow <id> | <id> [sign [<commit>] | shareholders | join [at <url>] | admit <holder> | dismiss <holder> | resign | rekey <holder> | restate | pending | approve <change set> | refuse <change set> | add chargingStationOperator|eMobilityProvider|gridOperator|parkingOperator|" +
                 "chargingStationManufacturer|energyMeterManufacturer|transparencySoftwareManufacturer|conformityAssessmentBody <id> " +
                 "signingKey <key> identityKey <key> [signingKey <key> | identityKey <key> ...] [homepage <url>] [<name>]]] - the roaming networks of the points of interest, " +
-                "a new one operated by this hub, one of another server followed by its trust anchor or followed no longer, one of them, a commit of one followed signed as a holder of the keys of its operator, who holds those keys, asking to hold them as well, admitting who asked, dismissing a holder or resigning, stating its keys anew together, the change sets waiting for signatures and one of them approved or refused, and a new party of one";
+                "a new one operated by this hub, one of another server followed by its trust anchor or followed no longer, one of them, a commit of one followed signed as a holder of the keys of its operator, who holds those keys, asking to hold them as well, admitting who asked, dismissing a holder or resigning, agreeing to a holder replacing its identity key, stating its keys anew together, the change sets waiting for signatures and one of them approved or refused, and a new party of one";
 
         #endregion
 
@@ -265,13 +268,16 @@ namespace cloud.charging.open.RoamingHub.CommandLine
             var result = What switch {
                              "admit"    => await cli.Hub.AdmitShareholder   (RoamingNetworkId, Holder.Trim()),
                              "dismiss"  => await cli.Hub.DismissShareholder (RoamingNetworkId, Holder.Trim()),
+                             "rekey"    => await cli.Hub.RekeyShareholder   (RoamingNetworkId, Holder.Trim()),
                              _          => await cli.Hub.RestateOperatorKeys(RoamingNetworkId)
                          };
 
             if (result.Success)
-                cli.Hub.Log.Notice(What == "restate"
-                                       ? $"{cli.Caller.Asker} had this hub sign for stating the keys of the operator of the roaming network '{RoamingNetworkId}' anew."
-                                       : $"{cli.Caller.Asker} had this hub sign for {(What == "admit" ? "admitting" : "dismissing")} '{Holder.Trim()}' as a holder of the keys of the operator of the roaming network '{RoamingNetworkId}'.",
+                cli.Hub.Log.Notice(What switch {
+                                       "restate"  => $"{cli.Caller.Asker} had this hub sign for stating the keys of the operator of the roaming network '{RoamingNetworkId}' anew.",
+                                       "rekey"    => $"{cli.Caller.Asker} had this hub sign for '{Holder.Trim()}' replacing its identity key as a holder of the keys of the operator of the roaming network '{RoamingNetworkId}'.",
+                                       _          => $"{cli.Caller.Asker} had this hub sign for {(What == "admit" ? "admitting" : "dismissing")} '{Holder.Trim()}' as a holder of the keys of the operator of the roaming network '{RoamingNetworkId}'."
+                                   },
                                    cli.Caller.Tags("poi", "shareholders", "security"));
 
             return [ result.Message ];

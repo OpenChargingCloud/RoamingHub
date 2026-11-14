@@ -70,6 +70,7 @@ namespace cloud.charging.open.RoamingHub
             AddHandler(HTTPPath.Root + "v1/poi/shareholders/{roamingNetworkId}/join",                          PostJoin,                HTTPMethod.POST);
             AddHandler(HTTPPath.Root + "v1/poi/shareholders/{roamingNetworkId}/admit/{holder}",                request => PostShareholderChange(request, ShareholderChangeKind.Admit),    HTTPMethod.POST);
             AddHandler(HTTPPath.Root + "v1/poi/shareholders/{roamingNetworkId}/dismiss/{holder}",              request => PostShareholderChange(request, ShareholderChangeKind.Dismiss),  HTTPMethod.POST);
+            AddHandler(HTTPPath.Root + "v1/poi/shareholders/{roamingNetworkId}/rekey/{holder}",                request => PostShareholderChange(request, ShareholderChangeKind.AddKey),   HTTPMethod.POST);
             AddHandler(HTTPPath.Root + "v1/poi/shareholders/{roamingNetworkId}/restate",                       request => PostShareholderChange(request, ShareholderChangeKind.Restate),  HTTPMethod.POST);
             AddHandler(HTTPPath.Root + "v1/poi/shareholders/{roamingNetworkId}/pending",                       GetPending,              HTTPMethod.GET);
             AddHandler(HTTPPath.Root + "v1/poi/shareholders/{roamingNetworkId}/pending/{changeSetId}/approve", request => PostPendingDecision(request, true),   HTTPMethod.POST);
@@ -103,11 +104,14 @@ namespace cloud.charging.open.RoamingHub
 
         /// <summary>
         /// POST /api/v1/poi/roamingNetworkOperator/signingKey/rotate or …/identityKey/rotate: replace the current key
-        /// of that kind of the roaming network operator this hub is by a new one, in every roaming network it operates.
+        /// of that kind of the roaming network operator this hub is by a new one, in every roaming network it makes
+        /// and in every one it follows whose operator it holds keys of.
         /// </summary>
         /// <remarks>
         /// 200 with what became of it and the operator as it is now; 207 where a roaming network refused it, which
-        /// keeps the key it names.
+        /// keeps the key it names. An identity key is replaced in two changes of each roaming network, which wait for
+        /// the other holders of the keys of its operator where several decide: "waiting" says where and for what,
+        /// and asked again it goes on.
         /// </remarks>
         private async Task<HTTPResponse> PostRotateKey(HTTPRequest  Request,
                                                        POIKeyKind   Kind)
@@ -520,8 +524,9 @@ namespace cloud.charging.open.RoamingHub
         }
 
         /// <summary>
-        /// POST /api/v1/poi/shareholders/{roamingNetworkId}/admit/{holder} or …/dismiss/{holder}: admit who asked, or
-        /// dismiss a holder, as far as this hub can right now.
+        /// POST /api/v1/poi/shareholders/{roamingNetworkId}/admit/{holder}, …/dismiss/{holder} or …/rekey/{holder}:
+        /// admit who asked, dismiss a holder, or agree to a holder replacing its identity key, as far as this hub can
+        /// right now; …/restate: state the keys of the operator anew.
         /// </summary>
         private async Task<HTTPResponse> PostShareholderChange(HTTPRequest            Request,
                                                                ShareholderChangeKind  Kind)
@@ -540,13 +545,16 @@ namespace cloud.charging.open.RoamingHub
             var result = Kind switch {
                              ShareholderChangeKind.Admit    => await RoamingHub.AdmitShareholder   (roamingNetworkId, holder),
                              ShareholderChangeKind.Dismiss  => await RoamingHub.DismissShareholder (roamingNetworkId, holder),
+                             ShareholderChangeKind.AddKey   => await RoamingHub.RekeyShareholder   (roamingNetworkId, holder),
                              _                              => await RoamingHub.RestateOperatorKeys(roamingNetworkId)
                          };
 
             if (result.Success)
-                Log.Notice(Kind == ShareholderChangeKind.Restate
-                               ? $"'{user.Id}' had this hub sign for stating the keys of the operator of the roaming network '{roamingNetworkId}' anew."
-                               : $"'{user.Id}' had this hub sign for {(Kind == ShareholderChangeKind.Admit ? "admitting" : "dismissing")} '{holder}' as a holder of the keys of the operator of the roaming network '{roamingNetworkId}'.",
+                Log.Notice(Kind switch {
+                               ShareholderChangeKind.Restate  => $"'{user.Id}' had this hub sign for stating the keys of the operator of the roaming network '{roamingNetworkId}' anew.",
+                               ShareholderChangeKind.AddKey   => $"'{user.Id}' had this hub sign for '{holder}' replacing its identity key as a holder of the keys of the operator of the roaming network '{roamingNetworkId}'.",
+                               _                              => $"'{user.Id}' had this hub sign for {(Kind == ShareholderChangeKind.Admit ? "admitting" : "dismissing")} '{holder}' as a holder of the keys of the operator of the roaming network '{roamingNetworkId}'."
+                           },
                            "poi", "web", "shareholders", "security");
 
             return ShareholderResponse(Request, result, false);

@@ -34,27 +34,44 @@ namespace cloud.charging.open.RoamingHub
     /// <param name="Message">What to tell whoever asked for it.</param>
     /// <param name="Changed">The roaming networks that name the operator as it is now.</param>
     /// <param name="Refused">The roaming networks whose history refused the change, and why.</param>
-    public sealed record RoamingNetworkOperatorUpdate(String                                          Message,
-                                                      IReadOnlyList<RoamingNetwork_Id>                Changed,
-                                                      IReadOnlyDictionary<RoamingNetwork_Id, String>  Refused)
+    /// <param name="Waiting">The roaming networks where the change waits for the other holders of the keys of their operator, and for what.</param>
+    public sealed record RoamingNetworkOperatorUpdate(String                                           Message,
+                                                      IReadOnlyList<RoamingNetwork_Id>                 Changed,
+                                                      IReadOnlyDictionary<RoamingNetwork_Id, String>   Refused,
+                                                      IReadOnlyDictionary<RoamingNetwork_Id, String>?  Waiting   = null)
     {
 
         /// <summary>
-        /// Whether every roaming network the operator operates names it as it is now.
+        /// Whether no roaming network refused it: every one names the operator as it is now, or the change waits
+        /// there for the other holders.
         /// </summary>
         public Boolean Success
             => Refused.Count == 0;
 
         /// <summary>
-        /// {"message", "changed": [ … ], "refused": { roaming network: why, … }}.
+        /// Whether every roaming network names the operator as it is now: none refused it, and it waits nowhere.
+        /// </summary>
+        public Boolean Complete
+            => Success && (Waiting?.Count ?? 0) == 0;
+
+        /// <summary>
+        /// {"message", "changed": [ … ], "refused": { roaming network: why, … }, "waiting"?: { roaming network: for what, … }}.
         /// </summary>
         public JObject ToJSON()
+        {
 
-            => new (
-                   new JProperty("message",  Message),
-                   new JProperty("changed",  new JArray(Changed.Select(roamingNetworkId => roamingNetworkId.ToString()))),
-                   new JProperty("refused",  new JObject(Refused.Select(refused => new JProperty(refused.Key.ToString(), refused.Value))))
-               );
+            var json = new JObject(
+                           new JProperty("message",  Message),
+                           new JProperty("changed",  new JArray(Changed.Select(roamingNetworkId => roamingNetworkId.ToString()))),
+                           new JProperty("refused",  new JObject(Refused.Select(refused => new JProperty(refused.Key.ToString(), refused.Value))))
+                       );
+
+            if (Waiting?.Count > 0)
+                json["waiting"] = new JObject(Waiting.Select(waiting => new JProperty(waiting.Key.ToString(), waiting.Value)));
+
+            return json;
+
+        }
 
     }
 
@@ -65,54 +82,31 @@ namespace cloud.charging.open.RoamingHub
     /// </summary>
     /// <remarks>
     /// Each roaming network gets a change set signed by this hub - a new signing key by the signing key it replaces,
-    /// a new identity key by the identity key it replaces - and operator.json the change, so that every roaming
+    /// or by its identity key where several hold the keys - and operator.json the change, so that every roaming
     /// network made afterwards embeds the operator as it is now. A key replaced is forgotten, its file deleted, once
     /// no roaming network this hub serves names it any more: one whose history refused the change keeps it, and so
     /// do all while a directory below "poi" could not be read at the start, whose roaming network may name it.
+    /// An identity key is replaced in two changes of the shareholders, see RotateNetworkOperatorKeyEverywhere.
     /// </remarks>
     public partial class RoamingHub
     {
 
-        #region RotateNetworkOperatorKey(Kind)
+        #region RotateNetworkOperatorSigningKey()
 
         /// <summary>
-        /// Replace the current signing key or identity key of the roaming network operator this hub is by a new one,
-        /// in every roaming network it operates.
+        /// Replace the current signing key of the roaming network operator this hub is by a new one, in every roaming
+        /// network it makes. Where several hold the keys of the operator, it is the signing key of this hub as one of
+        /// them: renewed alone, with its identity key (SPECIFICATION.md of WWCP POI, section 4.1).
         /// </summary>
-        /// <param name="Kind">Which of its keys.</param>
-        public RoamingNetworkOperatorUpdate RotateNetworkOperatorKey(POIKeyKind Kind)
+        public RoamingNetworkOperatorUpdate RotateNetworkOperatorSigningKey()
         {
 
             lock (networkOperatorLock)
             {
 
                 var now       = Timestamp.Now;
-                var kind      = Kind == POIKeyKind.Signing ? "signing" : "identity";
-
-                // Where several hold the keys of an operator, who holds them is decided together, and an identity key says
-                // who: it is not replaced by its holder alone (SHAREHOLDERS.md). One keyring for all this hub holds keys
-                // of, so none is made while one roaming network it makes or follows could not name it.
-                if (Kind == POIKeyKind.Identity)
-                {
-
-                    var held    = NetworkOperator.IdentityKey.Id;
-                    var shared  = POI.RoamingNetworks.ToArray().
-                                      Where(network => network.Operator is RoamingNetworkOperator networkOperator &&
-                                                       networkOperator.MinConsensus > 1                            &&
-                                                       networkOperator.IdentityKeys.Any(key => key.Id == held)).
-                                      ToArray();
-
-                    if (shared.Length > 0)
-                        return new ($"The identity key of the roaming network operator '{NetworkOperator.Id}' is not replaced: this hub holds it with others in " +
-                                    $"{String.Join(", ", shared.Select(network => $"'{network.Id}'"))}, where an identity key is replaced by them together, which is not built.",
-                                    [],
-                                    shared.ToDictionary(network => network.Id,
-                                                        network => $"{network.Operator!.MinConsensus} holders of the keys of its operator decide"));
-
-                }
-
-                var oldKey    = Kind == POIKeyKind.Signing ? NetworkOperator.SigningKey : NetworkOperator.IdentityKey;
-                var newKey    = NetworkOperator.MakeKey(Kind);
+                var oldKey    = NetworkOperator.SigningKey;
+                var newKey    = NetworkOperator.MakeKey(POIKeyKind.Signing);
                 var changed   = new List<RoamingNetwork_Id>();
                 var refused   = new Dictionary<RoamingNetwork_Id, String>();
 
@@ -121,17 +115,9 @@ namespace cloud.charging.open.RoamingHub
 
                     var network = history.Head.RoamingNetwork;
 
-                    if (NetworkOperator.HeldKeyIdOf(network, Kind) is not String heldKeyId)
+                    if (NetworkOperator.HeldKeyIdOf(network, POIKeyKind.Signing) is not String heldKeyId)
                     {
-                        refused[network.Id] = $"it names no {kind} key of the roaming network operator held here";
-                        continue;
-                    }
-
-                    // Where several hold the keys, who holds them is decided together, and an identity key says who: it
-                    // is not replaced by its holder alone (SHAREHOLDERS.md). A signing key is, see below.
-                    if (Kind == POIKeyKind.Identity && network.Operator!.MinConsensus > 1)
-                    {
-                        refused[network.Id] = $"{network.Operator.MinConsensus} holders of the keys of its operator decide: an identity key is replaced by them together, which is not built";
+                        refused[network.Id] = "it names no signing key of the roaming network operator held here";
                         continue;
                     }
 
@@ -140,63 +126,32 @@ namespace cloud.charging.open.RoamingHub
                     try
                     {
 
-                        // The new key in the place of the one held here; a key of the operator held elsewhere, e.g. offline, stays.
-                        var keys          = (Kind == POIKeyKind.Signing ? network.Operator!.SigningKeys : network.Operator!.IdentityKeys).
-                                                Where  (key => key.Id != heldKeyId).
-                                                Append (newKey).
-                                                OrderBy(key => key.Id, StringComparer.Ordinal).
+                        // Its signing keys are those of its certificates: the new one certified in the place of the one
+                        // held here; a key of the operator held elsewhere, e.g. by another holder, stays.
+                        var certificates  = network.Operator!.SigningKeyCertificates.
+                                                Where (certificate => certificate.SigningKey.Id != heldKeyId).
+                                                Concat(NetworkOperator.CertifySigningKeys([ newKey ], network.Operator.IdentityKeys, now) ?? []).
                                                 ToArray();
-
-                        // Its signing keys are those of its certificates: a new signing key certified, or after a new identity key
-                        // all of them certified anew by it, with its keys stated anew, in the same change set: a version naming
-                        // other identity keys than its key statement, or a certificate by an identity key it does not, is refused.
-                        IEnumerable<POIPublicKey> identityKeys  = Kind == POIKeyKind.Identity ? keys : network.Operator.IdentityKeys;
-
-                        var certificates  = Kind == POIKeyKind.Signing
-                                                ? network.Operator.SigningKeyCertificates.Where(certificate => certificate.SigningKey.Id != heldKeyId).
-                                                                                          Concat(NetworkOperator.CertifySigningKeys([ newKey ], identityKeys, now) ?? []).
-                                                                                          ToArray()
-                                                : NetworkOperator.CertifySigningKeys(network.Operator.SigningKeys, identityKeys, now)?.ToArray() ?? [];
-
-                        var keyStatement  = Kind == POIKeyKind.Identity
-                                                ? NetworkOperator.StateKeys(network.Id, identityKeys, now, KeyStatementValidity)
-                                                : null;
-
-                        List<RoamingNetworkChange> changes = [ RoamingNetworkChange.UpdateProperty(network.Operator, RoamingNetworkSigningKeyCertificate.JSONProperty, null, new JArray(certificates.Select(certificate => certificate.ToJSON(Embedded: true)))) ];
-
-                        if (Kind == POIKeyKind.Identity)
-                            changes.Insert(0, RoamingNetworkChange.UpdateProperty(network.Operator, POIPartyKeys.IdentityKeysProperty, null, new JArray(keys.Select(key => key.ToJSON(Embedded: true)))));
-
-                        if (keyStatement is not null)
-                            changes.Add(RoamingNetworkChange.UpdateProperty(network.Operator, RoamingNetworkKeyStatement.JSONProperty, null, keyStatement.ToJSON(Embedded: true)));
 
                         var changeSet     = NetworkOperator.Sign(
                                                 network,
                                                 network.CreateChangeSet(
-                                                    changes,
-                                                    Description: new ImmutableI18NString(I18NString.Create(Languages.en, $"The {kind} key {heldKeyId[..16]}… of the roaming network operator " +
+                                                    [ RoamingNetworkChange.UpdateProperty(network.Operator, RoamingNetworkSigningKeyCertificate.JSONProperty, null, new JArray(certificates.Select(certificate => certificate.ToJSON(Embedded: true)))) ],
+                                                    Description: new ImmutableI18NString(I18NString.Create(Languages.en, $"The signing key {heldKeyId[..16]}… of the roaming network operator " +
                                                                                                                          $"'{NetworkOperator.Id}' replaced by {newKey.Id[..16]}…."))
                                                 ),
                                                 // Where several hold the keys, a holder renews its own signing key with its
                                                 // identity key, alone: a change of its certificates only (SPECIFICATION.md of
                                                 // WWCP POI, section 4.1). Its signing key is one voice of several there.
-                                                Kind == POIKeyKind.Signing && network.Operator!.MinConsensus > 1
+                                                network.Operator.MinConsensus > 1
                                                     ? POIKeyKind.Identity
-                                                    : Kind
+                                                    : POIKeyKind.Signing
                                             );
-
-                        // The key statement and the certificates are data, signed by the signing key as well; and the new
-                        // identity key signs it as the proof that this hub holds it.
-                        if (Kind == POIKeyKind.Identity)
-                            changeSet = NetworkOperator.ProveIdentityKey(NetworkOperator.Sign(network, changeSet, POIKeyKind.Signing), newKey);
 
                         // Its commits are signed by the new signing key from this one on: the version it leads to certifies
                         // the old one no longer, and a history refuses a commit signed by a key it takes its role from.
-                        if (Kind == POIKeyKind.Signing &&
-                            NetworkOperator.CommitSignerOf(newKey.Id) is RoamingNetworkCommitSigner signer)
-                        {
+                        if (NetworkOperator.CommitSignerOf(newKey.Id) is RoamingNetworkCommitSigner signer)
                             history.Signers = [ signer ];
-                        }
 
                         var result     = history.Commit(changeSet);
 
@@ -226,14 +181,14 @@ namespace cloud.charging.open.RoamingHub
                 }
 
                 // The roaming networks made from now on name the new key.
-                NetworkOperator.ReplaceKey(Kind, oldKey.Id, newKey, now);
+                NetworkOperator.ReplaceKey(POIKeyKind.Signing, oldKey.Id, newKey, now);
 
-                var forgotten = NetworkOperator.ForgetKeysNoneNames(Kind,
+                var forgotten = NetworkOperator.ForgetKeysNoneNames(POIKeyKind.Signing,
                                                                     unreadPOIStores > 0
                                                                         ? null
-                                                                        : KeysNamedByTheNetworks(Kind));
+                                                                        : KeysNamedByTheNetworks(POIKeyKind.Signing));
 
-                var message   = $"The {kind} key of the roaming network operator '{NetworkOperator.Id}' is {newKey.Id[..16]}… now, " +
+                var message   = $"The signing key of the roaming network operator '{NetworkOperator.Id}' is {newKey.Id[..16]}… now, " +
                                 $"in {changed.Count} roaming network(s){(changed.Count > 0 ? ": " + String.Join(", ", changed) : "")}." +
                                 (refused.Count > 0
                                      ? $" Not in {String.Join("; ", refused.Select(entry => $"'{entry.Key}': {entry.Value}"))} - which keep(s) the key it names."
@@ -268,8 +223,9 @@ namespace cloud.charging.open.RoamingHub
         /// its identity keys, its certificates and its key statement together, signed by the identity key and the
         /// signing key it replaces and by the new identity key, its proof; the commit by the new signing key. A
         /// roaming network naming keys of its operator not held here, or a quorum of several, is not changed from
-        /// here: a shareholder is named by itself, at its own hub. As with an identity key replaced, the trust anchor
-        /// of a roaming network is another one afterwards.
+        /// here: a shareholder is named by itself, at its own hub. The trust anchor of a roaming network is another
+        /// one afterwards, and nothing leads there from the old one: its key statement is signed by the new identity
+        /// key alone, of another holder than the one before.
         /// </remarks>
         /// <param name="Holder">The name of the organization: nonempty, without white space around it.</param>
         /// <exception cref="ArgumentException">The name is none.</exception>

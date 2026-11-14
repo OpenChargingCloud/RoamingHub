@@ -12,7 +12,7 @@ sections 4.1 and 8.6; example A1 there plays it with three organizations in one 
 | 2 | A hub follows a roaming network of another hub | built |
 | 3 | A hub signs the commits it follows, and attests with a quorum | built |
 | 4 | A hub is admitted as a shareholder, is dismissed, resigns | built |
-| 5 | Operating under a quorum: what waits for the others | built, replacing an identity key open |
+| 5 | Operating under a quorum: what waits for the others | built |
 
 
 ## What is there, and what is missing
@@ -92,7 +92,7 @@ keys.
 - **Not where others hold keys as well.** A roaming network naming keys of its operator this hub does not hold, or a
   quorum of several, is not changed from here: a shareholder is named by itself, at its own hub.
 - **A key replaced later** names the holder the current ones name.
-- **The trust anchor changes**, as with an identity key replaced: the key statement of the new identity key is
+- **The trust anchor changes, and nothing leads there from the old one**: the key statement of the new identity key is
   signed by it alone, as a version takes no signature by a key it names no longer. Whoever pinned the old trust
   anchor needs the new one. Leading over, as example A11 of WWCP POI does - the new keys next to the old ones first,
   the old ones out afterwards - takes two holders for a while, and a quorum of two this hub would hold alone; not
@@ -127,10 +127,10 @@ served below `/poi` like the roaming networks made here. Useful alone, as a copy
 
 Open:
 
-- **An identity key replaced at once** at the operator, or its holder named (phase 1), ends the following: the key
-  statement of the new key is signed by it alone, so nothing leads there from the trust anchor here. Followed again
-  with the new trust anchor, after `unfollow`. The same for a trust anchor older than the copy the other server
-  starts this hub from.
+- **A holder named** at the operator (phase 1) ends the following: the key statement of its new identity key is
+  signed by it alone, so nothing leads there from the trust anchor here. Followed again with the new trust anchor,
+  after `unfollow`. The same for a trust anchor older than the copy the other server starts this hub from. An
+  identity key replaced does not: it is replaced in two changes, whose key statements follow one another (phase 5).
 - **A hub does not say where its roaming networks are:** the `urls` of a roaming network it makes are empty, so
   the trust anchor it serves names the URL it was asked at.
 - **What the pages show** of a roaming network followed, and a form to follow one.
@@ -237,8 +237,8 @@ Open:
 
 ## Phase 5: operating under a quorum
 
-Built, but for replacing an identity key (`RoamingHub.Pending.cs`, and `Restate` and
-`RotateNetworkOperatorKeyEverywhere` in `RoamingHub.Shareholders.cs`).
+Built (`RoamingHub.Pending.cs`, and `Restate`, `AddKey`, `DropKey` and `RotateNetworkOperatorKeyEverywhere` in
+`RoamingHub.Shareholders.cs`).
 
 - **What waits is shown.** `roamingNetworks <id> pending` at the prompt, `GET
   /api/v1/poi/shareholders/{id}/pending` over HTTP: the change sets waiting for signatures, each with what it
@@ -265,21 +265,31 @@ Built, but for replacing an identity key (`RoamingHub.Pending.cs`, and `Restate`
   specification lets a holder renew its signing keys without the others: committed at once where the roaming
   network is made, sent there by a hub following. Its commits, its signatures and its attestations are by the new
   key from then on; the old one is kept until no roaming network names it.
+- **An identity key is replaced in two changes**, as example A11 of WWCP POI does it, in every roaming network
+  that names it - those this hub makes, and those it follows whose operator it holds keys of. `roamingNetworkOperator
+  rotate identityKey`, `POST /api/v1/poi/roamingNetworkOperator/identityKey/rotate`: the new identity key next to
+  the old one first, both of the same holder, its key statement signed by the old one, which the statement before
+  names, and by the new one, its proof; then the old one out, its key statement signed with the new one, which both
+  versions name, and the signing key of the hub certified by it. So the key statements follow one another, and
+  whoever follows the roaming network gets from the trust anchor it has to the new keys. Where this hub decides
+  alone, both changes are committed at once. Where several decide, each is a change of the shareholders, the same
+  holders and the same quorum, begun by the holder itself: the key statement first, then the change set, each
+  waiting for the others. They agree with `roamingNetworks <id> rekey <holder>` at their hubs, `POST
+  …/rekey/{holder}`; the hub replacing its key is asked again, `rotate identityKey`, and goes on where it was.
+- **The next identity key.** While it is replaced, the new key is the next one of the hub, kept in
+  `identity-key-next.pem`: a roaming network that names it already is signed for with it, the others with the
+  current one. It becomes the current one, and the old one is forgotten, once no roaming network this hub serves
+  names the old one any more - when `rotate identityKey` is asked again and finds it so.
+- **A hub signs as a shareholder with the keys a roaming network names of it**, its current ones where it names
+  none yet: also while a key is replaced, or a copy has not caught up with one renewed.
 
 Open:
 
-- **Replacing an identity key under a quorum.** An identity key says who holds the keys, which is decided
-  together. `roamingNetworkOperator rotate identityKey` is refused, before a key is made, while this hub holds its
-  identity key with others in a roaming network it makes or follows: one keyring for all, so none is replaced
-  where one of them could not name the new one. To be built as example A11 of WWCP POI does it, in two changes of
-  the shareholders: the new identity key next to the old one first, both of the same holder, its key statement
-  signed by the quorum before and by the new key, its proof; then the old one out, its key statement signed with
-  the new one, which both name. So the key statements follow one another, and whoever follows the roaming network
-  gets there. Done so where one holder decides as well, it would close what is open of phases 1 and 2: an identity
-  key replaced at once ends the following.
-- **The keys a hub signs with as a shareholder are its current ones**, not those a roaming network names: while a
-  copy has not caught up with a signing key renewed, what this hub signs for that roaming network is by a key it
-  does not name yet.
+- **An identity key replaced half** stays so while a roaming network does not go on: one that can not be reached,
+  or whose other holders do not agree. The old key stays the current one of the hub then, and the new one is
+  asked for again and again; there is no way back to the old one alone.
+- **Asked for only by the holder itself.** A holder that lost its identity key is not given another one by the
+  others: they dismiss it, and admit it again.
 - **A change set approved is not looked at by the hub.** Whoever approves it has seen what `pending` shows; the
   hub signs what it is told to.
 - **What waits at the hub where the roaming network is made is not signed by it again** when it made the change

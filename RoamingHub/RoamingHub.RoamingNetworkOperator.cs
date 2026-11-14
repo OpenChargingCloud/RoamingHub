@@ -61,12 +61,18 @@ namespace cloud.charging.open.RoamingHub
     /// <see cref="RoamingHub.NameNetworkOperatorHolder"/>: a key keeps its holder, so it gets new keys.
     /// </para>
     /// <para>
-    /// Its keys are replaced in every roaming network it operates, see <see cref="RoamingHub.RotateNetworkOperatorKey"/>.
+    /// Its keys are replaced in every roaming network it operates, see <see cref="RoamingHub.RotateNetworkOperatorKeyEverywhere"/>.
     /// A key a roaming network still names after that - one the replacement did not reach - is kept beside the
     /// current one, as "signing-key-" or "identity-key-" and the first 16 hex digits of its identification, and
     /// signs for that roaming network until it names the new one as well: every private key of the directory is
     /// held, and a roaming network is signed for with the one it names. The current keys are those operator.json
     /// names.
+    /// </para>
+    /// <para>
+    /// Its identity key is replaced in two changes of every roaming network that names it (SHAREHOLDERS.md): the
+    /// new one next to the old one first, then the old one out. In between, the new one is its next identity key,
+    /// kept in "identity-key-next.pem": a roaming network that names it already is signed for with it, the others
+    /// with the current one, which it becomes once none names the old one any more.
     /// </para>
     /// </remarks>
     public sealed class HubRoamingNetworkOperator
@@ -95,6 +101,11 @@ namespace cloud.charging.open.RoamingHub
         public const String  IdentityKeyFileName    = "identity-key.pem";
 
         /// <summary>
+        /// The private P-521 key that is to be the current one, while the roaming networks get to name it.
+        /// </summary>
+        public const String  NextIdentityKeyFileName  = "identity-key-next.pem";
+
+        /// <summary>
         /// The section of the configuration file that says who it is, at the first start.
         /// </summary>
         public const String  ConfigurationSection   = "roamingNetworkOperator";
@@ -108,6 +119,11 @@ namespace cloud.charging.open.RoamingHub
         private readonly Dictionary<String, (ECPrivateKeyParameters Key, String Path)>  identityKeys  = [];
 
         private RoamingNetworkOperator networkOperator;
+
+        /// <summary>
+        /// The identity key that is to be the current one, held already, while the roaming networks get to name it.
+        /// </summary>
+        private String? nextIdentityKeyId;
 
         #endregion
 
@@ -155,6 +171,21 @@ namespace cloud.charging.open.RoamingHub
             => IdentityKey.Holder;
 
         /// <summary>
+        /// The public half of its next identity key, naming the same holder: the one that is to replace the current
+        /// one, while the roaming networks get to name it. Null while none is replaced.
+        /// </summary>
+        public POIPublicKey?           NextIdentityKey
+        {
+            get
+            {
+                lock (keysLock)
+                    return nextIdentityKeyId is String keyId && identityKeys.TryGetValue(keyId, out var held)
+                               ? POIPublicKey.From(held.Key, Holder: Holder)
+                               : null;
+            }
+        }
+
+        /// <summary>
         /// The identifications of the keys held besides the current ones: those a roaming network still names.
         /// </summary>
         public IReadOnlyList<String>   KeptKeyIds
@@ -163,8 +194,8 @@ namespace cloud.charging.open.RoamingHub
             {
                 lock (keysLock)
                 {
-                    var current = new[] { CurrentKeyId(POIKeyKind.Signing), CurrentKeyId(POIKeyKind.Identity) };
-                    return [ .. signingKeys.Keys.Concat(identityKeys.Keys).Except(current).Order(StringComparer.Ordinal) ];
+                    var current = new[] { CurrentKeyId(POIKeyKind.Signing), CurrentKeyId(POIKeyKind.Identity), nextIdentityKeyId };
+                    return [ .. signingKeys.Keys.Concat(identityKeys.Keys).Where(keyId => !current.Contains(keyId)).Order(StringComparer.Ordinal) ];
                 }
             }
         }
@@ -408,38 +439,89 @@ namespace cloud.charging.open.RoamingHub
         #endregion
 
 
-        #region As a shareholder: SigningKeyIdIn / CommitSignerIn / CertifySigningKeyFor / StateKeysOf / CoSign / SignAsShareholder
+        #region As a shareholder: IdentityKeyIdIn / SigningKeyIdIn / CommitSignerIn / CertifySigningKeyFor / StateKeysOf / CoSign / SignAsShareholder
 
         // The organization this hub is holds one voice among those who decide as a roaming network operator, its own
-        // or another one's (SHAREHOLDERS.md): with its current keys, whichever operator a roaming network names. What
-        // it signs so is asked for by somebody, never done by itself.
+        // or another one's (SHAREHOLDERS.md): with the keys a roaming network names of it, its current ones where it
+        // names none yet. What it signs so is asked for by somebody, never done by itself.
 
         /// <summary>
-        /// This hub as a shareholder: its holder name with its current identity key and signing key. Kept in here, as
-        /// it holds the private halves.
+        /// This hub as a shareholder: its holder name with the given identity key and signing key held here, its
+        /// current ones otherwise. Kept in here, as it holds the private halves.
         /// </summary>
-        /// <exception cref="InvalidOperationException">Its keys name no holder.</exception>
-        private RoamingShareholder Shareholder()
+        /// <exception cref="InvalidOperationException">Its keys name no holder, or a key is not held here.</exception>
+        private RoamingShareholder Shareholder(String?  IdentityKeyId   = null,
+                                               String?  SigningKeyId    = null)
         {
 
             lock (keysLock)
             {
 
                 var holder    = Holder ?? throw new InvalidOperationException($"The keys of the roaming network operator '{Id}' name no holder: a shareholder is one by its name.");
-                var identity  = HeldKeys(POIKeyKind.Identity)[CurrentKeyId(POIKeyKind.Identity)].Key;
-                var signing   = HeldKeys(POIKeyKind.Signing) [CurrentKeyId(POIKeyKind.Signing)]. Key;
+
+                if (!HeldKeys(POIKeyKind.Identity).TryGetValue(IdentityKeyId ?? CurrentKeyId(POIKeyKind.Identity), out var identity))
+                    throw new InvalidOperationException($"The identity key '{IdentityKeyId}' is not held here, by the roaming network operator '{Id}'.");
+
+                if (!HeldKeys(POIKeyKind.Signing). TryGetValue(SigningKeyId  ?? CurrentKeyId(POIKeyKind.Signing),  out var signing))
+                    throw new InvalidOperationException($"The signing key '{SigningKeyId}' is not held here, by the roaming network operator '{Id}'.");
 
                 return new RoamingShareholder(holder,
-                                              COSEKeyPair.NewES512(KeyPairOf(identity)),
-                                              COSEKeyPair.NewES256(KeyPairOf(signing)));
+                                              COSEKeyPair.NewES512(KeyPairOf(identity.Key)),
+                                              COSEKeyPair.NewES256(KeyPairOf(signing. Key)));
 
             }
 
         }
 
+        /// <summary>
+        /// This hub as a shareholder of the operator of the given roaming network: with the keys held here it names,
+        /// its current ones where it names none yet, or where no roaming network is given.
+        /// </summary>
+        private RoamingShareholder ShareholderIn(RoamingNetwork? RoamingNetwork)
+
+            => RoamingNetwork is null
+                   ? Shareholder()
+                   : Shareholder(IdentityKeyIdIn(RoamingNetwork),
+                                 SigningKeyIdIn (RoamingNetwork));
+
         private static AsymmetricCipherKeyPair KeyPairOf(ECPrivateKeyParameters Key)
 
             => new (new ECPublicKeyParameters(Key.Parameters.G.Multiply(Key.D).Normalize(), Key.Parameters), Key);
+
+        /// <summary>
+        /// The identification of the identity key held here that the operator of the given roaming network names,
+        /// whoever that operator is: the next one where it names that, the current one otherwise; null where it
+        /// names none.
+        /// </summary>
+        public String? IdentityKeyIdIn(RoamingNetwork RoamingNetwork)
+        {
+
+            if (RoamingNetwork.Operator is not RoamingNetworkOperator networkOperatorOfIt)
+                return null;
+
+            lock (keysLock)
+                return PreferredOf(POIKeyKind.Identity, networkOperatorOfIt.IdentityKeys.Select(key => key.Id));
+
+        }
+
+        /// <summary>
+        /// The identification of the identity key held here that signs the given key statement following the one of
+        /// the given roaming network: one both name, as a key statement is signed by keys the one before names; one
+        /// only the statement names where there is none, as of a hub asking to be admitted; null where it names none
+        /// held here.
+        /// </summary>
+        public String? IdentityKeyIdFor(RoamingNetwork              RoamingNetwork,
+                                        RoamingNetworkKeyStatement  KeyStatement)
+        {
+
+            var stated  = KeyStatement.IdentityKeys.Select(key => key.Id).ToArray();
+            var named   = RoamingNetwork.Operator?.IdentityKeys.Select(key => key.Id).ToHashSet(StringComparer.Ordinal) ?? [];
+
+            lock (keysLock)
+                return PreferredOf(POIKeyKind.Identity, stated.Where(named.Contains))
+                    ?? PreferredOf(POIKeyKind.Identity, stated);
+
+        }
 
         /// <summary>
         /// The identification of the signing key held here that the operator of the given roaming network certifies,
@@ -452,16 +534,7 @@ namespace cloud.charging.open.RoamingHub
                 return null;
 
             lock (keysLock)
-            {
-
-                var held   = HeldKeys(POIKeyKind.Signing);
-                var named  = networkOperatorOfIt.SigningKeys.Select(key => key.Id).Where(held.ContainsKey).ToArray();
-
-                return named.Length == 0
-                           ? null
-                           : named.Contains(CurrentKeyIdOrNull(POIKeyKind.Signing)) ? CurrentKeyIdOrNull(POIKeyKind.Signing) : named[0];
-
-            }
+                return PreferredOf(POIKeyKind.Signing, networkOperatorOfIt.SigningKeys.Select(key => key.Id));
 
         }
 
@@ -485,18 +558,23 @@ namespace cloud.charging.open.RoamingHub
         }
 
         /// <summary>
-        /// The certificate of the current signing key of this hub as one of the given roaming network operator, by its
-        /// current identity key: what it hands to the others when it asks to hold the keys of that operator with them.
+        /// The certificate of a signing key of this hub as one of the given roaming network operator, by one of its
+        /// identity keys: what it hands to the others when it asks to hold the keys of that operator with them, or
+        /// renews one of its keys.
         /// </summary>
         /// <param name="RoamingNetworkOperatorId">The roaming network operator.</param>
         /// <param name="Now">When it is signed.</param>
+        /// <param name="IdentityKeyId">The identity key held here that signs it, the current one otherwise.</param>
+        /// <param name="SigningKeyId">The signing key held here it certifies, the current one otherwise.</param>
         public RoamingNetworkSigningKeyCertificate CertifySigningKeyFor(RoamingNetworkOperator_Id  RoamingNetworkOperatorId,
-                                                                        DateTimeOffset             Now)
+                                                                        DateTimeOffset             Now,
+                                                                        String?                    IdentityKeyId   = null,
+                                                                        String?                    SigningKeyId    = null)
 
-            => Shareholder().CertifySigningKey(RoamingNetworkOperatorId, Now);
+            => Shareholder(IdentityKeyId, SigningKeyId).CertifySigningKey(RoamingNetworkOperatorId, Now);
 
         /// <summary>
-        /// A key statement of the given roaming network operator in the given roaming network, signed with the current
+        /// A key statement of the given roaming network operator in the given roaming network, signed with an
         /// identity key of this hub as the first of its quorum: who holds its identity keys, and how many decide.
         /// </summary>
         /// <param name="RoamingNetworkId">The roaming network.</param>
@@ -505,47 +583,55 @@ namespace cloud.charging.open.RoamingHub
         /// <param name="MinConsensus">How many of them decide.</param>
         /// <param name="Now">When it is signed.</param>
         /// <param name="Validity">How long it is valid.</param>
+        /// <param name="IdentityKeyId">The identity key held here that signs it, the current one otherwise.</param>
         public RoamingNetworkKeyStatement StateKeysOf(RoamingNetwork_Id          RoamingNetworkId,
                                                       RoamingNetworkOperator_Id  RoamingNetworkOperatorId,
                                                       IEnumerable<POIPublicKey>  IdentityKeys,
                                                       Byte                       MinConsensus,
                                                       DateTimeOffset             Now,
-                                                      TimeSpan                   Validity)
+                                                      TimeSpan                   Validity,
+                                                      String?                    IdentityKeyId   = null)
 
-            => Shareholder().StateKeys(RoamingNetworkId,
-                                       RoamingNetworkOperatorId,
-                                       IdentityKeys,
-                                       MinConsensus,
-                                       Now,
-                                       Now + Validity);
+            => Shareholder(IdentityKeyId).StateKeys(RoamingNetworkId,
+                                                    RoamingNetworkOperatorId,
+                                                    IdentityKeys,
+                                                    MinConsensus,
+                                                    Now,
+                                                    Now + Validity);
 
         /// <summary>
-        /// The given key statement with the signature of the current identity key of this hub as well.
+        /// The given key statement with the signature of an identity key of this hub as well: the given one held
+        /// here, the current one otherwise.
         /// </summary>
-        public RoamingNetworkKeyStatement CoSign(RoamingNetworkKeyStatement KeyStatement)
+        public RoamingNetworkKeyStatement CoSign(RoamingNetworkKeyStatement  KeyStatement,
+                                                 String?                     IdentityKeyId   = null)
 
-            => Shareholder().CoSign(KeyStatement);
+            => Shareholder(IdentityKeyId).CoSign(KeyStatement);
 
         /// <summary>
-        /// The given change set signed with the current key of the given kind of this hub, as one of the holders of
-        /// the keys of a roaming network operator, whoever that operator is.
+        /// The given change set signed with a key of the given kind of this hub, as one of the holders of the keys
+        /// of a roaming network operator, whoever that operator is: the one the given roaming network names, the
+        /// current one where it names none yet.
         /// </summary>
         public RoamingNetworkChangeSet SignAsShareholder(RoamingNetworkChangeSet  ChangeSet,
-                                                         POIKeyKind               Kind   = POIKeyKind.Signing)
+                                                         POIKeyKind               Kind             = POIKeyKind.Signing,
+                                                         RoamingNetwork?          RoamingNetwork   = null)
 
             => Kind == POIKeyKind.Signing
-                   ? Shareholder().SignWithSigningKey (ChangeSet)
-                   : Shareholder().SignWithIdentityKey(ChangeSet);
+                   ? ShareholderIn(RoamingNetwork).SignWithSigningKey (ChangeSet)
+                   : ShareholderIn(RoamingNetwork).SignWithIdentityKey(ChangeSet);
 
         /// <summary>
-        /// The withdrawal of the given change set waiting for signatures, signed with the current signing key of this
-        /// hub as one of the holders of the keys of a roaming network operator that owns one of its changes.
+        /// The withdrawal of the given change set waiting for signatures, signed with the signing key of this hub the
+        /// given roaming network names, as one of the holders of the keys of a roaming network operator that owns one
+        /// of its changes.
         /// </summary>
         public RoamingNetworkChangeSetWithdrawal WithdrawAsShareholder(RoamingNetworkChangeSet  ChangeSet,
-                                                                       DateTimeOffset           Now)
+                                                                       DateTimeOffset           Now,
+                                                                       RoamingNetwork?          RoamingNetwork   = null)
         {
 
-            var shareholder = Shareholder();
+            var shareholder = ShareholderIn(RoamingNetwork);
 
             return RoamingNetworkChangeSetWithdrawal.Create(ChangeSet,
                                                             shareholder.SigningKey.Private,
@@ -620,22 +706,16 @@ namespace cloud.charging.open.RoamingHub
         #region (private) HeldIdentityKeyOf(IdentityKeys)
 
         /// <summary>
-        /// The private key of one of the given identity keys held here, the current one where they name it, or null.
+        /// The private key of one of the given identity keys held here, the next one where they name it, the current
+        /// one otherwise, or null.
         /// </summary>
         private ECPrivateKeyParameters? HeldIdentityKeyOf(IReadOnlyCollection<POIPublicKey> IdentityKeys)
         {
 
             lock (keysLock)
-            {
-
-                var held   = HeldKeys(POIKeyKind.Identity);
-                var named  = IdentityKeys.Select(identityKey => identityKey.Id).Where(held.ContainsKey).ToArray();
-
-                return named.Length == 0
-                           ? null
-                           : held[named.Contains(CurrentKeyIdOrNull(POIKeyKind.Identity)) ? CurrentKeyIdOrNull(POIKeyKind.Identity)! : named[0]].Key;
-
-            }
+                return PreferredOf(POIKeyKind.Identity, IdentityKeys.Select(identityKey => identityKey.Id)) is String keyId
+                           ? HeldKeys(POIKeyKind.Identity)[keyId].Key
+                           : null;
 
         }
 
@@ -674,6 +754,59 @@ namespace cloud.charging.open.RoamingHub
                 HeldKeys(Kind)[publicKey.Id] = (key, path);
 
             return publicKey;
+
+        }
+
+        #endregion
+
+        #region (internal) MakeNextIdentityKey() / TakeNextIdentityKey(Now)
+
+        /// <summary>
+        /// The next identity key of this hub, naming the same holder: made now and kept beside the current one, or
+        /// the one made before, while the roaming networks get to name it.
+        /// </summary>
+        internal POIPublicKey MakeNextIdentityKey()
+        {
+
+            lock (keysLock)
+            {
+
+                if (NextIdentityKey is POIPublicKey next)
+                    return next;
+
+                var key        = NewKey(COSECurve.P521);
+                var publicKey  = POIPublicKey.From(key, Holder: Holder);
+                var path       = Path.Combine(Directory, NextIdentityKeyFileName);
+
+                WriteKey(path, key);
+
+                identityKeys[publicKey.Id]  = (key, path);
+                nextIdentityKeyId           = publicKey.Id;
+
+                return publicKey;
+
+            }
+
+        }
+
+        /// <summary>
+        /// The next identity key the current one from now on, in the place of the one so far: named by operator.json,
+        /// and so by every roaming network made from now on. Once no roaming network names the old one any more.
+        /// </summary>
+        internal void TakeNextIdentityKey(DateTimeOffset Now)
+        {
+
+            lock (keysLock)
+            {
+
+                if (NextIdentityKey is not POIPublicKey next)
+                    return;
+
+                ReplaceKey(POIKeyKind.Identity, CurrentKeyId(POIKeyKind.Identity), next, Now);
+
+                nextIdentityKeyId = null;
+
+            }
 
         }
 
@@ -789,7 +922,7 @@ namespace cloud.charging.open.RoamingHub
 
                 foreach (var (keyId, (_, path)) in held.ToArray())
                 {
-                    if (keyId != currentId && StillNamed is not null && !StillNamed.Contains(keyId))
+                    if (keyId != currentId && keyId != nextIdentityKeyId && StillNamed is not null && !StillNamed.Contains(keyId))
                     {
                         File.Delete(path);
                         held.Remove(keyId);
@@ -840,32 +973,45 @@ namespace cloud.charging.open.RoamingHub
             }
 
             lock (keysLock)
-            {
-
-                var held   = HeldKeys(Kind);
-                var named  = (Kind == POIKeyKind.Signing ? networkOperatorOfIt.SigningKeys : networkOperatorOfIt.IdentityKeys).
-                                 Select(key => key.Id).
-                                 Where (held.ContainsKey).
-                                 ToArray();
-
-                if (named.Length == 0)
-                    return null;
-
-                var keyId  = named.Contains(CurrentKeyIdOrNull(Kind)) ? CurrentKeyIdOrNull(Kind)! : named[0];
-
-                return (held[keyId].Key, keyId);
-
-            }
+                return PreferredOf(Kind,
+                                   (Kind == POIKeyKind.Signing ? networkOperatorOfIt.SigningKeys : networkOperatorOfIt.IdentityKeys).
+                                       Select(key => key.Id)) is String keyId
+                           ? (HeldKeys(Kind)[keyId].Key, keyId)
+                           : null;
 
         }
 
         #endregion
 
-        #region (private) HeldKeys(Kind) / CurrentKeyId(Kind) / CurrentKey(Kind)
+        #region (private) HeldKeys(Kind) / PreferredOf(Kind, Named) / CurrentKeyId(Kind) / CurrentKey(Kind)
 
         private Dictionary<String, (ECPrivateKeyParameters Key, String Path)> HeldKeys(POIKeyKind Kind)
 
             => Kind == POIKeyKind.Signing ? signingKeys : identityKeys;
+
+        /// <summary>
+        /// The key of the given kind held here among the given ones that signs: the next identity key where they name
+        /// it, as it is the one that stays; the current key otherwise; any other one held where they name neither;
+        /// null where none of them is held here. Locked by the caller.
+        /// </summary>
+        private String? PreferredOf(POIKeyKind           Kind,
+                                    IEnumerable<String>  Named)
+        {
+
+            var held   = HeldKeys(Kind);
+            var named  = Named.Where(held.ContainsKey).ToArray();
+
+            if (named.Length == 0)
+                return null;
+
+            if (Kind == POIKeyKind.Identity && nextIdentityKeyId is String next && named.Contains(next))
+                return next;
+
+            return CurrentKeyIdOrNull(Kind) is String current && named.Contains(current)
+                       ? current
+                       : named[0];
+
+        }
 
         /// <summary>
         /// The identification of the current key of the given kind: the first one operator.json names that is held here.
@@ -932,9 +1078,20 @@ namespace cloud.charging.open.RoamingHub
             foreach (var (kind, pattern) in new[] { (POIKeyKind.Signing, "signing-key*.pem"), (POIKeyKind.Identity, "identity-key*.pem") })
                 foreach (var path in System.IO.Directory.GetFiles(Directory, pattern).Order(StringComparer.Ordinal))
                 {
-                    var key = ReadKey(path);
-                    HeldKeys(kind)[POIPublicKey.From(key).Id] = (key, path);
+
+                    var key    = ReadKey(path);
+                    var keyId  = POIPublicKey.From(key).Id;
+
+                    HeldKeys(kind)[keyId] = (key, path);
+
+                    if (String.Equals(Path.GetFileName(path), NextIdentityKeyFileName, StringComparison.OrdinalIgnoreCase))
+                        nextIdentityKeyId = keyId;
+
                 }
+
+            // Taken as the current one already, when this hub ended before its file was put in its place.
+            if (nextIdentityKeyId == CurrentKeyIdOrNull(POIKeyKind.Identity))
+                nextIdentityKeyId = null;
 
         }
 

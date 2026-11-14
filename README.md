@@ -681,16 +681,22 @@ and certificates below them, `…/TSMs/{id}/TSs` and `…/CABs/{id}/TSCs`; the w
 interface has a section for each.
 
 A key of the operator is replaced by a new one in every roaming network it
-operates (`RoamingHub.RoamingNetworkOperator.Changes.cs`):
-`RotateNetworkOperatorKey(Signing | Identity)` in C#,
+operates (`RoamingHub.RoamingNetworkOperator.Changes.cs`,
+`RoamingHub.Shareholders.cs`):
+`RotateNetworkOperatorKeyEverywhere(Signing | Identity)` in C#,
 `POST /api/v1/poi/roamingNetworkOperator/signingKey/rotate` or
 `…/identityKey/rotate`, or `roamingNetworkOperator rotate signingKey` (or
-`identityKey`) at the command line. Each roaming network gets a change set the
-key replaced signs - a signing key by the old signing key, an identity key by
-the old identity key and, for the key statement made anew, the signing key - and its commits are signed by the new signing key from
-then on; `operator.json` names the new key, so every roaming network made
-afterwards does. The old key is forgotten, its file deleted, once no roaming
-network the hub serves names it any more. A roaming network whose history
+`identityKey`) at the command line. A signing key by one change set the old
+signing key signs, and its commits are signed by the new signing key from
+then on. An identity key in two: the new one next to the old one, signed by
+the old one, the signing key and the new one, its proof; then the old one out,
+signed by the new one, which certifies the signing key from then on. So one
+key statement leads to the next, and whoever follows the roaming network by
+its old trust anchor follows on. `operator.json` names the new key, so every
+roaming network made afterwards does. The old key is forgotten, its file
+deleted, once no roaming network the hub serves names it any more; a new
+identity key is the next one of the hub until then, in
+`identity-key-next.pem`. A roaming network whose history
 refuses the change keeps it, and so do all while a directory below `poi/` could
 not be read at the start, whose network may name it: it is kept beside the
 current one as `signing-key-` or `identity-key-` and the first 16 hex digits of
@@ -712,8 +718,9 @@ the new signing key. A hub made before its keys named a holder gets one so.
 Named so already, no keys are made and only a roaming network that refused it
 before is tried again. A roaming network naming keys of its operator not held
 here, or a quorum of several holders, is not changed: a holder is named at its
-own hub. As with an identity key replaced, the trust anchor of each roaming
-network is another one afterwards, and whoever pinned the old one needs it.
+own hub. The trust anchor of each roaming network is another one afterwards,
+and nothing leads there from the old one: whoever pinned that needs the new
+one.
 
 A hub **follows a roaming network of another server** (`RoamingHub.Follow.cs`):
 a copy of it, kept current over the WebSocket of its history there, stored
@@ -798,10 +805,19 @@ Where several hold the keys, each **renews its own signing key alone**:
 `RotateNetworkOperatorKeyEverywhere(Signing)` replaces the signing key of this
 hub in every roaming network it makes and in every one it follows whose
 operator it holds keys of - there by a change set of its own certificate,
-signed by its identity key, sent where the roaming network is followed. An
-identity key says who holds the keys: `rotate identityKey` is refused, before
-a key is made, while this hub holds it with others in a roaming network it
-makes or follows.
+signed by its identity key, sent where the roaming network is followed.
+
+Its **identity key** says who holds the keys, which is decided together: the
+two changes replacing it, `rotate identityKey`, are changes of the
+shareholders there, the same holders and the same quorum, asked for by the
+holder itself and waiting for the others - the key statement first, then the
+change set. They agree with `roamingNetworks <id> rekey <holder>` or `POST
+/api/v1/poi/shareholders/{id}/rekey/{holder}` at their hubs, `poi:edit`; the
+hub replacing its key is asked again and goes on where it was, in every
+roaming network it makes or follows that names its key. Its answer says where
+it waits, `"waiting"`, and for what. The new key is the current one of the hub
+once none names the old one any more; until then the hub signs for each
+roaming network with the one that names.
 
 A head whose commit a hub signed so it **attests** from then on, by itself,
 while it is the head: at once, and again whenever its newest attestation of it

@@ -116,7 +116,7 @@ namespace cloud.charging.open.RoamingHub.Tests
             Assert.That(POITests.AddedParty(RoamingHub, "QA", "DE*QAC").Success, Is.True);
 
             var old       = RoamingHub.NetworkOperator.SigningKey;
-            var result    = RoamingHub.RotateNetworkOperatorKey(POIKeyKind.Signing);
+            var result    = RoamingHub.RotateNetworkOperatorSigningKey();
             var current   = RoamingHub.NetworkOperator.SigningKey;
 
             var qa        = HistoryOf(RoamingHub, "QA");
@@ -182,10 +182,12 @@ namespace cloud.charging.open.RoamingHub.Tests
         #region TheIdentityKeyIsReplacedInEveryRoamingNetwork()
 
         /// <summary>
-        /// By a change set the old identity key signs; the signing key and the identification stay.
+        /// In two changes, as one key statement leads to the next: the new identity key next to the old one, by a
+        /// change set the old one signs and the new one, its proof; then the old one out, by a change set the new one
+        /// signs. The signing key and the identification stay; the signing key is certified by the new one.
         /// </summary>
         [Test]
-        public void TheIdentityKeyIsReplacedInEveryRoamingNetwork()
+        public async Task TheIdentityKeyIsReplacedInEveryRoamingNetwork()
         {
 
             Made(RoamingHub, "QA");
@@ -194,22 +196,31 @@ namespace cloud.charging.open.RoamingHub.Tests
             var old         = RoamingHub.NetworkOperator.IdentityKey;
             var signingKey  = RoamingHub.NetworkOperator.SigningKey;
 
-            var result      = RoamingHub.RotateNetworkOperatorKey(POIKeyKind.Identity);
+            var result      = await RoamingHub.RotateNetworkOperatorKeyEverywhere(POIKeyKind.Identity);
             var current     = RoamingHub.NetworkOperator.IdentityKey;
-            var rotation    = HistoryOf(RoamingHub, "QA").Head.Commit;
+            var history     = HistoryOf(RoamingHub, "QA");
+            var rotation    = history.Head.Commit;
+
+            Assert.That(history.TryGetCommit(rotation.ParentId!.Value, out var added),  Is.True, "no commit before the last one");
 
             Assert.Multiple(() => {
 
-                Assert.That(result.Success,                                                           Is.True, result.Message);
+                Assert.That(result.Complete,                                                          Is.True, result.Message);
+                Assert.That(RoamingHub.NetworkOperator.NextIdentityKey,                               Is.Null);
                 Assert.That(current.Id,                                                               Is.Not.EqualTo(old.Id));
                 Assert.That(current.Key.Curve,                                                        Is.EqualTo(COSECurve.P521));
                 Assert.That(HistoryOf(RoamingHub, "QA").Head.RoamingNetwork.Operator!.IdentityKeys.Select(key => key.Id),  Is.EqualTo(new[] { current.Id }));
 
-                // Signed by the identity key it replaces, by the signing key for the key statement made anew, which the
-                // new identity key signs, and by the new identity key, as the proof that the hub holds it.
-                Assert.That(rotation.ChangeSet!.Signatures.Select(signature => signature.KeyId),      Is.EqualTo(new[] { old.Id, signingKey.Id, current.Id }));
+                // The new one next to the old one: signed by the identity key it is to replace, by the signing key for the
+                // key statement made anew, and by the new identity key, as the proof that the hub holds it.
+                Assert.That(rotation.Revision,                                                        Is.EqualTo(2));
+                Assert.That(added!.ChangeSet!.Signatures.Select(signature => signature.KeyId),        Is.EquivalentTo(new[] { old.Id, signingKey.Id, current.Id }));
+
+                // The old one out: signed by the new one, which the version before names already.
+                Assert.That(rotation.ChangeSet!.Signatures.Select(signature => signature.KeyId),      Is.EquivalentTo(new[] { current.Id, signingKey.Id }));
                 Assert.That(HistoryOf(RoamingHub, "QA").Head.RoamingNetwork.Operator!.KeyStatement?.Signatures.Single().KeyId,  Is.EqualTo(current.Id));
                 Assert.That(HistoryOf(RoamingHub, "QA").Head.RoamingNetwork.Operator!.KeyStatement?.IdentityKeys.Select(key => key.Id),  Is.EqualTo(new[] { current.Id }));
+                Assert.That(HistoryOf(RoamingHub, "QA").Head.RoamingNetwork.Operator!.SigningKeyCertificates.Single().TryVerify([ current ], out _, out _),  Is.True, "the signing key certified by the new identity key");
 
 
                 Assert.That(RoamingHub.NetworkOperator.Id,                                            Is.EqualTo(id));
@@ -278,8 +289,8 @@ namespace cloud.charging.open.RoamingHub.Tests
 
             Made(RoamingHub, "QA");
 
-            Assert.That(RoamingHub.RotateNetworkOperatorKey(POIKeyKind.Signing). Success, Is.True);
-            Assert.That(RoamingHub.RotateNetworkOperatorKey(POIKeyKind.Identity).Success, Is.True);
+            Assert.That(RoamingHub.RotateNetworkOperatorSigningKey(). Success, Is.True);
+            Assert.That((await RoamingHub.RotateNetworkOperatorKeyEverywhere(POIKeyKind.Identity)).Complete, Is.True);
 
             var signingKey   = RoamingHub.NetworkOperator.SigningKey.Id;
             var identityKey  = RoamingHub.NetworkOperator.IdentityKey.Id;
@@ -338,7 +349,7 @@ namespace cloud.charging.open.RoamingHub.Tests
             {
 
                 old          = again.NetworkOperator.SigningKey.Id;
-                var result   = again.RotateNetworkOperatorKey(POIKeyKind.Signing);
+                var result   = again.RotateNetworkOperatorSigningKey();
                 current      = again.NetworkOperator.SigningKey.Id;
 
                 Assert.Multiple(() => {
@@ -544,7 +555,7 @@ namespace cloud.charging.open.RoamingHub.Tests
 
             Made(RoamingHub, "DEV");
 
-            var rotated         = RoamingHub.RotateNetworkOperatorKey(POIKeyKind.Signing);
+            var rotated         = RoamingHub.RotateNetworkOperatorSigningKey();
 
             Assert.Multiple(() => {
 
