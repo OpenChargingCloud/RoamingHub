@@ -741,6 +741,22 @@ followed, whether it is connected and what went wrong last. It is the second
 step of several hubs operating one roaming network together, see
 [SHAREHOLDERS.md](SHAREHOLDERS.md).
 
+A hub holding keys of the operator of a roaming network it follows **signs a
+commit of it when told to**: `SignFollowedCommit(roamingNetworkId, commitId?)`,
+`POST /api/v1/poi/followed/{id}/signatures` with `{"commit"?: "…"}`, or
+`roamingNetworks <id> sign [<commit>]`, `poi:edit` - its head unless a commit
+is named, in the role of the roaming network operator, with the signing key of
+this hub that operator certifies. The signature is sent where the roaming
+network is followed and added to the copy here; with as many holders signing as
+the quorum requires, whoever checks the roaming network takes the commit. 201
+once it is signed and taken there, 200 where the commit has a signature of this
+hub already, 404 where the roaming network is not followed or has no such
+commit here, 409 where this hub holds no key of its operator, 502 where the
+server followed did not take it. A hub signs none by itself. The hub of the
+operator takes such a signature from everybody, below `/poi`, as it is one only
+by a signing key the version of the commit certifies. `roamingNetworks <id>`
+says who signed its head as its operator, and how many holders decide.
+
 Everything else in a roaming network comes as change sets, which the hub takes
 from everybody, over HTTP and over the WebSocket of its history: what a change
 set may change is decided by the signatures of its owners, which every commit

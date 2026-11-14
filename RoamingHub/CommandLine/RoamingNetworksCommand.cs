@@ -112,6 +112,9 @@ namespace cloud.charging.open.RoamingHub.CommandLine
             if (rest[1].Equals("add", StringComparison.OrdinalIgnoreCase))
                 return Task.FromResult(AddParty(roamingNetworkId, rest[2..]));
 
+            if (rest[1].Equals("sign", StringComparison.OrdinalIgnoreCase) && rest.Length <= 3)
+                return Sign(roamingNetworkId, rest.Length == 3 ? rest[2] : null);
+
             return Task.FromResult<String[]>([ $"Usage: {Help()}" ]);
 
         }
@@ -122,10 +125,10 @@ namespace cloud.charging.open.RoamingHub.CommandLine
 
         public override String Help()
 
-            => $"{CommandName} [add <id> [<name>] | follow <trust anchor> [at <url>] | unfollow <id> | <id> [add chargingStationOperator|eMobilityProvider|gridOperator|parkingOperator|" +
+            => $"{CommandName} [add <id> [<name>] | follow <trust anchor> [at <url>] | unfollow <id> | <id> [sign [<commit>] | add chargingStationOperator|eMobilityProvider|gridOperator|parkingOperator|" +
                 "chargingStationManufacturer|energyMeterManufacturer|transparencySoftwareManufacturer|conformityAssessmentBody <id> " +
                 "signingKey <key> identityKey <key> [signingKey <key> | identityKey <key> ...] [homepage <url>] [<name>]]] - the roaming networks of the points of interest, " +
-                "a new one operated by this hub, one of another server followed by its trust anchor or followed no longer, one of them, and a new party of one";
+                "a new one operated by this hub, one of another server followed by its trust anchor or followed no longer, one of them, a commit of one followed signed as a holder of the keys of its operator, and a new party of one";
 
         #endregion
 
@@ -161,6 +164,39 @@ namespace cloud.charging.open.RoamingHub.CommandLine
             return lines.Count > 0
                        ? [ .. lines ]
                        : [ $"This hub serves no roaming network yet: '{CommandName} add <id> [<name>]' makes one, operated by this hub, '{cli.Hub.NetworkOperator.Id}'." ];
+
+        }
+
+        #endregion
+
+        #region (private) Sign(RoamingNetworkId, CommitId)
+
+        private async Task<String[]> Sign(RoamingNetwork_Id  RoamingNetworkId,
+                                          String?            CommitId)
+        {
+
+            if (!cli.MayDo(Permission.Edit(HubAccess.POI), $"{CommandName} {RoamingNetworkId} sign", out var refused))
+                return [ refused ];
+
+            RoamingNetworkCommit_Id? commitId = null;
+
+            if (CommitId is not null)
+            {
+
+                if (!RoamingNetworkCommit_Id.TryParse(CommitId, out var parsed))
+                    return [ $"'{CommitId}' is no identification of a commit. Usage: {Help()}" ];
+
+                commitId = parsed;
+
+            }
+
+            var result = await cli.Hub.SignFollowedCommit(RoamingNetworkId, commitId);
+
+            if (result.Status == RoamingNetworkCommitSigningStatus.Signed)
+                cli.Hub.Log.Notice($"{cli.Caller.Asker} had the commit '{result.Commit?.Id}' of the roaming network '{RoamingNetworkId}' signed.",
+                                   cli.Caller.Tags("poi", "follow", "security"));
+
+            return [ result.Message ];
 
         }
 
@@ -231,10 +267,19 @@ namespace cloud.charging.open.RoamingHub.CommandLine
                 return [ $"This hub serves no roaming network '{RoamingNetworkId}'." ];
 
             var network  = history.Head.RoamingNetwork;
+            var signedBy = RoamingHub.OperatorSignersOf(history.Head.Commit, network);
             var lines    = new List<String> {
                                $"{network.Id}  revision {history.Head.Commit.Revision}, commit {history.Head.Commit.Id}  {network.Name.FirstText()}".TrimEnd(),
-                               $"  {OperatedBy(network)}"
+                               $"  {OperatedBy(network)}",
+                               $"  its head is signed by {(signedBy.Count > 0 ? String.Join(", ", signedBy) : "nobody")} as its operator; {network.Operator?.MinConsensus ?? 1} of " +
+                               $"{(network.Operator is not null ? POIPartyKeys.Holders(network.Operator.IdentityKeys).Count : 0)} holder(s) of its keys decide"
                            };
+
+            if (cli.Hub.FollowedRoamingNetworks.FirstOrDefault(followed => followed.Id == RoamingNetworkId) is FollowedRoamingNetwork followedAt)
+                lines.Add($"  followed at {followedAt.URL}, {(followedAt.IsConnected ? "connected" : "not connected")}" +
+                          (cli.Hub.NetworkOperator.SigningKeyIdIn(network) is not null
+                               ? $"; this hub holds keys of its operator: '{CommandName} {network.Id} sign' signs its head"
+                               : "; this hub holds no key of its operator"));
 
             foreach (var (partyId, party) in network.Parties)
                 lines.Add($"  {partyId.EntityType} {partyId.EntityId}  " +

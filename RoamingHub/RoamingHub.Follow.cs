@@ -93,6 +93,65 @@ namespace cloud.charging.open.RoamingHub
 
 
     /// <summary>
+    /// What became of signing a commit of a roaming network followed.
+    /// </summary>
+    public enum RoamingNetworkCommitSigningStatus
+    {
+
+        /// <summary>
+        /// Signed, and the signature taken by the server followed.
+        /// </summary>
+        Signed,
+
+        /// <summary>
+        /// The commit has a signature of this hub already.
+        /// </summary>
+        AlreadySigned,
+
+        /// <summary>
+        /// This hub follows no such roaming network, or has no copy of it yet.
+        /// </summary>
+        NotFollowed,
+
+        /// <summary>
+        /// The copy here has no such commit.
+        /// </summary>
+        UnknownCommit,
+
+        /// <summary>
+        /// This hub holds no key of the operator of the roaming network: it is none of its shareholders.
+        /// </summary>
+        NoShareholder,
+
+        /// <summary>
+        /// The server followed did not take the signature, or could not be asked.
+        /// </summary>
+        Refused
+
+    }
+
+
+    /// <summary>
+    /// What became of signing a commit of a roaming network followed.
+    /// </summary>
+    /// <param name="Status">What became of it.</param>
+    /// <param name="Message">The same, said.</param>
+    /// <param name="Commit">The commit, with the signatures it has here.</param>
+    public sealed record RoamingNetworkCommitSigning(RoamingNetworkCommitSigningStatus  Status,
+                                                     String                             Message,
+                                                     RoamingNetworkCommit?              Commit   = null)
+    {
+
+        /// <summary>
+        /// Whether the commit has a signature of this hub.
+        /// </summary>
+        public Boolean Success
+            => Status is RoamingNetworkCommitSigningStatus.Signed or RoamingNetworkCommitSigningStatus.AlreadySigned;
+
+    }
+
+
+    /// <summary>
     /// A roaming network of another server this hub follows: where, whom it trusts to sign as its operator, and how
     /// far it got.
     /// </summary>
@@ -403,6 +462,119 @@ namespace cloud.charging.open.RoamingHub
 
         #endregion
 
+
+        #region SignFollowedCommit(RoamingNetworkId, CommitId = null)
+
+        /// <summary>
+        /// Sign a commit of a roaming network followed as one of the holders of the keys of its operator
+        /// (SHAREHOLDERS.md, phase 3), and send the signature to the server followed: with as many holders signing as
+        /// its quorum requires, whoever checks the roaming network takes the commit. Asked for by somebody who looked
+        /// at the commit, never done by this hub itself.
+        /// </summary>
+        /// <param name="RoamingNetworkId">A roaming network this hub follows.</param>
+        /// <param name="CommitId">The commit; its head otherwise.</param>
+        public async Task<RoamingNetworkCommitSigning> SignFollowedCommit(RoamingNetwork_Id         RoamingNetworkId,
+                                                                          RoamingNetworkCommit_Id?  CommitId   = null)
+        {
+
+            FollowedRoamingNetwork? network;
+
+            lock (poiLock)
+                followed.TryGetValue(RoamingNetworkId, out network);
+
+            if (network?.History is not RoamingNetworkHistory history || network.Peer is not RoamingNetworkPeer peer)
+                return new (RoamingNetworkCommitSigningStatus.NotFollowed,
+                            network is null
+                                ? $"This hub follows no roaming network '{RoamingNetworkId}'."
+                                : $"The roaming network '{RoamingNetworkId}' has no copy here yet.");
+
+            var head    = history.Head;
+            var commit  = head.Commit;
+
+            if (CommitId is RoamingNetworkCommit_Id commitId && commitId != commit.Id && !history.TryGetCommit(commitId, out commit))
+                return new (RoamingNetworkCommitSigningStatus.UnknownCommit,
+                            $"The copy of the roaming network '{RoamingNetworkId}' here has no commit '{commitId}'.");
+
+            // Its key is one the version it signs in certifies: the head, as the keys of the operator are what they are now.
+            if (NetworkOperator.CommitSignerIn(head.RoamingNetwork) is not RoamingNetworkCommitSigner signer)
+                return new (RoamingNetworkCommitSigningStatus.NoShareholder,
+                            $"The operator '{head.RoamingNetwork.Operator?.Id}' of the roaming network '{RoamingNetworkId}' certifies no signing key held here: " +
+                             "this hub is none of its shareholders.",
+                            commit);
+
+            if (commit.Signatures.Any(signature => signature.KeyId == signer.KeyId && signature.Role == signer.Role))
+                return new (RoamingNetworkCommitSigningStatus.AlreadySigned,
+                            $"The commit '{commit.Id}' of the roaming network '{RoamingNetworkId}' has a signature of this hub already.",
+                            commit);
+
+            var signature = signer.Sign(commit, TimeProvider.GetUtcNow());
+
+            try
+            {
+
+                using var timeout = new CancellationTokenSource(FollowTimeout);
+
+                await peer.SignCommitAsync(commit.Id, [ signature ], timeout.Token);
+
+            }
+            catch (Exception e)
+            {
+                return new (RoamingNetworkCommitSigningStatus.Refused,
+                            $"The signature of the commit '{commit.Id}' of the roaming network '{RoamingNetworkId}' was not taken at '{network.URL}': {e.Message}",
+                            commit);
+            }
+
+            // In the copy here at once: it comes back from there as well, and is known then.
+            history.TryAddSignatures(commit.Id, [ signature ], network.Trust.VerifyCommitSignature, out var signed, out _, out _);
+
+            Log.Notice($"The commit '{commit.Id}' of the roaming network '{RoamingNetworkId}', revision {commit.Revision}, was signed as '{NetworkOperator.Holder}', " +
+                       $"one of the holders of the keys of its operator '{head.RoamingNetwork.Operator?.Id}'.",
+                       "poi", "follow", "security");
+
+            return new (RoamingNetworkCommitSigningStatus.Signed,
+                        $"The commit '{commit.Id}' of the roaming network '{RoamingNetworkId}', revision {commit.Revision}, is signed as '{NetworkOperator.Holder}', " +
+                        $"one of the holders of the keys of its operator, and the signature was taken at '{network.URL}'.",
+                        signed ?? commit);
+
+        }
+
+        #endregion
+
+        #region (static) OperatorSignersOf(Commit, Version) / (private static) VerifyOperatorCommitSignature(Commit, Version, Signature)
+
+        /// <summary>
+        /// The holders of the keys of the roaming network operator that signed the given commit, as the given version
+        /// names them: each once, however many of its keys signed.
+        /// </summary>
+        /// <param name="Commit">A commit.</param>
+        /// <param name="Version">The version to read the holders in, e.g. the head.</param>
+        public static IReadOnlyList<String> OperatorSignersOf(RoamingNetworkCommit  Commit,
+                                                              RoamingNetwork        Version)
+
+            => [ .. Commit.Signatures.
+                        Where   (signature => signature.Role == RoamingNetworkCommitSignatureRoles.RoamingNetworkOperator).
+                        Select  (signature => Version.Operator?.SigningKeyCertificates.FirstOrDefault(certificate => certificate.SigningKey.Id == signature.KeyId)?.Holder).
+                        OfType<String>().
+                        Distinct(StringComparer.Ordinal).
+                        Order   (StringComparer.Ordinal) ];
+
+        /// <summary>
+        /// Whether the given signature of a commit of a roaming network served here is one of its operator: by a
+        /// signing key the version the commit leads to certifies, valid when it signed and one that may sign for the
+        /// party. The version was checked when its commit was taken, its certificates with it.
+        /// </summary>
+        private static Boolean VerifyOperatorCommitSignature(RoamingNetworkCommit           Commit,
+                                                             RoamingNetwork                 Version,
+                                                             RoamingNetworkCommitSignature  Signature)
+
+            => Signature.Role == RoamingNetworkCommitSignatureRoles.RoamingNetworkOperator &&
+               Version.Operator?.SigningKeyCertificates.
+                   FirstOrDefault(certificate => certificate.SigningKey.Id == Signature.KeyId            &&
+                                                 certificate.SigningKey.IsValidAt(Signature.SignedAt)    &&
+                                                 certificate.SigningKey.MaySign(POIKeyUsages.Party)) is RoamingNetworkSigningKeyCertificate certified &&
+               Commit.VerifySignature(Signature, certified.SigningKey.Key, certified.SigningKey.Id, out _);
+
+        #endregion
 
         #region (private) TryFollowStored(Directory)
 

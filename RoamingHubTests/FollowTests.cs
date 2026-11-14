@@ -294,6 +294,102 @@ namespace cloud.charging.open.RoamingHub.Tests
 
         #endregion
 
+        #region AShareholderSignsTheCommitsItFollows()
+
+        /// <summary>
+        /// A hub holding keys of the operator of a roaming network it follows signs a commit of it when told to
+        /// (SHAREHOLDERS.md, phase 3): the signature is taken where it is followed, and the commit is signed by both
+        /// holders, there and in the copy. A hub that holds no key of the operator signs nothing.
+        /// </summary>
+        /// <remarks>
+        /// The hub following is admitted here by hand, with what each hub signs as a shareholder; the commands asking
+        /// and admitting are phase 4.
+        /// </remarks>
+        [Test]
+        public async Task AShareholderSignsTheCommitsItFollows()
+        {
+
+            var id         = RoamingNetwork_Id.Parse("QA");
+
+            Assert.That(RoamingHub.CreateRoamingNetwork(id).Success,  Is.True);
+
+            var follower   = await AnotherHub();
+            var alpha      = RoamingHub.NetworkOperator;
+            var beta       = follower.  NetworkOperator;
+            var qa         = HistoryOf(RoamingHub, "QA");
+
+            var following  = await follower.FollowRoamingNetwork(TrustAnchorOf(RoamingHub, "QA"));
+
+            Assert.That(following.Status,  Is.EqualTo(RoamingNetworkFollowingStatus.Synchronized), following.Message);
+
+            // No shareholder yet: nothing to sign with.
+            var notYet     = await follower.SignFollowedCommit(id);
+
+            #region The hub following is admitted: two of two
+
+            var now        = org.GraphDefined.Vanaheimr.Illias.Timestamp.Now;
+            var head       = qa.Head.RoamingNetwork;
+            var operatorId = head.Operator!.Id;
+
+            var statement  = beta.CoSign(alpha.StateKeysOf(id, operatorId, [ alpha.IdentityKey, beta.IdentityKey ], 2, now, TimeSpan.FromDays(30)));
+
+            var admission  = beta.ProveIdentityKey(
+                                 alpha.SignAsShareholder(
+                                     alpha.SignAsShareholder(
+                                         head.Admit(beta.IdentityKey, beta.CertifySigningKeyFor(operatorId, now), statement),
+                                         POIKeyKind.Identity
+                                     ),
+                                     POIKeyKind.Signing
+                                 ),
+                                 beta.IdentityKey
+                             );
+
+            var admitted   = qa.Commit(admission);
+
+            Assert.That(admitted.IsCommitted,  Is.True, admitted.ErrorResponse);
+
+            #endregion
+
+            // The copy follows it: the key statement of both is signed by the one trusted so far.
+            var caughtUp   = await Until(() => HistoryOf(follower, "QA").Head.Commit.Id == qa.Head.Commit.Id);
+
+            Assert.That(caughtUp,  Is.True, follower.FollowedRoamingNetworks.FirstOrDefault()?.Error ?? "the copy did not catch up");
+
+            var before     = RoamingHub.OperatorSignersOf(qa.Head.Commit, qa.Head.RoamingNetwork);
+
+            var signed     = await follower.SignFollowedCommit(id);
+            var arrived    = await Until(() => qa.Head.Commit.Signatures.Length == 2);
+            var again      = await follower.SignFollowedCommit(id);
+
+            var unknown    = await follower.SignFollowedCommit(RoamingNetwork_Id.Parse("PROD"));
+            var itsOwn     = await RoamingHub.SignFollowedCommit(id);
+
+            Assert.Multiple(() => {
+
+                Assert.That(notYet.Status,                                                    Is.EqualTo(RoamingNetworkCommitSigningStatus.NoShareholder), notYet.Message);
+
+                Assert.That(qa.Head.RoamingNetwork.Operator!.MinConsensus,                    Is.EqualTo(2));
+                Assert.That(before,                                                           Is.EqualTo(new[] { alpha.Holder }), "its commit is signed where it was made");
+
+                Assert.That(signed.Status,                                                    Is.EqualTo(RoamingNetworkCommitSigningStatus.Signed), signed.Message);
+                Assert.That(arrived,                                                          Is.True, "the signature did not arrive where the roaming network is followed");
+
+                Assert.That(RoamingHub.OperatorSignersOf(qa.Head.Commit, qa.Head.RoamingNetwork),
+                            Is.EquivalentTo(new[] { alpha.Holder, beta.Holder }));
+
+                Assert.That(RoamingHub.OperatorSignersOf(HistoryOf(follower, "QA").Head.Commit, HistoryOf(follower, "QA").Head.RoamingNetwork),
+                            Is.EquivalentTo(new[] { alpha.Holder, beta.Holder }), "in the copy as well");
+
+                Assert.That(again.Status,                                                     Is.EqualTo(RoamingNetworkCommitSigningStatus.AlreadySigned));
+                Assert.That(unknown.Status,                                                   Is.EqualTo(RoamingNetworkCommitSigningStatus.NotFollowed));
+                Assert.That(itsOwn.Status,                                                    Is.EqualTo(RoamingNetworkCommitSigningStatus.NotFollowed), "a hub signs what it commits itself");
+
+            });
+
+        }
+
+        #endregion
+
     }
 
 }

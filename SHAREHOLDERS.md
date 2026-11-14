@@ -10,7 +10,7 @@ sections 4.1 and 8.6; example A1 there plays it with three organizations in one 
 |---|---|---|
 | 1 | The hub names itself as the holder of its keys | built |
 | 2 | A hub follows a roaming network of another hub | built |
-| 3 | A hub signs the commits it follows, and attests with a quorum | open |
+| 3 | A hub signs the commits it follows, and attests with a quorum | commits built, attesting open |
 | 4 | A hub is admitted as a shareholder, is dismissed, resigns | open |
 | 5 | Operating under a quorum: what waits for the others | open |
 
@@ -138,12 +138,38 @@ Open:
 
 ## Phase 3: signing what is followed
 
-A hub that follows a roaming network whose operator it is a shareholder of signs the commits it took, when told to,
-and sends its signatures back; and it attests a head together with the others, where today it attests alone or not
-at all.
+Signing commits is built; attesting with a quorum is open.
 
-Open: how a signature gets back to the server that made the commit - pushed by the peer, or asked for; what a
-reader is told of a commit that has not the signatures of its quorum yet.
+- **A commit is signed when told to.** `roamingNetworks <id> sign [<commit>]` at the prompt,
+  `POST /api/v1/poi/followed/{id}/signatures` with `{"commit"?: "…"}` over HTTP, `SignFollowedCommit(…)` in C#:
+  the head of a roaming network followed, or the commit named, signed in the role of the roaming network operator
+  with the signing key of this hub its operator certifies. Somebody with `poi:edit` asks for it, having looked at
+  the commit; this hub signs none by itself (decision 3).
+- **Sent where it is followed**, over the WebSocket of the history, and added to the copy here; from there it
+  goes to everybody following. With as many holders signing as the quorum requires, whoever checks the roaming
+  network takes the commit.
+- **Taken by the hub of the operator** from everybody, as a signature in the role of the roaming network operator
+  is one only by a signing key the version of the commit certifies: the one of another holder of its keys. Not for
+  a roaming network that hub follows itself: its signatures go where it is followed.
+- **Only a shareholder signs.** A hub holding no key of the operator of what it follows is told so.
+- **The keyring as a shareholder** (`HubRoamingNetworkOperator`): `CommitSignerIn(network)`,
+  `CertifySigningKeyFor(operator, now)`, `StateKeysOf(…)`, `CoSign(keyStatement)` and `SignAsShareholder(changeSet,
+  kind)` sign with the current keys of the hub as one holder among several, whichever operator a roaming network
+  names, by a `RoamingShareholder` kept inside. They are what phase 4 asks, accepts and admits with; the test of
+  this phase admits the hub following by hand with them.
+- `roamingNetworks <id>` says who signed its head as its operator, and how many of how many holders decide.
+
+Open:
+
+- **Attesting with a quorum.** A hub attests the heads of the roaming networks it operates every few minutes, as
+  an attestation says that a head is the current one and is valid for a quarter of an hour. Where two decide, a
+  proof needs the attestations of two holders, and so does the first copy a new server following takes. Attested
+  when told to only, nobody would keep that up; attested by itself, a hub signs for a head somebody else made.
+  Not decided: attest by itself only the heads whose commit this hub signed, when told to, would keep decision 3
+  for what is decided - the commit - and leave the repeating to the hub.
+- **Which commits are signed.** The head, or one named: a commit below the head that lacks a signature is not
+  shown as such, and not signed with the head.
+- **What a reader is told** of a commit that has not the signatures of its quorum yet.
 
 
 ## Phase 4: admitted, dismissed, resigning

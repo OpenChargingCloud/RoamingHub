@@ -61,6 +61,7 @@ namespace cloud.charging.open.RoamingHub
             AddHandler(HTTPPath.Root + "v1/poi/followed",                                   GetFollowed,                HTTPMethod.GET);
             AddHandler(HTTPPath.Root + "v1/poi/followed",                                   PostFollowed,               HTTPMethod.POST);
             AddHandler(HTTPPath.Root + "v1/poi/followed/{roamingNetworkId}",                DeleteFollowed,             HTTPMethod.DELETE);
+            AddHandler(HTTPPath.Root + "v1/poi/followed/{roamingNetworkId}/signatures",     PostFollowedSignature,      HTTPMethod.POST);
             AddHandler(HTTPPath.Root + "v1/poi/RNs/{roamingNetworkId}/{parties}",           PostParty,                  HTTPMethod.POST);
             // Variable as the path of a party, which a literal segment would hide.
             AddHandler(HTTPPath.Root + "v1/poi/RNs/{roamingNetworkId}/{parties}/{partyId}/{children}", PostCertificate, HTTPMethod.POST);
@@ -307,6 +308,77 @@ namespace cloud.charging.open.RoamingHub
             return JSONResponse(Request,
                                 HTTPStatusCode.OK,
                                 new JObject(new JProperty("@id", roamingNetworkId.ToString()), new JProperty("message", result.Message)));
+
+        }
+
+        #endregion
+
+        #region (private) PostFollowedSignature(Request)
+
+        /// <summary>
+        /// POST /api/v1/poi/followed/{roamingNetworkId}/signatures with {"commit"?: "…"}: sign a commit of a roaming
+        /// network followed, its head unless one is named, as one of the holders of the keys of its operator, and send
+        /// the signature to the server followed.
+        /// </summary>
+        /// <remarks>
+        /// 201 once it is signed and taken there, 200 where the commit has a signature of this hub already, 404 where
+        /// the roaming network is not followed or has no such commit here, 409 where this hub holds no key of its
+        /// operator, 502 where the server followed did not take it.
+        /// </remarks>
+        private async Task<HTTPResponse> PostFollowedSignature(HTTPRequest Request)
+        {
+
+            if (!TryAuthorize(Request, Permission.Edit(HubAccess.POI), true, out var user, out var refused))
+                return refused;
+
+            var parameters = Request.ParsedURLParameters;
+
+            if (parameters.Length < 1 || !RoamingNetwork_Id.TryParse(parameters[0], out var roamingNetworkId))
+                return ErrorJSON(Request, HTTPStatusCode.NotFound, "A commit of a roaming network followed is signed at .../followed/{roamingNetworkId}/signatures.");
+
+            RoamingNetworkCommit_Id? commitId = null;
+
+            if (Request.HTTPBody is { Length: > 0 })
+            {
+
+                if (!TryParseJSONObject(Request, out var json, out var errorResponse))
+                    return errorResponse;
+
+                if (json["commit"] is JToken commitJSON)
+                {
+
+                    if (commitJSON is not JValue { Type: JTokenType.String } commitText || !RoamingNetworkCommit_Id.TryParse(commitText.Value<String>()!, out var parsed))
+                        return ErrorJSON(Request, HTTPStatusCode.BadRequest, "The \"commit\" to sign is the identification of a commit.");
+
+                    commitId = parsed;
+
+                }
+
+            }
+
+            var result = await RoamingHub.SignFollowedCommit(roamingNetworkId, commitId);
+
+            if (!result.Success)
+                return ErrorJSON(Request,
+                                 result.Status switch {
+                                     RoamingNetworkCommitSigningStatus.NoShareholder  => HTTPStatusCode.Conflict,
+                                     RoamingNetworkCommitSigningStatus.Refused        => HTTPStatusCode.BadGateway,
+                                     _                                                => HTTPStatusCode.NotFound
+                                 },
+                                 result.Message);
+
+            if (result.Status == RoamingNetworkCommitSigningStatus.Signed)
+                Log.Notice($"'{user.Id}' had the commit '{result.Commit?.Id}' of the roaming network '{roamingNetworkId}' signed.", "poi", "web", "follow", "security");
+
+            return JSONResponse(Request,
+                                result.Status == RoamingNetworkCommitSigningStatus.Signed
+                                    ? HTTPStatusCode.Created
+                                    : HTTPStatusCode.OK,
+                                new JObject(
+                                    new JProperty("message",     result.Message),
+                                    new JProperty("commit",      result.Commit?.Id.ToString()),
+                                    new JProperty("signatures",  new JArray(result.Commit?.Signatures.Select(signature => signature.ToJSON(Embedded: true)) ?? []))
+                                ));
 
         }
 

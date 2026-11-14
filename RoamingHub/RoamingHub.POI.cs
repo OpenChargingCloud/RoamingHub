@@ -206,6 +206,14 @@ namespace cloud.charging.open.RoamingHub
                                 // copy here alone - see RoamingHub.Follow.cs.
                                 AuthorizeChangeSetSubmission  = (request, changeSet) => !IsFollowed(changeSet.RoamingNetworkId),
 
+                                // Everybody may send a signature of a commit in the role of the roaming network
+                                // operator: it is one only by a signing key the version of the commit certifies,
+                                // the one of another holder of the keys of its operator - see RoamingHub.Follow.cs.
+                                // Not for a roaming network followed: its signatures go where it is followed.
+                                AuthorizeCommitSignature      = (request, commit, signature) => signature.Role == RoamingNetworkCommitSignatureRoles.RoamingNetworkOperator &&
+                                                                                                !IsFollowed(commit.RoamingNetworkId),
+                                VerifyCommitSignature         = VerifyOperatorCommitSignature,
+
                                 // Everybody may open the WebSocket of a history and read, and a charging station
                                 // operator among the peers, or an account bound to one, set the runtime status of
                                 // what it owns: see RoamingHub.POIStatus.cs.

@@ -22,6 +22,7 @@ using System.Security.Cryptography;
 
 using Newtonsoft.Json.Linq;
 
+using Org.BouncyCastle.Crypto;
 using Org.BouncyCastle.Crypto.Generators;
 using Org.BouncyCastle.Crypto.Parameters;
 using Org.BouncyCastle.Pkcs;
@@ -403,6 +404,138 @@ namespace cloud.charging.open.RoamingHub
                            : null;
 
         }
+
+        #endregion
+
+
+        #region As a shareholder: SigningKeyIdIn / CommitSignerIn / CertifySigningKeyFor / StateKeysOf / CoSign / SignAsShareholder
+
+        // The organization this hub is holds one voice among those who decide as a roaming network operator, its own
+        // or another one's (SHAREHOLDERS.md): with its current keys, whichever operator a roaming network names. What
+        // it signs so is asked for by somebody, never done by itself.
+
+        /// <summary>
+        /// This hub as a shareholder: its holder name with its current identity key and signing key. Kept in here, as
+        /// it holds the private halves.
+        /// </summary>
+        /// <exception cref="InvalidOperationException">Its keys name no holder.</exception>
+        private RoamingShareholder Shareholder()
+        {
+
+            lock (keysLock)
+            {
+
+                var holder    = Holder ?? throw new InvalidOperationException($"The keys of the roaming network operator '{Id}' name no holder: a shareholder is one by its name.");
+                var identity  = HeldKeys(POIKeyKind.Identity)[CurrentKeyId(POIKeyKind.Identity)].Key;
+                var signing   = HeldKeys(POIKeyKind.Signing) [CurrentKeyId(POIKeyKind.Signing)]. Key;
+
+                return new RoamingShareholder(holder,
+                                              COSEKeyPair.NewES512(KeyPairOf(identity)),
+                                              COSEKeyPair.NewES256(KeyPairOf(signing)));
+
+            }
+
+        }
+
+        private static AsymmetricCipherKeyPair KeyPairOf(ECPrivateKeyParameters Key)
+
+            => new (new ECPublicKeyParameters(Key.Parameters.G.Multiply(Key.D).Normalize(), Key.Parameters), Key);
+
+        /// <summary>
+        /// The identification of the signing key held here that the operator of the given roaming network certifies,
+        /// whoever that operator is, the current one where it names that; null where it certifies none.
+        /// </summary>
+        public String? SigningKeyIdIn(RoamingNetwork RoamingNetwork)
+        {
+
+            if (RoamingNetwork.Operator is not RoamingNetworkOperator networkOperatorOfIt)
+                return null;
+
+            lock (keysLock)
+            {
+
+                var held   = HeldKeys(POIKeyKind.Signing);
+                var named  = networkOperatorOfIt.SigningKeys.Select(key => key.Id).Where(held.ContainsKey).ToArray();
+
+                return named.Length == 0
+                           ? null
+                           : named.Contains(CurrentKeyIdOrNull(POIKeyKind.Signing)) ? CurrentKeyIdOrNull(POIKeyKind.Signing) : named[0];
+
+            }
+
+        }
+
+        /// <summary>
+        /// What signs a commit of the given roaming network as one of the holders of the keys of its operator, whoever
+        /// that operator is: the signing key held here it certifies; null where it certifies none.
+        /// </summary>
+        public RoamingNetworkCommitSigner? CommitSignerIn(RoamingNetwork RoamingNetwork)
+        {
+
+            if (SigningKeyIdIn(RoamingNetwork) is not String keyId)
+                return null;
+
+            lock (keysLock)
+                return new RoamingNetworkCommitSigner(HeldKeys(POIKeyKind.Signing)[keyId].Key,
+                                                      keyId,
+                                                      COSEAlgorithm.ES256,
+                                                      RoamingNetworkCommitSignatureRoles.RoamingNetworkOperator,
+                                                      RoamingNetwork.Operator!.Id.ToString());
+
+        }
+
+        /// <summary>
+        /// The certificate of the current signing key of this hub as one of the given roaming network operator, by its
+        /// current identity key: what it hands to the others when it asks to hold the keys of that operator with them.
+        /// </summary>
+        /// <param name="RoamingNetworkOperatorId">The roaming network operator.</param>
+        /// <param name="Now">When it is signed.</param>
+        public RoamingNetworkSigningKeyCertificate CertifySigningKeyFor(RoamingNetworkOperator_Id  RoamingNetworkOperatorId,
+                                                                        DateTimeOffset             Now)
+
+            => Shareholder().CertifySigningKey(RoamingNetworkOperatorId, Now);
+
+        /// <summary>
+        /// A key statement of the given roaming network operator in the given roaming network, signed with the current
+        /// identity key of this hub as the first of its quorum: who holds its identity keys, and how many decide.
+        /// </summary>
+        /// <param name="RoamingNetworkId">The roaming network.</param>
+        /// <param name="RoamingNetworkOperatorId">The roaming network operator.</param>
+        /// <param name="IdentityKeys">The identity keys of all its holders, the one of this hub among them.</param>
+        /// <param name="MinConsensus">How many of them decide.</param>
+        /// <param name="Now">When it is signed.</param>
+        /// <param name="Validity">How long it is valid.</param>
+        public RoamingNetworkKeyStatement StateKeysOf(RoamingNetwork_Id          RoamingNetworkId,
+                                                      RoamingNetworkOperator_Id  RoamingNetworkOperatorId,
+                                                      IEnumerable<POIPublicKey>  IdentityKeys,
+                                                      Byte                       MinConsensus,
+                                                      DateTimeOffset             Now,
+                                                      TimeSpan                   Validity)
+
+            => Shareholder().StateKeys(RoamingNetworkId,
+                                       RoamingNetworkOperatorId,
+                                       IdentityKeys,
+                                       MinConsensus,
+                                       Now,
+                                       Now + Validity);
+
+        /// <summary>
+        /// The given key statement with the signature of the current identity key of this hub as well.
+        /// </summary>
+        public RoamingNetworkKeyStatement CoSign(RoamingNetworkKeyStatement KeyStatement)
+
+            => Shareholder().CoSign(KeyStatement);
+
+        /// <summary>
+        /// The given change set signed with the current key of the given kind of this hub, as one of the holders of
+        /// the keys of a roaming network operator, whoever that operator is.
+        /// </summary>
+        public RoamingNetworkChangeSet SignAsShareholder(RoamingNetworkChangeSet  ChangeSet,
+                                                         POIKeyKind               Kind   = POIKeyKind.Signing)
+
+            => Kind == POIKeyKind.Signing
+                   ? Shareholder().SignWithSigningKey (ChangeSet)
+                   : Shareholder().SignWithIdentityKey(ChangeSet);
 
         #endregion
 
