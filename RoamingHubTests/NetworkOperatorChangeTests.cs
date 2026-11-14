@@ -460,6 +460,196 @@ namespace cloud.charging.open.RoamingHub.Tests
 
         #endregion
 
+
+        #region ANewHubNamesItselfAsTheHolderOfItsKeys()
+
+        /// <summary>
+        /// From its first start a hub is one a quorum counts by its name (SHAREHOLDERS.md, phase 1): its keys name their
+        /// holder, the organization it is. What the configuration says as "holder", its operator otherwise; and so
+        /// every roaming network it makes.
+        /// </summary>
+        [Test]
+        public void ANewHubNamesItselfAsTheHolderOfItsKeys()
+        {
+
+            Made(RoamingHub, "QA");
+
+            var networkOperator  = RoamingHub.NetworkOperator;
+            var qa               = HistoryOf(RoamingHub, "QA").Head.RoamingNetwork.Operator!;
+
+            // Another one, made of what a configuration says, and of one saying none that is one.
+            var configured       = HubRoamingNetworkOperator.OpenOrCreate(Path.Combine(Directory, "configured"),
+                                                                          new JObject(new JProperty("@id", "OCC"), new JProperty("holder", "AlphaOrg")));
+
+            var misnamed         = HubRoamingNetworkOperator.OpenOrCreate(Path.Combine(Directory, "misnamed"),
+                                                                          new JObject(new JProperty("@id", "OCC"), new JProperty("holder", " AlphaOrg")));
+
+            Assert.Multiple(() => {
+
+                Assert.That(networkOperator.Holder,                                    Is.EqualTo(networkOperator.Id.ToString()));
+                Assert.That(networkOperator.IdentityKey.Holder,                        Is.EqualTo(networkOperator.Holder));
+                Assert.That(networkOperator.SigningKey. Holder,                        Is.EqualTo(networkOperator.Holder));
+
+                Assert.That(POIPartyKeys.Holders(qa.IdentityKeys),                     Is.EquivalentTo(new[] { networkOperator.Holder }));
+                Assert.That(POIPartyKeys.Holders(qa.SigningKeys),                      Is.EquivalentTo(new[] { networkOperator.Holder }));
+                Assert.That(qa.SigningKeyCertificates.Single().Holder,                 Is.EqualTo(networkOperator.Holder));
+
+                Assert.That(configured.Holder,                                         Is.EqualTo("AlphaOrg"));
+                Assert.That(configured.SigningKey.Holder,                              Is.EqualTo("AlphaOrg"));
+                Assert.That(Stored().Holder,                                           Is.EqualTo(networkOperator.Holder), "read back");
+
+                Assert.That(misnamed.Holder,                                           Is.EqualTo("OCC"), "white space around it names nobody");
+
+                Assert.That(HubRoamingNetworkOperator.IsHolderName("AlphaOrg"),        Is.True);
+                Assert.That(HubRoamingNetworkOperator.IsHolderName(""),                Is.False);
+                Assert.That(HubRoamingNetworkOperator.IsHolderName(null),              Is.False);
+
+            });
+
+        }
+
+        #endregion
+
+        #region TheHolderIsNamedByNewKeysInEveryRoamingNetwork()
+
+        /// <summary>
+        /// A key keeps its holder, so another holder is named by new keys: an identity key and a signing key, in one
+        /// change set per roaming network, signed by both keys it replaces and by the new identity key; the commit by
+        /// the new signing key. The old keys are forgotten, the roaming networks made afterwards name the new ones, and
+        /// a key replaced later is its holder's still. Named so already, nothing is made and nothing committed.
+        /// </summary>
+        [Test]
+        public void TheHolderIsNamedByNewKeysInEveryRoamingNetwork()
+        {
+
+            Made(RoamingHub, "QA", "PROD");
+
+            Assert.That(POITests.AddedParty(RoamingHub, "QA", "DE*QAC").Success, Is.True);
+
+            var oldSigningKey   = RoamingHub.NetworkOperator.SigningKey;
+            var oldIdentityKey  = RoamingHub.NetworkOperator.IdentityKey;
+
+            var result          = RoamingHub.NameNetworkOperatorHolder("AlphaOrg");
+
+            var signingKey      = RoamingHub.NetworkOperator.SigningKey;
+            var identityKey     = RoamingHub.NetworkOperator.IdentityKey;
+            var qa              = HistoryOf(RoamingHub, "QA");
+            var prod            = HistoryOf(RoamingHub, "PROD");
+            var naming          = qa.Head.Commit;
+
+            var again           = RoamingHub.NameNetworkOperatorHolder("AlphaOrg");
+            var unchanged       = qa.Head.Commit.Id;
+
+            var added           = POITests.AddedParty(RoamingHub, "QA", "DE*QAD");
+
+            Made(RoamingHub, "DEV");
+
+            var rotated         = RoamingHub.RotateNetworkOperatorKey(POIKeyKind.Signing);
+
+            Assert.Multiple(() => {
+
+                Assert.That(result.Success,                                                           Is.True, result.Message);
+                Assert.That(result.Changed.Select(id => id.ToString()),                              Is.EqualTo(new[] { "PROD", "QA" }));
+                Assert.That(result.Message,                                                           Does.Contain("name 'AlphaOrg' as their holder"));
+
+                Assert.That(signingKey. Id,                                                           Is.Not.EqualTo(oldSigningKey. Id));
+                Assert.That(identityKey.Id,                                                           Is.Not.EqualTo(oldIdentityKey.Id));
+                Assert.That(signingKey. Holder,                                                       Is.EqualTo("AlphaOrg"));
+                Assert.That(identityKey.Holder,                                                       Is.EqualTo("AlphaOrg"));
+
+                foreach (var history in new[] { qa, prod })
+                {
+
+                    var networkOperator = history.Head.RoamingNetwork.Operator!;
+                    var id              = history.RoamingNetworkId.ToString();
+
+                    Assert.That(POIPartyKeys.Holders(networkOperator.IdentityKeys),                   Is.EquivalentTo(new[] { "AlphaOrg" }), id);
+                    Assert.That(POIPartyKeys.Holders(networkOperator.SigningKeys),                    Is.EquivalentTo(new[] { "AlphaOrg" }), id);
+                    Assert.That(networkOperator.MinConsensus,                                         Is.EqualTo(1), id);
+                    Assert.That(networkOperator.KeyStatement!.IdentityKeys.Select(key => key.Id),     Is.EqualTo(new[] { identityKey.Id }), id);
+                    Assert.That(history.CurrentAttestations().Select(attestation => attestation.KeyId),  Does.Contain(RoamingHub.NetworkOperator.SigningKey.Id), id);
+
+                }
+
+                // Signed by both keys it replaces and by the new identity key, its proof; the commit by the new signing key.
+                Assert.That(naming.ChangeSet!.Signatures.Select(signature => signature.KeyId),        Is.EqualTo(new[] { oldIdentityKey.Id, oldSigningKey.Id, identityKey.Id }));
+                Assert.That(naming.ChangeSet.Changes,                                                 Has.Length.EqualTo(3));
+                Assert.That(naming.Signatures.Single().KeyId,                                         Is.EqualTo(signingKey.Id));
+
+                // Named so already: no keys, no commit.
+                Assert.That(again.Success,                                                            Is.True, again.Message);
+                Assert.That(unchanged,                                                                Is.EqualTo(naming.Id));
+
+                // From then on, the new ones sign, here and in what is made afterwards.
+                Assert.That(added.Success,                                                            Is.True, added.Message);
+                Assert.That(added.Commit!.ChangeSet!.Signatures.First().KeyId,                        Is.EqualTo(signingKey.Id));
+                Assert.That(POIPartyKeys.Holders(HistoryOf(RoamingHub, "DEV").Head.RoamingNetwork.Operator!.IdentityKeys),  Is.EquivalentTo(new[] { "AlphaOrg" }));
+
+                // A key replaced later is its holder's still.
+                Assert.That(rotated.Success,                                                          Is.True, rotated.Message);
+                Assert.That(RoamingHub.NetworkOperator.SigningKey.Id,                                 Is.Not.EqualTo(signingKey.Id));
+                Assert.That(RoamingHub.NetworkOperator.SigningKey.Holder,                             Is.EqualTo("AlphaOrg"));
+                Assert.That(POIPartyKeys.Holders(qa.Head.RoamingNetwork.Operator!.SigningKeys),       Is.EquivalentTo(new[] { "AlphaOrg" }));
+
+                // Kept as the current ones, and the old ones forgotten.
+                Assert.That(KeyFiles("signing-key"),                                                  Is.EqualTo(new[] { HubRoamingNetworkOperator.SigningKeyFileName }));
+                Assert.That(KeyFiles("identity-key"),                                                 Is.EqualTo(new[] { HubRoamingNetworkOperator.IdentityKeyFileName }));
+                Assert.That(Stored().Holder,                                                          Is.EqualTo("AlphaOrg"));
+                Assert.That(Stored().IdentityKey.Id,                                                  Is.EqualTo(identityKey.Id));
+                Assert.That(RoamingHub.NetworkOperator.KeptKeyIds,                                    Is.Empty);
+
+                Assert.That(() => RoamingHub.NameNetworkOperatorHolder(""),                           Throws.ArgumentException);
+                Assert.That(() => RoamingHub.NameNetworkOperatorHolder(" AlphaOrg"),                  Throws.ArgumentException);
+
+            });
+
+        }
+
+        #endregion
+
+        #region OverHTTPOnlyWhoMayEditThePointsOfInterestNamesTheHolder()
+
+        [Test]
+        public async Task OverHTTPOnlyWhoMayEditThePointsOfInterestNamesTheHolder()
+        {
+
+            Made(RoamingHub, "QA");
+
+            var old            = RoamingHub.NetworkOperator.IdentityKey.Id;
+
+            using var anybody  = Anonymous();
+            using var admin    = await SignedIn();
+
+            StringContent Holder(String Name)
+                => new (new JObject(new JProperty("holder", Name)).ToString(), Encoding.UTF8, "application/json");
+
+            var refused        = await anybody.PutAsync("api/v1/poi/roamingNetworkOperator/holder", Holder("AlphaOrg"));
+            var unchanged      = RoamingHub.NetworkOperator.IdentityKey.Id;
+
+            var nameless       = await admin.  PutAsync("api/v1/poi/roamingNetworkOperator/holder", Holder(""));
+
+            var named          = await admin.  PutAsync("api/v1/poi/roamingNetworkOperator/holder", Holder("AlphaOrg"));
+            var namedJSON      = JObject.Parse(await named.Content.ReadAsStringAsync());
+
+            Assert.Multiple(() => {
+
+                Assert.That(refused.StatusCode,                                                       Is.AnyOf(HttpStatusCode.Unauthorized, HttpStatusCode.Forbidden));
+                Assert.That(unchanged,                                                                Is.EqualTo(old));
+
+                Assert.That(nameless.StatusCode,                                                      Is.EqualTo(HttpStatusCode.BadRequest));
+
+                Assert.That(named.StatusCode,                                                         Is.EqualTo(HttpStatusCode.OK), namedJSON.ToString());
+                Assert.That(namedJSON["changed"]?.Values<String>(),                                   Is.EqualTo(new[] { "QA" }));
+                Assert.That(namedJSON[RoamingNetwork.PropertyKeys.Operator]?["identityKeys"]?[0]?["holder"]?.Value<String>(),  Is.EqualTo("AlphaOrg"));
+                Assert.That(RoamingHub.NetworkOperator.Holder,                                        Is.EqualTo("AlphaOrg"));
+                Assert.That(RoamingHub.NetworkOperator.IdentityKey.Id,                                Is.Not.EqualTo(old));
+
+            });
+
+        }
+
+        #endregion
+
     }
 
 }

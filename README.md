@@ -604,8 +604,12 @@ keys as PKCS #8, readable only by the account the hub runs as. It is read back
 at every start; a missing private key stops the start, as a new one would be
 none its roaming networks know. Who it is is said once, at the first start, by
 the section `roamingNetworkOperator` of the configuration file,
-`{"@id": "GraphDefined", "name": "GraphDefined GmbH"}`; without it, it is
-`RNO-` and the first eight hex digits of its identity key. Keep a copy of both
+`{"@id": "GraphDefined", "name": "GraphDefined GmbH", "holder": "GraphDefined"}`;
+without it, it is `RNO-` and the first eight hex digits of its identity key.
+Its keys name their `holder`, the organization this hub is: what the section
+says, the identification of the operator otherwise. So a quorum counts it by
+its name, once several organizations hold the keys of an operator together
+([SHAREHOLDERS.md](SHAREHOLDERS.md)). Keep a copy of both
 keys where nobody else can read it: without the identity key, the keys of the
 roaming networks it operates can never be replaced. `roamingNetworkOperator` at
 the command line and `GET /api/v1/poi/roamingNetworkOperator`, public, show it
@@ -696,6 +700,20 @@ names it. The operator is renamed the same way, `RenameNetworkOperator(name)`,
 `roamingNetworkOperator name <name>`; a network called so already gets no
 commit. 200 with what became of it in each roaming network and the operator as
 it is now, 207 where a roaming network refused it. Both are `poi:edit`.
+
+The holder of its keys is named the same way, by new keys, as a key keeps its
+holder: `NameNetworkOperatorHolder(holder)`,
+`PUT /api/v1/poi/roamingNetworkOperator/holder` with `{"holder": "…"}`, or
+`roamingNetworkOperator holder <name>`, `poi:edit` as well. Each roaming
+network gets a new identity key and a new signing key naming it, in one change
+set - an identity key certifies the signing keys of its own holder only - that
+both keys it replaces and the new identity key sign; the commit is signed by
+the new signing key. A hub made before its keys named a holder gets one so.
+Named so already, no keys are made and only a roaming network that refused it
+before is tried again. A roaming network naming keys of its operator not held
+here, or a quorum of several holders, is not changed: a holder is named at its
+own hub. As with an identity key replaced, the trust anchor of each roaming
+network is another one afterwards, and whoever pinned the old one needs it.
 
 Everything else in a roaming network comes as change sets, which the hub takes
 from everybody, over HTTP and over the WebSocket of its history: what a change

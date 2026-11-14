@@ -99,6 +99,9 @@ namespace cloud.charging.open.RoamingHub.CommandLine
             if (rest[0].Equals("name", StringComparison.OrdinalIgnoreCase) && rest.Length > 1)
                 return Task.FromResult(Renamed(String.Join(" ", rest[1..]).Trim()));
 
+            if (rest[0].Equals("holder", StringComparison.OrdinalIgnoreCase) && rest.Length > 1)
+                return Task.FromResult(HolderNamed(String.Join(" ", rest[1..]).Trim()));
+
             return Task.FromResult<String[]>([ $"Usage: {Help()}" ]);
 
         }
@@ -109,8 +112,9 @@ namespace cloud.charging.open.RoamingHub.CommandLine
 
         public override String Help()
 
-            => $"{CommandName} [rotate signingKey|identityKey | name <name>] - the roaming network operator this hub is, its public keys and the roaming " +
-                "networks it operates; a key of it replaced by a new one, or its name changed, in all of them";
+            => $"{CommandName} [rotate signingKey|identityKey | name <name> | holder <name>] - the roaming network operator this hub is, its public keys " +
+                "and the roaming networks it operates; a key of it replaced by a new one, its name changed, or the holder of its keys named by new keys, " +
+                "in all of them";
 
         #endregion
 
@@ -130,6 +134,9 @@ namespace cloud.charging.open.RoamingHub.CommandLine
 
             return [
                 $"This hub is the roaming network operator '{networkOperator.Id}'{(name.Length > 0 ? $", {name}" : "")}, since {networkOperator.Operator.Created.ToISO8601()}.",
+                networkOperator.Holder is String holder
+                    ? $"  its keys name '{holder}' as their holder"
+                    : $"  its keys name no holder: '{CommandName} holder <name>' names one, by new keys",
                 $"  signing key   {networkOperator.SigningKey. Id}  {networkOperator.SigningKey. ToJSON()["key"]}",
                 $"  identity key  {networkOperator.IdentityKey.Id}  {networkOperator.IdentityKey.ToJSON()["key"]}",
                 .. kept.Count > 0
@@ -158,6 +165,28 @@ namespace cloud.charging.open.RoamingHub.CommandLine
             var result = cli.Hub.RotateNetworkOperatorKey(Kind);
 
             cli.Hub.Log.Notice($"{cli.Caller.Asker} replaced the {(Kind == POIKeyKind.Signing ? "signing" : "identity")} key of the roaming network operator '{cli.Hub.NetworkOperator.Id}'.",
+                               cli.Caller.Tags("poi", "security"));
+
+            return [ result.Message ];
+
+        }
+
+        #endregion
+
+        #region (private) HolderNamed(Holder)
+
+        private String[] HolderNamed(String Holder)
+        {
+
+            if (!cli.MayDo(Permission.Edit(HubAccess.POI), $"{CommandName} holder", out var refused))
+                return [ refused ];
+
+            if (!HubRoamingNetworkOperator.IsHolderName(Holder))
+                return [ $"Usage: {Help()}" ];
+
+            var result = cli.Hub.NameNetworkOperatorHolder(Holder);
+
+            cli.Hub.Log.Notice($"{cli.Caller.Asker} named '{Holder}' as the holder of the keys of the roaming network operator '{cli.Hub.NetworkOperator.Id}'.",
                                cli.Caller.Tags("poi", "security"));
 
             return [ result.Message ];

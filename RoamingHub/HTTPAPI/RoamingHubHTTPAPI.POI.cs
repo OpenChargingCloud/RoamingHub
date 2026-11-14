@@ -56,6 +56,7 @@ namespace cloud.charging.open.RoamingHub
             AddHandler(HTTPPath.Root + "v1/poi/roamingNetworkOperator/signingKey/rotate",   request => PostRotateKey(request, POIKeyKind.Signing),   HTTPMethod.POST);
             AddHandler(HTTPPath.Root + "v1/poi/roamingNetworkOperator/identityKey/rotate",  request => PostRotateKey(request, POIKeyKind.Identity),  HTTPMethod.POST);
             AddHandler(HTTPPath.Root + "v1/poi/roamingNetworkOperator/name",                PutNetworkOperatorName,     HTTPMethod.PUT);
+            AddHandler(HTTPPath.Root + "v1/poi/roamingNetworkOperator/holder",              PutNetworkOperatorHolder,   HTTPMethod.PUT);
             AddHandler(HTTPPath.Root + "v1/poi/RNs",                                        PostRoamingNetwork,         HTTPMethod.POST);
             AddHandler(HTTPPath.Root + "v1/poi/RNs/{roamingNetworkId}/{parties}",           PostParty,                  HTTPMethod.POST);
             // Variable as the path of a party, which a literal segment would hide.
@@ -142,6 +143,44 @@ namespace cloud.charging.open.RoamingHub
 
             Log.Notice($"'{user.Id}' renamed the roaming network operator '{RoamingHub.NetworkOperator.Id}' to '{name.FirstText()}'.",
                        "poi", "web");
+
+            return Task.FromResult(NetworkOperatorUpdated(Request, result));
+
+        }
+
+        #endregion
+
+        #region (private) PutNetworkOperatorHolder(Request)
+
+        /// <summary>
+        /// PUT /api/v1/poi/roamingNetworkOperator/holder with {"holder": "…"}: name the organization this hub is as the
+        /// holder of the keys of its roaming network operator, by a new identity key and a new signing key, in every
+        /// roaming network it operates.
+        /// </summary>
+        /// <remarks>
+        /// 200 with what became of it and the operator as it is now; 207 where a roaming network refused it, which
+        /// keeps the keys it names; 400 where there is no name.
+        /// </remarks>
+        private Task<HTTPResponse> PutNetworkOperatorHolder(HTTPRequest Request)
+        {
+
+            if (!TryAuthorize(Request, Permission.Edit(HubAccess.POI), true, out var user, out var refused))
+                return Task.FromResult(refused);
+
+            if (!TryParseJSONObject(Request, out var json, out var errorResponse))
+                return Task.FromResult(errorResponse);
+
+            if (json["holder"] is not JValue { Type: JTokenType.String } text ||
+                !HubRoamingNetworkOperator.IsHolderName(text.Value<String>()))
+            {
+                return Task.FromResult(ErrorJSON(Request, HTTPStatusCode.BadRequest, "The holder of the keys of a roaming network operator is named with {\"holder\": \"…\"}: a nonempty text without white space around it."));
+            }
+
+            var holder = text.Value<String>()!;
+            var result = RoamingHub.NameNetworkOperatorHolder(holder);
+
+            Log.Notice($"'{user.Id}' named '{holder}' as the holder of the keys of the roaming network operator '{RoamingHub.NetworkOperator.Id}'.",
+                       "poi", "web", "security");
 
             return Task.FromResult(NetworkOperatorUpdated(Request, result));
 
