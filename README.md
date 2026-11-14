@@ -827,6 +827,20 @@ as it takes the signatures, so that a head is attested by as many holders as
 its quorum requires and a proof of it is taken by whoever pinned them. A head
 nobody signed at this hub is not attested by it.
 
+**The web interface** does all of it as the command line does, at the same
+routes (`Frontend/src/pages/poiShareholders.ts`). Below the list of the
+roaming networks: what this hub follows, with a form to follow one by its
+trust anchor, and the roaming network operator this hub is, with its keys
+renewed and replaced, its name and the holder of its keys. On the page of a
+roaming network: who holds the keys of its operator, how many decide and
+which of them this hub is, what waits for the other holders with what this
+hub can do about it, and the change sets waiting for signatures, approved or
+withdrawn. What is shown is public; what is done is `poi:edit`, and for a
+hub that holds keys there. `GET /api/v1/poi/shareholders/{id}` answers for a
+roaming network followed as well: the holders of the copy, `"followed"`, and
+the changes waiting as the hub where it is made tells them; `"thisHub"` is
+the holder this hub is there.
+
 Everything else in a roaming network comes as change sets, which the hub takes
 from everybody, over HTTP and over the WebSocket of its history: what a change
 set may change is decided by the signatures of its owners, which every commit

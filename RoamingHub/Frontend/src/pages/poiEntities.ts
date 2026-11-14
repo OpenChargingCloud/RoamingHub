@@ -7,6 +7,7 @@ import { html, nothing, render, type TemplateResult } from '@node/view';
 import { addressLine, chargingStationModels, energyMeterModels, entityURL, evseCountOf, gridCollections, networkPath, operatorCollections, parkingCollections, providerCollections, poiHome, roamingNetworkOf, sections, sectionsView, transparencySoftwareCertificates, transparencySoftwareReleases, type EmbeddedCollection } from './poi';
 import { loadOffers, localTimeOf, nextRefresh, offersView, timeOf, type Offers, type OffersShown } from './poiOffers';
 import { loadOrigins, templateSegments, type Origin, type Origins } from './poiOrigins';
+import { mountNetworkKeys, type Mounted } from './poiShareholders';
 import { loadTrustAnchor, trustAnchorCard, type TrustAnchor } from './poiTrustAnchor';
 import { epochCard, loadEpochs, type Epochs } from './poiEpochs';
 import { loadPriceStatements, priceStatementsCard, signedPricesCard, type PriceStatement } from './poiPrices';
@@ -837,6 +838,11 @@ export const poiNetworkPage: Page = {
         let epochs:     Epochs | null            = null;
         let prices:     PriceStatement[] | null  = null;
 
+        // Who holds the keys of its operator, and what waits for them: drawn by itself into an element of its own,
+        // which is another one once the roaming network could not be loaded in between.
+        let keysHost:   HTMLElement | null       = null;
+        let keys:       Mounted | null           = null;
+
         function draw(): void {
 
             const content = shell(root, {
@@ -879,6 +885,8 @@ export const poiNetworkPage: Page = {
 
                                   ${anchor ? trustAnchorCard(anchor, copied, () => void copyText(anchor!.uri).then(said => { copied = said; draw(); })) : nothing}
 
+                                  <div id="poi-network-keys" class="poi-own"></div>
+
                                   ${epochs ? epochCard(epochs) : nothing}
 
                                   ${prices ? priceStatementsCard(prices, path) : nothing}
@@ -889,6 +897,15 @@ export const poiNetworkPage: Page = {
 
             `);
 
+            const host = content.querySelector<HTMLElement>('#poi-network-keys');
+
+            if (host !== keysHost)
+            {
+                keys?.release();
+                keysHost  = host;
+                keys      = host ? mountNetworkKeys(host, roamingNetworkId) : null;
+            }
+
         }
 
         async function load(): Promise<void> {
@@ -898,6 +915,8 @@ export const poiNetworkPage: Page = {
 
             problem = null;
             draw();
+
+            keys?.reload();
 
             void loadTrustAnchor(path, ask.signal).then(found => {
                 if (!cancelled && ask === asking) {
@@ -957,6 +976,7 @@ export const poiNetworkPage: Page = {
         return () => {
             cancelled = true;
             asking?.abort();
+            keys?.release();
         };
 
     }

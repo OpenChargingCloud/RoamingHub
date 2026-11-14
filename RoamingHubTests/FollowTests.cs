@@ -478,6 +478,11 @@ namespace cloud.charging.open.RoamingHub.Tests
             var waiting    = RoamingHub.ShareholdersOf(id);
             var stillOne   = HoldersOf(RoamingHub, "QA");
 
+            // As the pages of both hubs show it: where it is made, and where it is a copy, whose changes waiting
+            // are asked where it is made.
+            var seenThere  = await RoamingHub.ShareholdersSeenOf(id);
+            var seenHere   = await follower.  ShareholdersSeenOf(id);
+
             var admitted   = await RoamingHub.AdmitShareholder(id, beta);
             var notYet     = HoldersOf(RoamingHub, "QA");
 
@@ -488,6 +493,7 @@ namespace cloud.charging.open.RoamingHub.Tests
             await CaughtUp("QA", follower);
 
             var holdsKeys  = follower.NetworkOperator.SigningKeyIdIn(HistoryOf(follower, "QA").Head.RoamingNetwork) is not null;
+            var seenHeld   = await follower.  ShareholdersSeenOf(id);
             var already    = await follower.  JoinRoamingNetworkOperator(id);
 
             // It resigns: begun where the roaming network is made, by the one staying, signed by the one leaving as well.
@@ -505,6 +511,16 @@ namespace cloud.charging.open.RoamingHub.Tests
                 Assert.That(waiting?["changes"]?[0]?["holder"]?.Value<String>(),   Is.EqualTo(beta));
                 Assert.That(waiting?["changes"]?[0]?["kind"]?.Value<String>(),     Is.EqualTo("admit"));
                 Assert.That(stillOne,            Is.EqualTo(new[] { alpha }),                      "asking admits nobody");
+
+                Assert.That(seenThere?["followed"]?.Value<Boolean>(),                Is.False);
+                Assert.That(seenThere?["thisHub"]?.Value<String>(),                  Is.EqualTo(alpha));
+                Assert.That(seenThere?["changes"]?[0]?["holder"]?.Value<String>(),   Is.EqualTo(beta));
+                Assert.That(seenHere?["followed"]?.Value<Boolean>(),                 Is.True);
+                Assert.That(seenHere?["thisHub"],                                    Is.Null,          "a hub asking is no holder yet");
+                Assert.That(seenHere?["holders"]?.Count(),                           Is.EqualTo(1));
+                Assert.That(seenHere?["changes"]?[0]?["holder"]?.Value<String>(),    Is.EqualTo(beta), "what waits is asked where the roaming network is made");
+                Assert.That(seenHeld?["thisHub"]?.Value<String>(),                   Is.EqualTo(beta));
+                Assert.That(seenHeld?["holders"]?.Count(),                           Is.EqualTo(2));
 
                 Assert.That(admitted.Status,     Is.EqualTo(ShareholderChangeStatus.Waiting),      admitted.Message);
                 Assert.That(notYet,              Is.EqualTo(new[] { alpha }),                      "without the proof of the one asking, nobody is admitted");

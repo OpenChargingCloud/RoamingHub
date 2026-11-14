@@ -335,6 +335,100 @@ export interface PartyAdded {
 }
 
 
+/** A public key as POI writes it embedded: its identification is its thumbprint. */
+export interface NetworkKey {
+    '@id':       string;
+    key:         string;
+    notBefore?:  string;
+    notAfter?:   string;
+    /** Who holds it, where several hold the keys of a party. */
+    holder?:     string;
+}
+
+/**
+ * The roaming network operator this hub is, as every roaming network it operates embeds it: its identity keys, and
+ * its signing keys each in the certificate an identity key of the same holder signed for it.
+ */
+export interface NetworkOperator {
+    '@id':                    string;
+    name?:                    Record<string, string>;
+    identityKeys?:            NetworkKey[];
+    signingKeyCertificates?:  { signingKey: NetworkKey; /** The identity key that signed it. */ keyId?: string }[];
+}
+
+/**
+ * What became of a change of the roaming network operator this hub is, in every roaming network it serves: those
+ * that name it as it is now, those that refused it and why, and those where it waits for the other holders of the
+ * keys of their operator, and for what.
+ */
+export interface NetworkOperatorUpdate {
+    message:   string;
+    changed:   string[];
+    refused:   Record<string, string>;
+    waiting?:  Record<string, string>;
+    operator:  NetworkOperator;
+}
+
+/** A roaming network of another server this hub follows: where, whether it is connected, and how far its copy is. */
+export interface FollowedNetwork {
+    '@id':        string;
+    url:          string;
+    connected:    boolean;
+    trustAnchor:  string;
+    revision?:    number;
+    commit?:      string;
+    /** What went wrong last. */
+    error?:       string;
+    /** What the hub says of following it, when it was just asked to. */
+    message?:     string;
+}
+
+/** A change of who holds the keys of the operator of a roaming network, waiting for the other holders. */
+export interface ShareholderChange {
+    kind:          'admit' | 'dismiss' | 'addKey' | 'dropKey' | 'restate';
+    /** Who it is about; empty where the keys are stated anew, by all of them. */
+    holder:        string;
+    keyStatement:  { signatures?: unknown[] };
+    url?:          string;
+    /** Its change set, once enough holders signed its key statement. */
+    changeSet?:    string;
+}
+
+/** Who holds the keys of the operator of a roaming network, and how many of them decide. */
+export interface Shareholders {
+    roamingNetworkOperator:  string;
+    minConsensus:            number;
+    holders:                 { holder: string; identityKeys: string[]; signingKeys: string[] }[];
+    /** What waits; missing for a roaming network followed whose server could not be asked. */
+    changes?:                ShareholderChange[];
+    /** Whether the roaming network is a copy here, of one another server makes. */
+    followed:                boolean;
+    /** The holder this hub is there, if it is one. */
+    thisHub?:                string;
+}
+
+/** What the hub says of something it did, or began, as a holder of the keys of an operator. */
+export interface ShareholderAnswer {
+    status:   string;
+    message:  string;
+}
+
+/** A change set of a roaming network waiting for signatures, and for which. */
+export interface PendingChangeSet {
+    status?:    string;
+    changeSet:  {
+        '@id':          string;
+        description?:   Record<string, string>;
+        signatures?:    unknown[];
+        changes?:       { kind?: string; entityType?: string; entityId?: string; propertyName?: string }[];
+    };
+    missing?:   string[];
+}
+
+/** How long another hub is given to answer what this one asks it. */
+const otherHub = [ 15 ];
+
+
 /** The routes every node has, typed with what a hub says its own of them are. */
 const node = nodeAPI<{ me: Me; status: Status; configuration: Configuration; kind: CertificateKind; store: CertificateStore }>();
 
@@ -435,7 +529,75 @@ export const api = {
         create:    (spec: RoamingNetworkSpec) => request<RoamingNetworkMade>('POST', '/poi/RNs', spec),
 
         addParty:  (roamingNetworkId: string, segment: PartySegment, spec: PartySpec) =>
-                       request<PartyAdded>('POST', `/poi/RNs/${encodeURIComponent(roamingNetworkId)}/${segment}`, spec)
+                       request<PartyAdded>('POST', `/poi/RNs/${encodeURIComponent(roamingNetworkId)}/${segment}`, spec),
+
+        /** The roaming network operator this hub is: its keys replaced, itself renamed, the holder of its keys named. */
+        operator: {
+
+            get:        ()                                => request<NetworkOperator>('GET', '/poi/roamingNetworkOperator'),
+
+            /**
+             * A key replaced by a new one, in every roaming network that names it. An identity key in two changes,
+             * each waiting for the other holders where several decide: asked again, it goes on where it was.
+             */
+            rotate:     (kind: 'signingKey' | 'identityKey') => request<NetworkOperatorUpdate>('POST', `/poi/roamingNetworkOperator/${kind}/rotate`, {},
+                                                                                              afterAsking([ 60 ])),
+
+            rename:     (name: string)                    => request<NetworkOperatorUpdate>('PUT', '/poi/roamingNetworkOperator/name',   { name }),
+
+            nameHolder: (holder: string)                  => request<NetworkOperatorUpdate>('PUT', '/poi/roamingNetworkOperator/holder', { holder })
+
+        },
+
+        /** The roaming networks of other servers this hub follows. */
+        followed: {
+
+            get:       ()                                   => request<{ followed: FollowedNetwork[] }>('GET', '/poi/followed'),
+
+            follow:    (trustAnchor: string, url?: string)  => request<FollowedNetwork>('POST', '/poi/followed', { trustAnchor, url },
+                                                                                        afterAsking([ 60 ])),
+
+            unfollow:  (roamingNetworkId: string)           => request<{ '@id': string; message: string }>(
+                                                                   'DELETE', `/poi/followed/${encodeURIComponent(roamingNetworkId)}`),
+
+            /** Sign the head of a roaming network followed, as a holder of the keys of its operator. */
+            sign:      (roamingNetworkId: string)           => request<{ message: string; commit?: string }>(
+                                                                   'POST', `/poi/followed/${encodeURIComponent(roamingNetworkId)}/signatures`, {},
+                                                                   afterAsking(otherHub))
+
+        },
+
+        /** Who holds the keys of the operator of a roaming network, and what this hub does as one of them. */
+        shareholders: {
+
+            get:      (roamingNetworkId: string) => request<Shareholders>('GET', `/poi/shareholders/${encodeURIComponent(roamingNetworkId)}`, undefined,
+                                                                          afterAsking(otherHub)),
+
+            /** Ask to hold the keys of the operator of a roaming network followed, or sign for it once that waits. */
+            join:     (roamingNetworkId: string, url?: string) =>
+                          request<ShareholderAnswer>('POST', `/poi/shareholders/${encodeURIComponent(roamingNetworkId)}/join`, url ? { url } : {},
+                                                     afterAsking(otherHub)),
+
+            /** Admit who asked, dismiss a holder, or agree to one replacing its identity key. */
+            change:   (roamingNetworkId: string, what: 'admit' | 'dismiss' | 'rekey', holder: string) =>
+                          request<ShareholderAnswer>('POST', `/poi/shareholders/${encodeURIComponent(roamingNetworkId)}/${what}/${encodeURIComponent(holder)}`, {},
+                                                     afterAsking(otherHub)),
+
+            /** State the keys of the operator anew, together with the other holders. */
+            restate:  (roamingNetworkId: string) =>
+                          request<ShareholderAnswer>('POST', `/poi/shareholders/${encodeURIComponent(roamingNetworkId)}/restate`, {},
+                                                     afterAsking(otherHub)),
+
+            pending:  (roamingNetworkId: string) =>
+                          request<{ pendingChangeSets: PendingChangeSet[] }>('GET', `/poi/shareholders/${encodeURIComponent(roamingNetworkId)}/pending`, undefined,
+                                                                             afterAsking(otherHub)),
+
+            /** Sign a change set waiting for signatures as a holder of the keys of the operator, or withdraw it. */
+            decide:   (roamingNetworkId: string, changeSetId: string, approve: boolean) =>
+                          request<ShareholderAnswer>('POST', `/poi/shareholders/${encodeURIComponent(roamingNetworkId)}/pending/${encodeURIComponent(changeSetId)}/${approve ? 'approve' : 'refuse'}`, {},
+                                                     afterAsking(otherHub))
+
+        }
 
     }
 

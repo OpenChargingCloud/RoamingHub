@@ -427,18 +427,18 @@ namespace cloud.charging.open.RoamingHub
                                Result.Message);
 
         /// <summary>
-        /// GET /api/v1/poi/shareholders/{roamingNetworkId}: who holds the keys of the operator of a roaming network made
-        /// here, how many of them decide, and the changes of that waiting - public, as all of it is signed.
+        /// GET /api/v1/poi/shareholders/{roamingNetworkId}: who holds the keys of the operator of a roaming network
+        /// this hub makes or follows, how many of them decide, and the changes of that waiting - public, as all of it
+        /// is signed. "followed" says whether it is a copy here, whose changes waiting are asked where it is followed
+        /// and missing where that did not answer; "thisHub" the holder this hub is there, if it is one.
         /// </summary>
-        private Task<HTTPResponse> GetShareholders(HTTPRequest Request)
+        private async Task<HTTPResponse> GetShareholders(HTTPRequest Request)
 
-            => Task.FromResult(
-                   Request.ParsedURLParameters.Length >= 1 &&
-                   RoamingNetwork_Id.TryParse(Request.ParsedURLParameters[0], out var roamingNetworkId) &&
-                   RoamingHub.ShareholdersOf(roamingNetworkId) is JObject shareholders
-                       ? JSONResponse(Request, HTTPStatusCode.OK, shareholders)
-                       : ErrorJSON   (Request, HTTPStatusCode.NotFound, "This hub makes no such roaming network.")
-               );
+            => Request.ParsedURLParameters.Length >= 1 &&
+               RoamingNetwork_Id.TryParse(Request.ParsedURLParameters[0], out var roamingNetworkId) &&
+               await RoamingHub.ShareholdersSeenOf(roamingNetworkId) is JObject shareholders
+                   ? JSONResponse(Request, HTTPStatusCode.OK, shareholders)
+                   : ErrorJSON   (Request, HTTPStatusCode.NotFound, "This hub serves no such roaming network.");
 
         /// <summary>
         /// POST /api/v1/poi/shareholders/{roamingNetworkId}/requests: a hub following the roaming network asks to hold

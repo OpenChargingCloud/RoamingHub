@@ -133,7 +133,6 @@ Open:
   identity key replaced does not: it is replaced in two changes, whose key statements follow one another (phase 5).
 - **A hub does not say where its roaming networks are:** the `urls` of a roaming network it makes are empty, so
   the trust anchor it serves names the URL it was asked at.
-- **What the pages show** of a roaming network followed, and a form to follow one.
 - **OCPI and DATEX II** read the roaming networks of this hub: whether a copy is published by them is not decided,
   and DATEX II does not publish it.
 
@@ -232,7 +231,6 @@ Open:
 - **The hub that makes the roaming network does not resign**, and a dismissal begins there.
 - **The URL of a copy** is taken into the roaming network only where it is one over https, `~/RNs/{id}`; a hub
   does not say its own by itself.
-- **The pages** show none of it.
 
 
 ## Phase 5: operating under a quorum
@@ -295,4 +293,31 @@ Open:
 - **What waits at the hub where the roaming network is made is not signed by it again** when it made the change
   set itself: its signature is on it. A change set somebody else sent there, e.g. another holder, it approves like
   every holder.
-- **The pages** show none of it.
+
+
+## The pages
+
+Built (`Frontend/src/pages/poiShareholders.ts`). What the command line does, the web interface does at the same
+routes of the JSON API; what it shows is public, as all of it is signed, and what it does is `poi:edit`.
+
+- **Below the list of the roaming networks:** what this hub follows, each with where it is made, whether it is
+  connected, its revision and what went wrong last, and a form to follow one by its trust anchor; and the roaming
+  network operator this hub is, with its keys, `Renew the signing key`, `Replace the identity key` - which says
+  where it waits for the other holders, each roaming network leading to its page - its name and the holder of its
+  keys.
+- **On the page of a roaming network:** who holds the keys of its operator, how many of them decide, and which of
+  them this hub is; what of that waits for the other holders, each with what this hub can do about it - `Admit`,
+  `Agree` to a holder dismissed or to one replacing its identity key, `Resign`, `Sign` the keys stated anew; a
+  holder dismissed, where the roaming network is made; the keys stated anew; the head of a roaming network followed
+  signed; and, at a hub following that holds no key yet, asking to hold them. Below it the change sets waiting for
+  signatures, each with what it changes and what it waits for, approved or withdrawn.
+- **`GET /api/v1/poi/shareholders/{id}`** answers for a roaming network followed as well, for these pages: the
+  holders of the copy, `"followed": true`, and the changes waiting as the hub where it is made tells them -
+  missing where that did not answer. `"thisHub"` names the holder this hub is there, if it is one.
+
+Open:
+
+- **A page does not follow what happens.** It shows what was there when it was asked, and asks again after
+  something was done on it, and a moment later for a copy to have followed; what another hub did meanwhile shows
+  with `Reload`.
+- **The next identity key** of a hub replacing its own is not shown: only that it waits, and where.

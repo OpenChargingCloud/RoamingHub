@@ -1,6 +1,7 @@
 import { api, type PartySegment, type PublicKey } from '../api/client';
 import { poiBase, poiList, poiURL, textOf, type Address, type ChargingPool, type Entity, type ListPart, type Query, type Summary } from '../api/poi';
 import { auth } from '../auth';
+import { mountHubKeys, type Mounted } from './poiShareholders';
 import { fromURL, toURL } from '@node/basePath';
 import { must } from '@node/html';
 import type { Page } from '@node/router';
@@ -17,7 +18,8 @@ import { html, live, nothing, render, repeat, type TemplateResult } from '@node/
  *
  * Public: the POI API is readable by everybody, and so are these pages; nobody signs in for them. Only a new
  * roaming network is made, and a party added to one, by somebody signed in who may edit the roaming networks,
- * poi:edit: below their list.
+ * poi:edit: below their list. There as well, what this hub follows of other servers, and the roaming network
+ * operator it is: see poiShareholders.ts.
  * The search is the API's: words separated by spaces or commas, each one found in a text of an entry, whatever its case;
  * a word starting with "!" must not be found.
  */
@@ -110,6 +112,8 @@ interface ListOptions<T> {
     byOperator?:  boolean;
     /** What stands below the list, e.g. a form; given how the page goes to another one. */
     below?:       (navigate: (path: string) => void) => TemplateResult | typeof nothing;
+    /** What draws itself below all of it, into an element of its own: asked again with the list. */
+    mounted?:     (host: HTMLElement) => Mounted;
 }
 
 
@@ -130,9 +134,10 @@ function listPage<T>(Options: ListOptions<T>): Page {
                 active:    poiHome,
                 title:     Options.title(roamingNetworkId, url),
                 subtitle:  Options.subtitle,
-                actions:   reloadButton(() => load())
+                actions:   reloadButton(() => { own?.reload(); return load(); })
             });
 
+            let own:         Mounted | undefined;
             let part:        ListPart<T> | null       = null;
             let problem:     unknown                  = null;
             let operators:   Summary[]                = [];
@@ -203,6 +208,8 @@ function listPage<T>(Options: ListOptions<T>): Page {
                                         </div>`}
 
                     ${Options.below ? Options.below(navigate) : nothing}
+
+                    ${Options.mounted ? html`<div id="poi-own" class="poi-own"></div>` : nothing}
 
                 `);
 
@@ -294,10 +301,14 @@ function listPage<T>(Options: ListOptions<T>): Page {
 
             void load();
 
+            // Drawn by now, as the list is while it is asked for: the element stays the one it is from then on.
+            own = Options.mounted?.(must<HTMLElement>(content, '#poi-own'));
+
             return () => {
                 cancelled = true;
                 clearTimeout(typing);
                 asking?.abort();
+                own?.release();
                 release();
             };
 
@@ -609,7 +620,8 @@ export const poiNetworksPage: Page = listPage<Summary>({
             <td>${textOf(entry.name)}</td>
             <td class="muted">${textOf(entry.description)}</td>
         </tr>`,
-    below:        navigate => html`${newNetworkCard(navigate)}${newPartyCard(navigate)}`
+    below:        navigate => html`${newNetworkCard(navigate)}${newPartyCard(navigate)}`,
+    mounted:      mountHubKeys
 });
 
 /** The charging pools of every operator of a roaming network: what the points of interest are about. */

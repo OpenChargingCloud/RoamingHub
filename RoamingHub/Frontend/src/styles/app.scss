@@ -325,6 +325,58 @@ table.poi-table td.poi-number {
     overflow-wrap:  anywhere;
 }
 
+// What draws itself into a page - the keys of an operator, what is followed: its cards stand among the others, as
+// if the element around them were not there.
+.poi-own {
+
+    display: contents;
+
+    // Below a list, where no grid keeps the cards apart.
+    .card.wide {
+        margin-top: 1rem;
+    }
+
+}
+
+// The keys of a roaming network operator: its holders, what waits for them, and the change sets waiting.
+.poi-shareholders,
+.poi-pending,
+.poi-operator,
+.poi-followed {
+
+    h3 {
+        margin:       1rem 0 0.4rem 0;
+        font-size:    0.9rem;
+        font-weight:  600;
+        color:        $color-muted;
+    }
+
+    .form-actions {
+        margin: 0.8rem 0;
+    }
+
+    form {
+        margin-top:   1rem;
+        padding-top:  0.8rem;
+        border-top:   1px dashed $color-border;
+    }
+
+    .poi-change .poi-value {
+        display:      flex;
+        flex-wrap:    wrap;
+        align-items:  center;
+        gap:          0.5rem;
+    }
+
+}
+
+// A change set waiting, among the others.
+.poi-pending-set + .poi-pending-set {
+    margin-top:   1rem;
+    padding-top:  0.8rem;
+    border-top:   1px dashed $color-border;
+}
+
 // What groups give a member: below the value, leading to the group.
 .poi-origin {
 

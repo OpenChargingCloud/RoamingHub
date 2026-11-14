@@ -353,16 +353,83 @@ namespace cloud.charging.open.RoamingHub
                 changes = [ .. shareholderChanges.Where(change => change.Key.RoamingNetworkId == RoamingNetworkId).Select(change => change.Value) ];
             }
 
-            return new JObject(
-                       new JProperty("roamingNetworkOperator",  networkOperator.Id.ToString()),
-                       new JProperty("minConsensus",            networkOperator.MinConsensus),
-                       new JProperty("holders",                 new JArray(POIPartyKeys.Holders(networkOperator.IdentityKeys).Order(StringComparer.Ordinal).Select(holder => new JObject(
-                                                                               new JProperty("holder",        holder),
-                                                                               new JProperty("identityKeys",  new JArray(networkOperator.IdentityKeys.Where(key => key.HolderOrUnnamed == holder).Select(key => key.Id))),
-                                                                               new JProperty("signingKeys",   new JArray(networkOperator.SigningKeys. Where(key => key.HolderOrUnnamed == holder).Select(key => key.Id)))
-                                                                           )))),
-                       new JProperty("changes",                 new JArray(changes.OrderBy(change => change.Holder, StringComparer.Ordinal).Select(change => change.ToJSON())))
-                   );
+            var json = HoldersOf(networkOperator);
+
+            json["changes"] = new JArray(changes.OrderBy(change => change.Holder, StringComparer.Ordinal).Select(change => change.ToJSON()));
+
+            return json;
+
+        }
+
+        private static JObject HoldersOf(RoamingNetworkOperator NetworkOperator)
+
+            => new (
+                   new JProperty("roamingNetworkOperator",  NetworkOperator.Id.ToString()),
+                   new JProperty("minConsensus",            NetworkOperator.MinConsensus),
+                   new JProperty("holders",                 new JArray(POIPartyKeys.Holders(NetworkOperator.IdentityKeys).Order(StringComparer.Ordinal).Select(holder => new JObject(
+                                                                           new JProperty("holder",        holder),
+                                                                           new JProperty("identityKeys",  new JArray(NetworkOperator.IdentityKeys.Where(key => key.HolderOrUnnamed == holder).Select(key => key.Id))),
+                                                                           new JProperty("signingKeys",   new JArray(NetworkOperator.SigningKeys. Where(key => key.HolderOrUnnamed == holder).Select(key => key.Id)))
+                                                                       ))))
+               );
+
+        #endregion
+
+        #region ShareholdersSeenOf(RoamingNetworkId)
+
+        /// <summary>
+        /// Who holds the keys of the operator of the given roaming network this hub makes or follows, as a page shows
+        /// it: what <see cref="ShareholdersOf"/> says, with "followed", whether it is a copy here, and "thisHub", the
+        /// holder this hub is there, if it is one. For a roaming network followed the holders are those of the copy,
+        /// and the changes waiting are asked where it is followed: there are no "changes" where that did not answer.
+        /// Null where this hub serves no such roaming network.
+        /// </summary>
+        public async Task<JObject?> ShareholdersSeenOf(RoamingNetwork_Id RoamingNetworkId)
+        {
+
+            if (!POI.TryGetRoamingNetworkHistory(RoamingNetworkId, out var history) ||
+                history.Head.RoamingNetwork.Operator is not RoamingNetworkOperator networkOperator)
+            {
+                return null;
+            }
+
+            var isFollowed  = IsFollowed(RoamingNetworkId);
+            var json        = isFollowed
+                                  ? HoldersOf(networkOperator)
+                                  : ShareholdersOf(RoamingNetworkId);
+
+            if (json is null)
+                return null;
+
+            if (isFollowed && TryGetFollowed(RoamingNetworkId, out var network, out _, out _))
+            {
+                try
+                {
+
+                    using var response = await shareholderHTTP.GetAsync(ShareholdersURL(network));
+
+                    if (response.IsSuccessStatusCode &&
+                        ReadJSON(await response.Content.ReadAsStringAsync())?["changes"] is JArray changes)
+                    {
+                        json["changes"] = changes;
+                    }
+
+                }
+                catch
+                {
+                    // Not told: the page says so.
+                }
+            }
+
+            json["followed"] = isFollowed;
+
+            if (NetworkOperator.Holder is String self &&
+                NetworkOperator.SigningKeyIdIn(history.Head.RoamingNetwork) is not null)
+            {
+                json["thisHub"] = self;
+            }
+
+            return json;
 
         }
 
