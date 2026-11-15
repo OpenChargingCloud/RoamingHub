@@ -794,12 +794,22 @@ namespace cloud.charging.open.RoamingHub
                                                      NewPOIArchive(Directory));
 
             // Kept beside the copy as far as it was followed: the next start trusts whom this one came to trust.
+            // Said where it names other keys, or another quorum: a trust anchor handed out names the roaming network
+            // and where it is found as it was then, and is followed in that with the first copy, by the same keys.
+            var keys = KeysOf(TrustAnchor);
+
             network.Trust.OnFollowed += (trust, trustAnchor) => {
 
                 try
                 {
+
                     WriteFollowed(network);
-                    Log.Notice($"The operator of the roaming network '{Id}' stated its keys anew: its trust anchor here names {trustAnchor.Keys.Length} identity key(s), {trustAnchor.MinConsensus} of {trustAnchor.Holders.Count} holder(s) deciding.", "poi", "follow", "security");
+
+                    var now = KeysOf(trustAnchor);
+
+                    if (Interlocked.Exchange(ref keys, now) != now)
+                        Log.Notice($"The operator of the roaming network '{Id}' stated its keys anew: its trust anchor here names {trustAnchor.Keys.Length} identity key(s), {trustAnchor.MinConsensus} of {trustAnchor.Holders.Count} holder(s) deciding.", "poi", "follow", "security");
+
                 }
                 catch (Exception e)
                 {
@@ -821,6 +831,18 @@ namespace cloud.charging.open.RoamingHub
             return network;
 
         }
+
+        #endregion
+
+        #region (private static) KeysOf(TrustAnchor)
+
+        /// <summary>
+        /// The identity keys the given trust anchor names, per holder, and how many of the holders decide: what a key
+        /// statement states, without what the roaming network is called and where it is found.
+        /// </summary>
+        private static String KeysOf(RoamingNetworkTrustAnchor TrustAnchor)
+
+            => $"{TrustAnchor.MinConsensus}:{String.Join("|", TrustAnchor.Holders.Select(holder => String.Join(",", holder)))}";
 
         #endregion
 
