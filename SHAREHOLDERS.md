@@ -14,6 +14,7 @@ sections 4.1 and 8.6; example A1 there plays it with three organizations in one 
 | 4 | A hub is admitted as a shareholder, is dismissed, resigns | built |
 | 5 | Operating under a quorum: what waits for the others | built |
 | 6 | The hubs tell each other what waits, and a configuration says what a hub takes part in | built |
+| 7 | Every holder's hub makes changes: none of them is the one the others need | designed |
 
 
 ## What is there, and what is missing
@@ -515,7 +516,7 @@ in a configuration.
 Open after it:
 
 - **Everything goes through the hub where the roaming network is made.** While it is not reached, nothing is
-  decided; another holder taking its place is a design of its own.
+  decided: phase 7, below, is its design.
 
 ### A holder named later
 
@@ -564,6 +565,134 @@ its turn.
   older than that is refused there, and followed where the roaming network is made.
 - **Not for an app**: a driver's app verifying a proof by an old trust anchor follows the key statements itself,
   `RoamingNetworkKeyStatement.TryVerifyChain`; nothing changed there.
+
+
+## Phase 7: every holder's hub makes changes
+
+Designed, not built. Until here one hub writes the history of a roaming network, the one where it was made, and
+every other hub, also one holding keys of its operator, has a copy nobody changes from there. That is a question
+of who is reached, not of whom to trust: under a quorum that hub decides nothing alone. But while it is away
+nothing is decided at all, although as many holders as decide may be there.
+
+The history itself needs no such hub. In WWCP POI everybody commits, tips that do not conflict are merged the same
+way everywhere, and a key removed on one tip carries no change set of the other into the merge (SPECIFICATION.md,
+section 5.3). What binds a roaming network to one hub is in the hub:
+
+- **A copy is changed by nobody.** A hub following starts its peer with `PushCommits = false`, takes no change set
+  for a roaming network followed (`AuthorizeChangeSetSubmission`), and no hub takes commits pushed to it
+  (`AuthorizeCommitPush` is not set).
+- **What waits is in one place.** The change sets waiting for signatures are those of the history where the
+  roaming network is made, and the changes of the holders are kept there, `shareholderChanges.json`. Every other
+  hub reads them there and sends its signatures there.
+- **Only that hub makes a commit of signatures**, and the change set of a key statement that is complete.
+- **A hub follows at one URL**, although a trust anchor names several.
+
+Decided (2026-11-15):
+
+1. **Holders first.** A hub writes to a roaming network where its head names a key of this hub as one of the keys
+   of its operator. A hub that only follows, e.g. the one of a charging station operator changing what it owns,
+   stays as it is, and is a step of its own later.
+2. **No rule for which of two key statements wins.** Where more than half of the holders decide, two changes of
+   the holders that exclude each other never both get there. Where half of them or fewer decide, a change of the
+   holders is begun only while every holder's hub is reached and has the same head.
+
+Decision 3 of the beginning stays: nothing is signed for another by itself. A hub committing a change set that
+has the signatures it needs decides nothing, and neither does one merging two tips.
+
+### What a hub is in a roaming network
+
+Not where it was made, but what its head says: a **holder's hub**, where the head names a key of this hub for its
+operator, or a **hub following**. A hub admitted becomes a holder's hub with the commit admitting it, a hub
+dismissed one following with the commit dismissing it, without a restart and without a command. The hub where a
+roaming network was made is a holder's hub like every other from then on: it resigns as the others do, a
+dismissal begins at any of them, and `signCommits` is said for it as for them.
+
+### 7.1 Several ways
+
+- **A holder's hub is connected to every other holder's hub**: one peer for each, on the one history, at the URL
+  of the copy each holder said when it asked (`RoamingShareholder`), and the `urls` of the roaming network for
+  those that said none. Commits go both ways (`PushCommits`), and so does the runtime status (`PushStatus`).
+- **A commit is taken from another hub as a change set is taken from everybody**: it carries the signatures of
+  its owners, which the history checks as for its own. `AuthorizeCommitPush` lets it in for a roaming network
+  this hub is a holder's hub of.
+- **A hub following tries the next URL** of its trust anchor when the one it follows does not answer, and goes
+  back to reading there. It pushes nothing, as today.
+- **Tips are merged by every hub**, as WWCP POI does it, to the same merge commit everywhere. A merge commit has
+  no signatures; a holder's hub signs it by itself where it signed both commits merged, and `signCommits: "all"`
+  signs every one. So a head made by merging is attested by as many holders as decide, like every other.
+- **Tips that conflict** stay beside each other until the owner of what conflicts says which it is, with a change
+  set on one of them. Where that owner is the operator, it is in what waits for somebody here, at every holder's
+  hub.
+- **Attested where the holders have got to the same head.** While two hubs commit at once their heads differ for
+  a moment, and no head has the attestations of the quorum until they merged: a first copy waits that long.
+
+Useful alone: what one holder commits alone - its signing key renewed, the commits of a charging station
+operator sending its change sets there - gets to everybody while any way between the hubs is open.
+
+### 7.2 What waits is with every holder
+
+- **Every holder's hub keeps what waits**, in its own history and beside its own store, as the hub where the
+  roaming network is made does today: nothing is read at one other hub any more, and nothing is lost with one.
+- **Exchanged between the holders' hubs**, each with each: after a connect, when told, and every minute. A change
+  set waiting elsewhere that this hub lacks is taken as if it was submitted here, verified as every one; where
+  both have it, each takes the signatures the other has more. A change of the holders likewise, by its kind, its
+  holder and the content of its key statement, with the signatures of that key statement united.
+- **A signature goes to every holder's hub that is reached**, not to one. That it got to one is enough: the others
+  get it from there.
+- **Withdrawn** is signed, by an owner of one of its changes, so a withdrawal is passed on like a signature, and a
+  hub that has it takes the change set no more.
+- **Done with** where the history says so: a change set committed waits nowhere, and neither does one that fits
+  the head no longer. No hub tells another that something is over.
+- **Every holder's hub pushes the two notices** of phase 6.2, `shareholderChanges` and `pendingChangeSets`, and
+  every one subscribes to them at each of the others.
+
+Useful alone: what waits survives the hub it was begun at, and every hub shows it without asking another.
+
+### 7.3 Begun and completed anywhere
+
+- **A change set of the operator is submitted at any holder's hub**, e.g. a party added, and waits there and, by
+  7.2, at the others.
+- **Committed where the last signature it lacked arrives**, by that hub, signed with its signing key. Two hubs
+  getting there at once make two commits of the same change set, one on each tip. To check when it is built:
+  that the history takes these as the one change they are, and does not hold them for a conflict.
+- **A change of the holders begins at any holder's hub**: a hub asks to hold keys at whichever it follows, and
+  `dismiss`, `rekey` and `restate` begin wherever somebody says so.
+- **The change set of a key statement is made by the hub that has it complete and signed it**, whichever that
+  is. It is made from the key statement and the head alone, so two hubs making it from the same head make the
+  same one, as a hub signing it checks today already by making it again.
+- **One key statement after another.** A hub signs no second key statement following the same one while the
+  first waits: somebody withdraws the first, or it is done. With more than half deciding, two that exclude each
+  other so never both have the quorum, as any two such groups of holders share one.
+- **Half or fewer deciding** - one of two, two of four - a change of the holders is refused while one of the
+  holders' hubs is not reached or is at another head, and says which. A hub asking to hold keys names more than
+  half today, so this is where somebody chose otherwise.
+- **Two key statements on two tips all the same**, e.g. made before a hub knew of this rule: the tips conflict
+  and stay, as every conflict of the operator does. Which of them goes on is said by the holders, not by a hub.
+
+### In WWCP POI
+
+Nothing of its specification changes. To check when it is built: several peers on one history, each to another
+server; and the change sets waiting taken over the WebSocket, where today the topic `pendingChangeSets` carries
+each as a notice a hub following reads again over HTTP.
+
+### In which order
+
+| Step | What | Where |
+|---|---|---|
+| 7.1 | What a hub is, read from the head; a peer to every holder; commits both ways; merges signed | RoamingHub |
+| 7.2 | What waits kept by every holder's hub, and exchanged | RoamingHub, WWCP POI |
+| 7.3 | Change sets and changes of the holders begun and completed anywhere; one key statement after another | RoamingHub |
+
+7.2 comes before 7.3: a hub completes only what it has. After 7.1 and 7.2 the hub where a roaming network was
+made is still the only one making a commit of signatures, but no longer the only one knowing them.
+
+Not designed here:
+
+- **A hub that only follows writes** (decision 1).
+- **Checkpoints and epochs**: no hub makes them today.
+- **A holder's hub that is gone for good**: the others dismiss it, as today. With two of two that takes its
+  signature, so of two neither may be lost.
+- **The same status set at two hubs within a millisecond** may stay different on three and more, as in WWCP POI.
 
 
 ## The pages
