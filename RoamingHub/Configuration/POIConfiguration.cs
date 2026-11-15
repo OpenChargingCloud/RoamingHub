@@ -54,6 +54,13 @@ namespace cloud.charging.open.RoamingHub.Configuration
     /// "allowedOrigins": [ "https://map.example.org" ]. A browser says whose page asks, and a page of another site is
     /// refused unless it is named here; the hub's own pages, and programs that are no browsers, always may.
     /// </para>
+    /// <para>
+    /// URL says where the POI API of this hub is reached, "url": "https://hub-b.example/poi": no hub knows its own
+    /// public URL. Follow names the roaming networks of other servers this hub follows, by their trust anchors, and
+    /// whether it asks to hold the keys of their operators as well - "follow": [ { "trustAnchor": "...", "hold": true } ].
+    /// What it says is done at every start as if somebody had said it then; what it names no longer is not undone.
+    /// See SHAREHOLDERS.md, phase 6, and RoamingHub.POIConfigured.cs.
+    /// </para>
     /// </remarks>
     /// <param name="RetainCommits">How many revisions behind the head the commits are kept in the store when compacting; 1000 by default.</param>
     /// <param name="CompactAfterLogEntries">After how many entries of its log a history compacts it; 100 000 by default.</param>
@@ -62,13 +69,17 @@ namespace cloud.charging.open.RoamingHub.Configuration
     /// <param name="Archive">Whether the commits dropped go into the archive beside the store, "archive/"; true by default.</param>
     /// <param name="StatusRoles">The roles whose accounts may set the runtime status, each with the charging station operators whose status it may set; none by default.</param>
     /// <param name="AllowedOrigins">The origins of the web pages of other sites that may open the WebSocket of a history, "https://map.example.org"; none by default.</param>
+    /// <param name="URL">Where the POI API of this hub is reached, "https://hub-b.example/poi"; not said by default.</param>
+    /// <param name="Follow">The roaming networks of other servers this hub follows; none by default.</param>
     public sealed record POIConfiguration(UInt32?                                                                   RetainCommits               = null,
                                           UInt32?                                                                   CompactAfterLogEntries      = null,
                                           UInt32?                                                                   VersionCheckpointInterval   = null,
                                           UInt32?                                                                   RecentVersions              = null,
                                           Boolean?                                                                  Archive                     = null,
                                           IReadOnlyDictionary<String, IReadOnlyList<ChargingStationOperator_Id>>?  StatusRoles                 = null,
-                                          IReadOnlyList<String>?                                                    AllowedOrigins              = null)
+                                          IReadOnlyList<String>?                                                    AllowedOrigins              = null,
+                                          org.GraphDefined.Vanaheimr.Hermod.HTTP.URL?                               URL                         = null,
+                                          IReadOnlyList<POIFollow>?                                                 Follow                      = null)
     {
 
         #region Data
@@ -102,6 +113,21 @@ namespace cloud.charging.open.RoamingHub.Configuration
         /// The most origins the section may name.
         /// </summary>
         public const Int32   MaxAllowedOrigins     = 100;
+
+        /// <summary>
+        /// The name of the field saying where the POI API of this hub is reached.
+        /// </summary>
+        public const String  URLName               = "url";
+
+        /// <summary>
+        /// The name of the field of the roaming networks of other servers this hub follows.
+        /// </summary>
+        public const String  FollowName            = "follow";
+
+        /// <summary>
+        /// The most roaming networks the section may have this hub follow.
+        /// </summary>
+        public const Int32   MaxFollowed           = 100;
 
         private static readonly RoamingNetworkHistoryRetention  defaults  = new ();
 
@@ -139,6 +165,22 @@ namespace cloud.charging.open.RoamingHub.Configuration
         public IReadOnlyList<String>  EffectiveAllowedOrigins
             => AllowedOrigins ?? [];
 
+        /// <summary>
+        /// The roaming networks of other servers this hub follows: none, where the section says nothing.
+        /// </summary>
+        public IReadOnlyList<POIFollow>  EffectiveFollow
+            => Follow ?? [];
+
+        /// <summary>
+        /// Where this hub serves the given roaming network, ~/RNs/{RN_Id} below its POI API, where the section says
+        /// where that is reached.
+        /// </summary>
+        public org.GraphDefined.Vanaheimr.Hermod.HTTP.URL? URLOf(RoamingNetwork_Id RoamingNetworkId)
+
+            => URL.HasValue
+                   ? org.GraphDefined.Vanaheimr.Hermod.HTTP.URL.Parse($"{URL.Value.ToString().TrimEnd('/')}/RNs/{RoamingNetworkId}")
+                   : null;
+
         #endregion
 
 
@@ -169,13 +211,143 @@ namespace cloud.charging.open.RoamingHub.Configuration
             if (!TryParseAllowedOrigins(JSON, out var allowedOrigins, out Error))
                 return false;
 
+            if (!TryParseURL(JSON, URLName, SectionName, out var url, out Error))
+                return false;
+
+            if (!TryParseFollow(JSON, out var follow, out Error))
+                return false;
+
             Configuration = new POIConfiguration(retainCommits,
                                                  compactAfterLogEntries,
                                                  versionCheckpointInterval,
                                                  recentVersions,
                                                  archive,
                                                  statusRoles,
-                                                 allowedOrigins);
+                                                 allowedOrigins,
+                                                 url,
+                                                 follow);
+            return true;
+
+        }
+
+        #endregion
+
+        #region (private static) TryParseURL(JSON, Name, Path, out URL, out Error)
+
+        /// <summary>
+        /// A URL over http or https without a query, or the one sentence that says what is wrong with it.
+        /// </summary>
+        private static Boolean TryParseURL(JObject                                           JSON,
+                                           String                                            Name,
+                                           String                                            Path,
+                                           out org.GraphDefined.Vanaheimr.Hermod.HTTP.URL?   URL,
+                                           [NotNullWhen(false)] out String?                  Error)
+        {
+
+            URL = null;
+
+            if (!ConfigurationReader.TryReadString(JSON, Name, Path, 2048, out var text, out Error))
+                return false;
+
+            if (text is null)
+                return true;
+
+            if (!Uri.TryCreate(text, UriKind.Absolute, out var uri)     ||
+                uri.Scheme is not ("http" or "https")                   ||
+                uri.Host.Length  == 0                                   ||
+                uri.UserInfo.Length > 0                                 ||
+                uri.Query.Length    > 0                                 ||
+                uri.Fragment.Length > 0                                 ||
+                !org.GraphDefined.Vanaheimr.Hermod.HTTP.URL.TryParse(text.TrimEnd('/'), out var url))
+            {
+                Error = $"'{Path}.{Name}' is '{text}', which is no URL over http or https without a query, e.g. \"https://hub.example.org/poi\".";
+                return false;
+            }
+
+            URL = url;
+            return true;
+
+        }
+
+        #endregion
+
+        #region (private static) TryParseFollow(JSON, out Follow, out Error)
+
+        /// <summary>
+        /// The roaming networks of other servers this hub follows, [ { "trustAnchor", "url"?, "hold"? } ], or the one
+        /// sentence that says what is wrong with them.
+        /// </summary>
+        private static Boolean TryParseFollow(JObject                           JSON,
+                                              out IReadOnlyList<POIFollow>?     Follow,
+                                              [NotNullWhen(false)] out String?  Error)
+        {
+
+            Follow  = null;
+            Error   = null;
+
+            if (!JSON.TryGetValue(FollowName, out var token) || token.Type == JTokenType.Null)
+                return true;
+
+            var path = $"{SectionName}.{FollowName}";
+
+            if (token is not JArray followJSON || followJSON.Any(entry => entry is not JObject))
+            {
+                Error = $"'{path}' must be a JSON array of the roaming networks followed, each with its trust anchor: [ {{ \"trustAnchor\": \"...\", \"hold\": true }} ].";
+                return false;
+            }
+
+            if (followJSON.Count > MaxFollowed)
+            {
+                Error = $"'{path}' may name at most {MaxFollowed} roaming networks.";
+                return false;
+            }
+
+            var follow  = new List<POIFollow>();
+            var number  = 0;
+
+            foreach (var entry in followJSON.Cast<JObject>())
+            {
+
+                var entryPath = $"{path}[{number++}]";
+
+                if (entry.Properties().FirstOrDefault(property => property.Name is not ("trustAnchor" or URLName or "hold")) is JProperty other)
+                {
+                    Error = $"'{entryPath}' says '{other.Name}', which is none of \"trustAnchor\", \"{URLName}\" and \"hold\".";
+                    return false;
+                }
+
+                if (!ConfigurationReader.TryReadString(entry, "trustAnchor", entryPath, 65536, out var anchorText, out Error))
+                    return false;
+
+                if (anchorText is null || !RoamingNetworkTrustAnchor.TryParse(anchorText.Trim(), out var trustAnchor, out var anchorError))
+                {
+                    Error = $"'{entryPath}.trustAnchor' is no trust anchor of a roaming network, the text of its QR code or its URL, as its operator hands it out.";
+                    return false;
+                }
+
+                if (!TryParseURL(entry, URLName, entryPath, out var url, out Error))
+                    return false;
+
+                if (url is null && trustAnchor.URLs.IsDefaultOrEmpty)
+                {
+                    Error = $"'{entryPath}.trustAnchor' names no URL of the roaming network '{trustAnchor.Id}': say where it is followed, \"{URLName}\".";
+                    return false;
+                }
+
+                if (!ConfigurationReader.TryReadBoolean(entry, "hold", entryPath, out var hold, out Error))
+                    return false;
+
+                if (follow.Any(known => known.TrustAnchor.Id == trustAnchor.Id))
+                {
+                    Error = $"'{path}' names the roaming network '{trustAnchor.Id}' twice.";
+                    return false;
+                }
+
+                follow.Add(new POIFollow(trustAnchor, anchorText.Trim(), url, hold ?? false));
+
+            }
+
+            Follow = follow;
             return true;
 
         }
@@ -342,6 +514,12 @@ namespace cloud.charging.open.RoamingHub.Configuration
             if (AllowedOrigins is not null)
                 json.Add(AllowedOriginsName, new JArray(AllowedOrigins));
 
+            if (URL.HasValue)
+                json.Add(URLName, URL.Value.ToString());
+
+            if (Follow is not null)
+                json.Add(FollowName, new JArray(Follow.Select(follow => follow.ToJSON())));
+
             return json;
 
         }
@@ -362,11 +540,51 @@ namespace cloud.charging.open.RoamingHub.Configuration
                         : "") +
                    (EffectiveAllowedOrigins.Count > 0
                         ? ", their WebSocket also opened by pages of " + String.Join(", ", EffectiveAllowedOrigins)
+                        : "") +
+                   (URL.HasValue
+                        ? $", reached at {URL.Value}"
+                        : "") +
+                   (EffectiveFollow.Count > 0
+                        ? ", following " + String.Join(", ", EffectiveFollow.Select(follow => $"'{follow.TrustAnchor.Id}'{(follow.Hold ? " to hold the keys of its operator as well" : "")}"))
                         : "");
 
         }
 
         #endregion
+
+    }
+
+
+    /// <summary>
+    /// A roaming network of another server the "poi" section has this hub follow.
+    /// </summary>
+    /// <param name="TrustAnchor">Its trust anchor, as its operator hands it out.</param>
+    /// <param name="TrustAnchorText">The trust anchor as the file says it: the text of its QR code, or its URL.</param>
+    /// <param name="URL">Where it is followed, ~/RNs/{RN_Id} at the other server; the first URL of the trust anchor otherwise.</param>
+    /// <param name="Hold">Whether this hub asks to hold the keys of its operator as well, once.</param>
+    public sealed record POIFollow(RoamingNetworkTrustAnchor                    TrustAnchor,
+                                   String                                       TrustAnchorText,
+                                   org.GraphDefined.Vanaheimr.Hermod.HTTP.URL?  URL,
+                                   Boolean                                      Hold)
+    {
+
+        /// <summary>
+        /// The entry as it is written to the file.
+        /// </summary>
+        public JObject ToJSON()
+        {
+
+            var json = new JObject(new JProperty("trustAnchor", TrustAnchorText));
+
+            if (URL.HasValue)
+                json.Add(POIConfiguration.URLName, URL.Value.ToString());
+
+            if (Hold)
+                json.Add("hold", true);
+
+            return json;
+
+        }
 
     }
 

@@ -687,7 +687,8 @@ namespace cloud.charging.open.RoamingHub
                                                                                  KeyStatementValidity),
                                                      NetworkOperator.IdentityKey,
                                                      NetworkOperator.CertifySigningKeyFor(head.Operator.Id, now),
-                                                     URL);
+                                                     // Where its copy is, said here or by the configuration: see RoamingHub.POIConfigured.cs.
+                                                     URL ?? CopyURLOf(RoamingNetworkId));
 
                 if (ChangeError(request, head) is String changeError)
                     return new (ShareholderChangeStatus.Invalid, changeError);

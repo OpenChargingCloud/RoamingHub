@@ -13,7 +13,7 @@ sections 4.1 and 8.6; example A1 there plays it with three organizations in one 
 | 3 | A hub signs the commits it follows, and attests with a quorum | built |
 | 4 | A hub is admitted as a shareholder, is dismissed, resigns | built |
 | 5 | Operating under a quorum: what waits for the others | built |
-| 6 | The hubs tell each other what waits, and a configuration says what a hub takes part in | 6.1 and 6.2 built, the rest designed |
+| 6 | The hubs tell each other what waits, and a configuration says what a hub takes part in | 6.1 to 6.3 built, 6.4 designed |
 
 
 ## What is there, and what is missing
@@ -299,7 +299,8 @@ Open:
 
 ## Phase 6: the hubs tell each other, and a configuration says what a hub takes part in
 
-Steps 6.1 and 6.2 are built (`RoamingHub.ShareholdersAdvance.cs`), the rest is a design. Example A1 with three hubs
+Steps 6.1 and 6.2 are built (`RoamingHub.ShareholdersAdvance.cs`), and 6.3 (`RoamingHub.POIConfigured.cs`); 6.4
+is a design. Example A1 with three hubs
 ([gui/exampleA1.md](https://github.com/OpenChargingCloud/WWCP_POI/blob/master/examples/gui/exampleA1.md)) took
 three people telling each other what to do next: `admit` twice at every holder's hub, `join` twice, `sign` after
 every commit. Two things were missing: a hub did not learn what waits elsewhere, and what it takes part in is said
@@ -440,13 +441,38 @@ undone, as unfollowing deletes a copy. Commands and pages stay, for what is said
 
 Not in the configuration: dismissing, approving change sets of the operator, replacing keys.
 
+**Built (6.3):** `url`, `follow` with `trustAnchor`, `url` and `hold`, in the `poi` section. An entry of
+`follow` saying anything else, `signCommits` among it, is refused until 6.4.
+
+- **`url`** is a URL over http or https without a query. A roaming network made from then on names
+  `{url}/RNs/{RN_Id}` as its `urls` from its genesis; every trust anchor served, of a roaming network made here or
+  of a copy, names it first (`POI_API.PublicURL`); and a hub asking to hold keys says it as the URL of its copy,
+  where it is https and nobody said another one.
+- **Not built of `url`:** a roaming network made before does not get it into its `urls` - that were a change set,
+  waiting for the others under a quorum - but its trust anchor names it all the same.
+- **`follow`** is done after the start, in the background, `FollowAsConfigured()`: what is followed already is left
+  as it is, and a roaming network this hub makes itself is not followed, which its log says. The trust anchor names
+  where, unless `url` of the entry does.
+- **`hold`** asks when the hub looks - after it connected, when told, every minute - where it holds no key there
+  and did not ask yet. That it asked is kept beside the copy, `askedToHold` in `followed.json`: so it asks once, and
+  a hub dismissed does not ask again by itself. Deviating from the design, which had it ask again while it is
+  neither admitted nor refused: nothing says that a hub was refused, so it would ask forever. Following no longer
+  deletes the copy and with it that it asked.
+- **What could not be done** - no holder named, the other hub away - is said in the log once, tagged `config`, and
+  tried again at the next look.
+- **A trust anchor older than the roaming network** is refused as before (the open point below): a configuration
+  written while one held the keys does not follow a roaming network two hold by now. The roaming network counts
+  as followed all the same, without a copy, so a newer trust anchor in the configuration is not taken until
+  somebody says `roamingNetworks unfollow <id>`.
+- **Read at the start only**: a section changed while the hub runs is done at its next start.
+
 ### In which order
 
 | Step | What | Where |
 |---|---|---|
 | 6.1 | The changes waiting are kept; the loop, by the timer; the steps that are no decisions | RoamingHub, built |
 | 6.2 | The topics and the notices; the pages ask again | WWCP POI, RoamingHub, built |
-| 6.3 | `url`, `follow`, `hold` | RoamingHub |
+| 6.3 | `url`, `follow`, `hold` | RoamingHub, WWCP POI, built |
 | 6.4 | `signCommits`, `admit` | RoamingHub |
 
 6.1 alone ends the telling: slower, by up to a minute per step, which 6.2 takes away.

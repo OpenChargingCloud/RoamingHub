@@ -63,11 +63,17 @@ namespace cloud.charging.open.RoamingHub.Tests
         /// what waits where several hold the keys of an operator only when a test says so, unless it shall when told:
         /// most tests look at every step alone.
         /// </summary>
-        private async Task<RoamingHub> AnotherHub(String? Directory = null, Boolean WhenTold = false)
+        private async Task<RoamingHub> AnotherHub(String? Directory = null, Boolean WhenTold = false, JObject? POI = null)
         {
 
-            var directory  = Directory ?? TestRoamingHubs.TemporaryDirectory("follower");
-            var hub        = await TestPorts.StartedOnFreshPorts(() => TestRoamingHubs.New(directory, TestRoamingHubs.Offline));
+            var directory      = Directory ?? TestRoamingHubs.TemporaryDirectory("follower");
+            var configuration  = TestRoamingHubs.Offline;
+
+            // What its "poi" section says, read at its start.
+            if (POI is not null)
+                configuration.Add("poi", POI);
+
+            var hub        = await TestPorts.StartedOnFreshPorts(() => TestRoamingHubs.New(directory, (JObject) configuration.DeepClone()));
 
             hub.LooksWhenTold = WhenTold;
 
@@ -738,6 +744,169 @@ namespace cloud.charging.open.RoamingHub.Tests
                 Assert.That(outByBeta.Status,     Is.EqualTo(ShareholderChangeStatus.Committed),  outByBeta.Message);
                 Assert.That(signedByTwoAgain,     Is.True,                                        "the commit dismissing the third is not signed by the two left");
                 Assert.That(HoldersOf(RoamingHub, "QA"),  Is.EquivalentTo(new[] { alpha, beta }));
+
+            });
+
+        }
+
+        #endregion
+
+        #region TheConfigurationSaysWhatAHubTakesPartIn()
+
+        /// <summary>
+        /// The "poi" section says where a hub is reached, which roaming networks it follows, and of which it asks to
+        /// hold the keys of the operator as well (SHAREHOLDERS.md, phase 6.3): done at its start, as if somebody had
+        /// said it then. So one decision is left, to admit it; and asking is done once, also over a restart.
+        /// </summary>
+        [Test]
+        public async Task TheConfigurationSaysWhatAHubTakesPartIn()
+        {
+
+            var id       = RoamingNetwork_Id.Parse("QA");
+
+            Assert.That(RoamingHub.CreateRoamingNetwork(id).Success,  Is.True);
+
+            var poi      = new JObject(
+                               new JProperty("url",     "https://hub-b.example/poi"),
+                               new JProperty("follow",  new JArray(
+                                   new JObject(
+                                       new JProperty("trustAnchor",  TrustAnchorOf(RoamingHub, "QA")),
+                                       new JProperty("hold",         true)
+                                   )
+                               ))
+                           );
+
+            var second     = await AnotherHub(WhenTold: true, POI: poi);
+            var directory  = others.Single().Directory;
+            var beta       = second.NetworkOperator.Holder!;
+
+            // Followed, and asked, by itself.
+            var followed   = await Until(() => second.IsFollowed(id) && second.FollowedRoamingNetworks.Single().History is not null);
+            var asked      = await Until(() => RoamingHub.ShareholdersOf(id)?["changes"] is JArray changes &&
+                                               changes.Any(change => change["holder"]?.Value<String>() == beta));
+
+            // The one decision.
+            var admitted   = await RoamingHub.AdmitShareholder(id, beta);
+            var two        = await Until(() => HoldersOf(RoamingHub, "QA").Length == 2);
+            var urls       = HistoryOf(RoamingHub, "QA").Head.RoamingNetwork.URLs.Select(url => url.ToString()).ToArray();
+            var keptAsked  = File.ReadAllText(Path.Combine(directory, RoamingHub.POIDirectoryName, "QA", RoamingHub.FollowedFileName));
+
+            await CaughtUp("QA", second);
+
+            // Its trust anchor of the copy names where the hub says it is reached, not where it was asked.
+            using var http = new HttpClient();
+            var anchorText = await http.GetStringAsync($"{URLOf(second, "QA")}/trustAnchor");
+
+            // Started again, the same configuration: nothing is followed twice, and nothing asked again.
+            await second.DisposeAsync();
+            others.Clear();
+
+            var restarted  = await AnotherHub(directory, WhenTold: true, POI: poi);
+            var again      = await restarted.FollowAsConfigured();
+            var looked     = await restarted.AdvanceShareholders();
+
+            Assert.Multiple(() => {
+
+                Assert.That(followed,           Is.True,                                        "the roaming network the configuration names is not followed");
+                Assert.That(asked,              Is.True,                                        "the hub did not ask to hold the keys as its configuration says");
+                Assert.That(admitted.Success,   Is.True,                                        admitted.Message);
+                Assert.That(two,                Is.True,                                        "the hub admitted did not prove its key by itself");
+                Assert.That(urls,               Does.Contain("https://hub-b.example/poi/RNs/QA"), "the roaming network does not name the copy of the hub admitted");
+                Assert.That(keptAsked,          Does.Contain("askedToHold"));
+                Assert.That(anchorText,         Does.Contain("hub-b.example"));
+
+                Assert.That(again,              Is.Empty,                                       String.Join(" ", again));
+                Assert.That(looked.Where(done => done.Contains("configuration")),  Is.Empty,   String.Join(" ", looked));
+                Assert.That(restarted.FollowedRoamingNetworks.Select(network => network.Id.ToString()),  Is.EqualTo(new[] { "QA" }));
+
+            });
+
+        }
+
+        #endregion
+
+        #region ARoamingNetworkMadeNamesWhereItsHubIsReached()
+
+        /// <summary>
+        /// A roaming network made at a hub that says where it is reached names that URL from its genesis on; one made
+        /// at a hub that does not, names none.
+        /// </summary>
+        [Test]
+        public async Task ARoamingNetworkMadeNamesWhereItsHubIsReached()
+        {
+
+            var reached  = await AnotherHub(POI: new JObject(new JProperty("url", "https://hub-c.example/poi/")));
+
+            Assert.That(reached.   CreateRoamingNetwork(RoamingNetwork_Id.Parse("QC")).Success,  Is.True);
+            Assert.That(RoamingHub.CreateRoamingNetwork(RoamingNetwork_Id.Parse("QA")).Success,  Is.True);
+
+            Assert.Multiple(() => {
+                Assert.That(HistoryOf(reached,    "QC").Head.RoamingNetwork.URLs.Select(url => url.ToString()),  Is.EqualTo(new[] { "https://hub-c.example/poi/RNs/QC" }));
+                Assert.That(HistoryOf(RoamingHub, "QA").Head.RoamingNetwork.URLs,                                Is.Empty);
+            });
+
+        }
+
+        #endregion
+
+        #region TheConfigurationOfWhatIsFollowedIsChecked()
+
+        /// <summary>
+        /// What the "poi" section says of where the hub is reached and of what it follows is read as it is written,
+        /// or refused with one sentence.
+        /// </summary>
+        [Test]
+        public void TheConfigurationOfWhatIsFollowedIsChecked()
+        {
+
+            Assert.That(RoamingHub.CreateRoamingNetwork(RoamingNetwork_Id.Parse("QA")).Success,  Is.True);
+
+            var anchor = TrustAnchorOf(RoamingHub, "QA");
+
+            static (Boolean Read, global::cloud.charging.open.RoamingHub.Configuration.POIConfiguration? POI, String? Error) Parsed(JObject POI)
+            {
+                var read = global::cloud.charging.open.RoamingHub.Configuration.RoamingHubConfiguration.TryParse(new JObject(new JProperty("poi", POI)), out var configuration, out var error);
+                return (read, configuration?.POI, error);
+            }
+
+            JObject Follow(params JProperty[] Properties)
+                => new (new JProperty("follow", new JArray(new JObject(Properties))));
+
+            var good       = Parsed(new JObject(
+                                 new JProperty("url",     "https://hub-b.example/poi/"),
+                                 new JProperty("follow",  new JArray(new JObject(
+                                     new JProperty("trustAnchor",  anchor),
+                                     new JProperty("url",          URLOf(RoamingHub, "QA").ToString()),
+                                     new JProperty("hold",         true)
+                                 )))
+                             ));
+
+            var noURL      = Parsed(new JObject(new JProperty("url", "hub-b.example")));
+            var query      = Parsed(new JObject(new JProperty("url", "https://hub-b.example/poi?x=1")));
+            var noArray    = Parsed(new JObject(new JProperty("follow", "QA")));
+            var noAnchor   = Parsed(Follow(new JProperty("trustAnchor", "QA")));
+            var missing    = Parsed(Follow(new JProperty("hold", true)));
+            var unknown    = Parsed(Follow(new JProperty("trustAnchor", anchor), new JProperty("admit", true)));
+            var twice      = Parsed(new JObject(new JProperty("follow", new JArray(new JObject(new JProperty("trustAnchor", anchor)),
+                                                                                   new JObject(new JProperty("trustAnchor", anchor))))));
+
+            Assert.Multiple(() => {
+
+                Assert.That(good.Read,                                          Is.True, good.Error);
+                Assert.That(good.POI!.URL.ToString(),                           Is.EqualTo("https://hub-b.example/poi"));
+                Assert.That(good.POI.URLOf(RoamingNetwork_Id.Parse("QA")).ToString(),  Is.EqualTo("https://hub-b.example/poi/RNs/QA"));
+                Assert.That(good.POI.EffectiveFollow.Single().TrustAnchor.Id,   Is.EqualTo(RoamingNetwork_Id.Parse("QA")));
+                Assert.That(good.POI.EffectiveFollow.Single().Hold,             Is.True);
+                Assert.That(good.POI.EffectiveFollow.Single().URL,              Is.EqualTo(URLOf(RoamingHub, "QA")));
+                Assert.That(Parsed(good.POI.ToJSON()).POI!.ToJSON().ToString(), Is.EqualTo(good.POI.ToJSON().ToString()), "written and read again, it is the same");
+
+                Assert.That(noURL.Read,     Is.False);  Assert.That(noURL.Error,     Does.Contain("poi.url"));
+                Assert.That(query.Read,     Is.False);  Assert.That(query.Error,     Does.Contain("poi.url"));
+                Assert.That(noArray.Read,   Is.False);  Assert.That(noArray.Error,   Does.Contain("poi.follow"));
+                Assert.That(noAnchor.Read,  Is.False);  Assert.That(noAnchor.Error,  Does.Contain("poi.follow[0].trustAnchor"));
+                Assert.That(missing.Read,   Is.False);  Assert.That(missing.Error,   Does.Contain("poi.follow[0].trustAnchor"));
+                Assert.That(unknown.Read,   Is.False);  Assert.That(unknown.Error,   Does.Contain("'admit'"));
+                Assert.That(twice.Read,     Is.False);  Assert.That(twice.Error,     Does.Contain("twice"));
 
             });
 

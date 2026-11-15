@@ -230,6 +230,10 @@ namespace cloud.charging.open.RoamingHub
                                 AllowedOrigins                = poiConfiguration.EffectiveAllowedOrigins,
                                 HostAskedFor                  = ProxyHostOf,
 
+                                // Where this hub is reached, as the "poi" section says: every trust anchor served
+                                // here names it first - see RoamingHub.POIConfigured.cs.
+                                PublicURL                     = poiConfiguration.URL,
+
                                 // The heavy reads, snapshots and pages of commits among them, are counted per client:
                                 // behind a trusted proxy the one it names, not the proxy (POI_API.MaxHeavyReadsPerMinute).
                                 ClientAddressOf               = ClientAddressOf
@@ -411,7 +415,9 @@ namespace cloud.charging.open.RoamingHub
                                              Name:         Name        is not null && !Name.       IsNullOrEmpty() ? new ImmutableI18NString(Name)        : null,
                                              Description:  Description is not null && !Description.IsNullOrEmpty() ? new ImmutableI18NString(Description) : null,
                                              // Stating its keys from the genesis on: see RoamingHub.Attestations.cs.
-                                             Operator:     OperatorStatingItsKeys(Id, TimeProvider.GetUtcNow()));
+                                             Operator:     OperatorStatingItsKeys(Id, TimeProvider.GetUtcNow()),
+                                             // Where this hub is reached, where the "poi" section says so: see RoamingHub.POIConfigured.cs.
+                                             URLs:         poiConfiguration.URLOf(Id) is URL reachedAt ? [ reachedAt ] : null);
             }
             catch (Exception e)
             {

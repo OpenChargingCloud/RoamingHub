@@ -184,6 +184,11 @@ namespace cloud.charging.open.RoamingHub
         internal String?                             LastError { get; set; }
 
         /// <summary>
+        /// Whether this hub asked to hold the keys of its operator as the configuration says: once, kept beside the copy.
+        /// </summary>
+        internal Boolean                             AskedToHold { get; set; }
+
+        /// <summary>
         /// Whether this hub is connected to the other server right now.
         /// </summary>
         public Boolean IsConnected
@@ -728,6 +733,8 @@ namespace cloud.charging.open.RoamingHub
 
                 var network = NewFollowed(trustAnchor.Id, url, trustAnchor, Directory);
 
+                network.AskedToHold = json["askedToHold"]?.Type == JTokenType.Boolean && json["askedToHold"]!.Value<Boolean>();
+
                 // The copy it holds, if it got one: the peer goes on from there.
                 if (!RoamingNetworkHistory.TryLoad(network.Store, out var history, out var loadError, poiConfiguration.EffectiveRetention, Archive: network.Archive))
                     history = null;
@@ -824,12 +831,17 @@ namespace cloud.charging.open.RoamingHub
             var file       = Path.Combine(Network.Directory, FollowedFileName);
             var temporary  = file + ".new";
 
-            File.WriteAllText(temporary,
-                              new JObject(
-                                  new JProperty("@id",          Network.Id.ToString()),
-                                  new JProperty("url",          Network.URL.ToString()),
-                                  new JProperty("trustAnchor",  Network.Trust.TrustAnchor.ToQRCode())
-                              ).ToString());
+            var json = new JObject(
+                           new JProperty("@id",          Network.Id.ToString()),
+                           new JProperty("url",          Network.URL.ToString()),
+                           new JProperty("trustAnchor",  Network.Trust.TrustAnchor.ToQRCode())
+                       );
+
+            // Asked as the configuration says: not asked again, also after it was dismissed.
+            if (Network.AskedToHold)
+                json.Add("askedToHold", true);
+
+            File.WriteAllText(temporary, json.ToString());
 
             File.Move(temporary, file, overwrite: true);
 

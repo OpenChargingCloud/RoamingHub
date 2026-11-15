@@ -451,6 +451,20 @@ namespace cloud.charging.open.RoamingHub
                             changes = [];
                         }
 
+                        // Asking to hold its keys, where the configuration says so: once.
+                        if (!holds)
+                        {
+                            try
+                            {
+                                if (await HoldAsConfigured(network, changes) is String asked)
+                                    done.Add(asked);
+                            }
+                            catch (Exception e)
+                            {
+                                Log.Exception(e, $"The roaming network '{network.Id}': this hub could not ask to hold the keys of its operator as the configuration says.", "poi", "shareholders", "config");
+                            }
+                        }
+
                         foreach (var change in changes)
                         {
                             try

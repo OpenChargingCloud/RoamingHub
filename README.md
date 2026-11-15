@@ -916,6 +916,21 @@ whose `Origin` is neither is refused with 403. Programs send no `Origin`. What
 changes a history over HTTP takes `application/json` or `application/cbor`, and
 answers anything else with 415.
 
+**What a hub takes part in** is said by the same section
+(`RoamingHub.POIConfigured.cs`, SHAREHOLDERS.md, phase 6.3), read at every
+start and done as if somebody had said it then. `url` says where the POI API
+of this hub is reached, as no hub knows its own public URL: a roaming network
+made from then on names `{url}/RNs/{id}` among its `urls`, every trust anchor
+served here names it first, and the hub says it as the URL of its copy when it
+asks to hold the keys of an operator, over https. `follow` names the roaming
+networks of other servers to follow, each by its trust anchor - the text of
+its QR code, or its URL - and by `url` where the trust anchor names none; one
+followed already is left as it is. With `hold` the hub asks to hold the keys
+of its operator as well, once: that it asked is kept beside the copy, so a hub
+dismissed does not ask again by itself. What the section names no longer is
+not undone: `roamingNetworks unfollow <id>` deletes a copy. Whom a hub admits
+is not in it: admitting stays with somebody.
+
 A driver's app checks a charging station offline (`RoamingHub.Attestations.cs`,
 SPECIFICATION.md of WWCP POI, sections 8.4 to 8.6). A roaming network made here
 states the keys of its operator from its genesis on: a key statement of the
@@ -956,7 +971,9 @@ tagged `poi` and `store`.
   "recentVersions":             100,
   "archive":                    true,
   "statusRoles":                { "gef-feed": [ "DE*GEF" ] },
-  "allowedOrigins":             [ "https://map.example.org" ]
+  "allowedOrigins":             [ "https://map.example.org" ],
+  "url":                        "https://hub-b.example/poi",
+  "follow":                     [ { "trustAnchor": "https://hub-a.example/poi/RNs/QA/trustAnchor/…", "hold": true } ]
 }
 ```
 
