@@ -294,6 +294,9 @@ namespace cloud.charging.open.RoamingHub
 
                     Watch(history);
 
+                    // What waited of the holders of the keys of its operator: see RoamingHub.ShareholdersAdvance.cs.
+                    ReadShareholderChanges(history, directory);
+
                     Log.Info($"The roaming network '{history.RoamingNetworkId}' from '{directory}', at revision {history.Head.Commit.Revision}.", "poi");
 
                 }

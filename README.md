@@ -759,29 +759,49 @@ the quorum requires, whoever checks the roaming network takes the commit. 201
 once it is signed and taken there, 200 where the commit has a signature of this
 hub already, 404 where the roaming network is not followed or has no such
 commit here, 409 where this hub holds no key of its operator, 502 where the
-server followed did not take it. A hub signs none by itself. The hub of the
+server followed did not take it. A hub signs by itself only the commit of a
+change set it signed, see below. The hub of the
 operator takes such a signature from everybody, below `/poi`, as it is one only
 by a signing key the version of the commit certifies. `roamingNetworks <id>`
 says who signed its head as its operator, and how many holders decide.
 
 **Who holds the keys of the operator changes** by commands
 (`RoamingHub.Shareholders.cs`), each doing what its hub can do right then and
-saying what is missing; none does the next step by itself. A hub following a
+saying what is missing. Somebody decides once per change at each hub; what
+follows from that the hubs do by themselves, see below. A hub following a
 roaming network asks to hold the keys of its operator as well with
 `roamingNetworks <id> join [at <url>]` or `POST
 /api/v1/poi/shareholders/{id}/join`: its public identity key, the certificate
 of its signing key and the key statement of the holders so far and itself,
 which it signs. Every hub holding those keys admits it with `roamingNetworks
 <id> admit <holder>` or `POST …/admit/{holder}`: it signs the key statement,
-until the quorum before and its own have; asked again, the hub where the
-roaming network is made makes the change set of it, which waits for the
-signatures of the holders before - `admit` again at their hubs - and for the
-identity key of the one asking, its proof - `join` again there. `dismiss
+until the quorum before and its own have. Then the hub where the roaming
+network is made makes the change set of it, which waits for the signatures of
+the holders before and for the identity key of the one asking, its proof.
+`dismiss
 <holder>` works the same, begun where the roaming network is made; two of three
 dismiss the third without it, and of two the one leaving signs the change set,
 with `resign`. `roamingNetworks <id> shareholders` and `GET
 /api/v1/poi/shareholders/{id}`, public, show who holds the keys, how many
 decide, and what waits. All of them but the two showing are `poi:edit`.
+
+**What follows from a decision, a hub does by itself**
+(`RoamingHub.ShareholdersAdvance.cs`, SHAREHOLDERS.md, phase 6). The change
+set of a key statement is made when the last signature it lacked arrives where
+the roaming network is made, and the hub that sent that signature signs the
+change set in the same command. Every minute each hub looks,
+`AdvanceShareholders()`, at what waits in the roaming networks it makes and
+where it follows one at a hub: a hub that asked signs the change set admitting
+it, a hub that signed a key statement signs the change set of it, and a hub
+signs the commits of change sets it signed - the head and up to eight commits
+behind it - which it attests from then on. Asked again, `join`, `admit` and
+the others do the same at once. No hub signs a key statement by itself -
+admitting, dismissing, agreeing to another identity key, stating the keys
+anew - nor resigns, approves a change set of the operator, or signs a commit
+of a change set it did not sign: what waits for somebody is said in its log,
+once, tagged `poi` and `shareholders`. The changes waiting where a roaming
+network is made are kept beside its store, `shareholderChanges.json`, and
+read at the start.
 
 Where several hold the keys of the operator, **what it owns waits for the
 others** (`RoamingHub.Pending.cs`): a party the hub adds is a change set
@@ -796,7 +816,8 @@ keys, its identity key; `refuse` withdraws it. The keys of the operator are
 stated anew together, `roamingNetworks <id> restate` or `POST …/restate` at
 every holder's hub, as the hub does it by itself only where one decides; its
 log says once, a week before the key statement ends, that it is due. All of
-them but the two showing are `poi:edit`, and none happens by itself. A hub
+them but the two showing are `poi:edit`, and no hub approves, refuses or
+begins to state the keys anew by itself. A hub
 replacing its own keys keeps one a roaming network it follows names.
 
 Where several hold the keys, each **renews its own signing key alone**:

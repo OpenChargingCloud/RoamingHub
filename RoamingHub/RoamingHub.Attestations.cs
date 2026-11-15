@@ -205,7 +205,18 @@ namespace cloud.charging.open.RoamingHub
             attestationTimer?.Dispose();
 
             attestationTimer = TimeProvider.CreateTimer(
-                                   _ => KeepAttesting(),
+                                   _ => {
+
+                                       KeepAttesting();
+
+                                       // And what follows from what was decided here, where several hold the keys of
+                                       // an operator: see RoamingHub.ShareholdersAdvance.cs.
+                                       _ = AdvanceShareholders().ContinueWith(
+                                               advancing => Log.Exception(advancing.Exception!.GetBaseException(), "The changes of the holders of the keys of an operator could not be gone on with.", "poi", "shareholders"),
+                                               TaskContinuationOptions.OnlyOnFaulted
+                                           );
+
+                                   },
                                    null,
                                    AttestationCheckEvery,
                                    AttestationCheckEvery

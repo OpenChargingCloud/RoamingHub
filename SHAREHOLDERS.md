@@ -13,6 +13,7 @@ sections 4.1 and 8.6; example A1 there plays it with three organizations in one 
 | 3 | A hub signs the commits it follows, and attests with a quorum | built |
 | 4 | A hub is admitted as a shareholder, is dismissed, resigns | built |
 | 5 | Operating under a quorum: what waits for the others | built |
+| 6 | The hubs tell each other what waits, and a configuration says what a hub takes part in | 6.1 built, the rest designed |
 
 
 ## What is there, and what is missing
@@ -183,8 +184,8 @@ Open:
 ## Phase 4: admitted, dismissed, resigning
 
 Built (`RoamingHub.Shareholders.cs`). Who holds the keys of the operator changes by commands, each doing what its
-hub can do right then, asked for by somebody with `poi:edit`, and saying what is missing. None does the next step
-by itself.
+hub can do right then, asked for by somebody with `poi:edit`, and saying what is missing. What follows from a
+command without a further decision, a hub does by itself since phase 6; asked again, each command does the same.
 
 | At the prompt | Over HTTP, below `/api/v1/poi/shareholders/{id}` | What it does |
 |---|---|---|
@@ -213,9 +214,10 @@ change set of the operator waits: for the identity keys and the signing keys of 
 identity key of the one asking, its proof. Whoever signs it at another hub first sees that it is exactly the change
 set of the change waiting, made again from the copy there.
 
-So one hub admitting a second: `join` there, `admit` here, `join` there. Two admitting a third: `join`, `admit`
-here, `admit` at the second, `admit` here again, `admit` at the second again, `join` at the third. Two of three
-dismiss the third without it; of two the one leaving signs the change set, with `resign`.
+So one hub admitting a second: `join` there, `admit` here, and the proof of the one asking. Two admitting a third:
+`join`, `admit` here, `admit` at the second, and the proof of the third. Two of three dismiss the third without
+it; of two the one leaving signs the change set, with `resign`. The proof of the one asking is its signature of
+the change set admitting it: its hub signs it by itself when it looks (phase 6), or at once with `join` again.
 
 Open:
 
@@ -226,8 +228,8 @@ Open:
   that names it no longer. Whoever follows the roaming network does not get there from the trust anchor it has, and
   needs the new one. A key statement the holders before sign although it names them no longer would close that; it
   is a change of WWCP POI.
-- **What waits is forgotten at a restart** of the hub where the roaming network is made, unless its change set
-  was made, which the history keeps: asked again then.
+- **What waits is kept over a restart** of the hub where the roaming network is made since phase 6, beside its
+  store; before, it was forgotten unless its change set was made, which the history keeps.
 - **The hub that makes the roaming network does not resign**, and a dismissal begins there.
 - **The URL of a copy** is taken into the roaming network only where it is one over https, `~/RNs/{id}`; a hub
   does not say its own by itself.
@@ -293,6 +295,148 @@ Open:
 - **What waits at the hub where the roaming network is made is not signed by it again** when it made the change
   set itself: its signature is on it. A change set somebody else sent there, e.g. another holder, it approves like
   every holder.
+
+
+## Phase 6: the hubs tell each other, and a configuration says what a hub takes part in
+
+Step 6.1 is built (`RoamingHub.ShareholdersAdvance.cs`), the rest is a design. Example A1 with three hubs
+([gui/exampleA1.md](https://github.com/OpenChargingCloud/WWCP_POI/blob/master/examples/gui/exampleA1.md)) took
+three people telling each other what to do next: `admit` twice at every holder's hub, `join` twice, `sign` after
+every commit. Two things were missing: a hub did not learn what waits elsewhere, and what it takes part in is said
+by commands, one by one.
+
+### What a hub may do by itself
+
+Decision 3 stays: nothing is signed for another by itself. But most of the steps of today are no decisions. A
+person decides **once per change, at each hub**; what follows from that, the hub does:
+
+| Step | Today | Then |
+|---|---|---|
+| A holder signs the key statement of a change | a person, `admit`, `dismiss`, `rekey`, `restate` | a person: **the decision** |
+| The hub where the roaming network is made makes the change set of a key statement complete | a person, the same command again | the hub: it signed that key statement |
+| A holder signs the change set of a key statement it signed | a person, the same command again | the hub: it is exactly that change, which it checks today already |
+| The hub joining signs the change set admitting it | a person, `join` again | the hub: it asked |
+| A holder signs the commit of a change set it signed | a person, `sign` | the hub: it approved its content |
+| A holder approves a change set of the operator, e.g. a party added | a person, `approve` | a person: **the decision** |
+| A holder signs a commit it signed no change set of, e.g. the pools of a charging station operator | a person, `sign` | a person, or the configuration: `signCommits` |
+
+So two hubs admitting a third are three decisions - `join` at the third, `admit` at each of the two - where they
+were eight commands, and afterwards the head is signed and attested by all three.
+
+**Built (6.1):**
+
+- **At once, where a command or a signature arrives.** The hub where the roaming network is made makes the change
+  set of a key statement when the last signature it lacked is taken there, where it signed that key statement
+  itself; and the hub that sent that signature signs the change set in the same command. So the second of two
+  admitting says `admit` once, and its answer says that the change set waits for the proof of the one asking.
+- **When the hub looks**, `AdvanceShareholders()`: every minute, by the timer that attests
+  (`AttestationCheckEvery`), in every roaming network it makes and in every one it follows at a hub. It reads what
+  waits where the roaming network is made, as the pages do, and does of the table above what is this hub's: the
+  proof of a hub that asked, the change set of a key statement it signed, and the commits of change sets it signed
+  - the head and up to eight commits behind it, as far as they lack its signature - which it attests from then on.
+- **What waits for somebody here** is said in the log, tagged `poi` and `shareholders`, once: admitting,
+  dismissing, agreeing to another identity key, stating the keys anew, and resigning.
+- **Kept:** the changes waiting where a roaming network is made are written beside its store,
+  `shareholderChanges.json`, whenever they change, and read at the start - those that still fit its head.
+- **Not told yet:** between two looks a hub knows nothing of what waits elsewhere, so the proof of a hub admitted
+  and the signatures of a commit take up to a minute each (6.2). A page shows what was there when it was asked.
+- **A hub following asks every hub it follows** what waits, every minute, also where it holds no key and asked for
+  none: one public read. Only where it asked, or holds keys, were enough, and takes remembering that it asked.
+- **Commits of change sets signed with a key this hub replaced since** are not signed by itself: it knows its
+  current keys and the ones a roaming network names of it.
+
+### Told, and asked
+
+Everything waiting is signed and public already, `GET /api/v1/poi/shareholders/{id}` and `…/pending`. What is
+missing is that somebody looks. Hubs talk over the POI API (decision 4), and a hub following has the WebSocket of
+the history open anyway:
+
+- **A notice, not the content.** Two more topics there, pushed by the hub where the roaming network is made:
+  `shareholderChanges` whenever a change of the holders is asked for, signed once more, made a change set of or
+  done with, `{ "holder", "kind" }`; and `pendingChangeSets` whenever a change set waits, is signed once more,
+  withdrawn or committed, `{ "changeSet" }`. A notice says that something changed; the hub told reads it as it
+  does today, and verifies it as it does today. A notice forged or lost does no harm.
+- **Asked as well**, as a notice is missed while a hub is not connected: after every connect, and every minute by
+  the timer that attests (`AttestationCheckEvery`), where the hub holds keys of the operator or has asked for
+  them. Every minute is built (6.1).
+- **The other way round** stays as it is: a hub following sends its request and its signatures to the hub where
+  the roaming network is made, over HTTP and the WebSocket. That hub looks at what waits whenever something was
+  taken there.
+- **One loop**, `AdvanceShareholders(network)`, at every hub, after a notice, after the timer, and after a
+  command: for every change waiting it finds what is the turn of this hub, does it where the table above lets it,
+  and remembers the rest as *waiting for somebody here*. Doing a step twice is harmless, as every step says today
+  that it was done already.
+- **Shown.** What waits for somebody here is in the log, tagged `poi` and `shareholders`, once per change, and on
+  the pages: in the list of the roaming networks, and on the page of the roaming network as today. The pages ask
+  again when the hub was told (the open point of *The pages*).
+- **Kept.** The changes waiting at the hub where the roaming network is made are written beside its store,
+  `shareholderChanges.json`, and read at the start (6.1).
+
+In WWCP POI: the topic `pendingChangeSets` of `POI_API`, from `OnPendingChangeSet` of the history, and an event of
+`RoamingNetworkPeer` for a push it does not know, which it ignores today. The topic `shareholderChanges` is added
+by the hub (`POIWebSocketServer.AddTopic`), as these changes are its own.
+
+### The configuration
+
+Read at every start, and what it says is done as if somebody had said it then; what it names no longer is not
+undone, as unfollowing deletes a copy. Commands and pages stay, for what is said once.
+
+```json
+"poi": {
+  "url": "https://hub-b.example/poi",
+  "follow": [
+    { "trustAnchor":  "https://hub-a.example/poi/RNs/QA/trustAnchor/…",
+      "hold":         true,
+      "signCommits":  "approved" }
+  ],
+  "roamingNetworks": {
+    "QA": { "signCommits": "approved",
+            "admit":       [ { "holder": "GammaOrg", "identityKey": "63dfb2da…" } ] }
+  }
+}
+```
+
+- **`url`**: where this hub is reached. It is the `urls` of the roaming networks it makes, so their trust anchors
+  name it whatever they were asked at; the URL of its copy when it asks to hold keys; and what a hub admitted
+  adds to the `urls`. Under a quorum a change of the `urls` is a change set waiting, like every other.
+- **`follow`**: the roaming networks followed, by their trust anchors; `url` as at the prompt. One followed already
+  goes on from the trust anchor it has got to.
+- **`hold`**: asks to hold the keys of its operator, once it is followed, and again while it is neither admitted
+  nor refused.
+- **`signCommits`**, per roaming network followed or made with others: `"none"`, only when told; `"approved"`,
+  the commits of change sets this hub signed, the default; `"all"`, every commit this hub took, which it verified
+  to take it. `"all"` is what decision 3 left for later: a commit of a charging station operator changes what is
+  its own, and the signature of a holder says that the history took it rightly, not that the holder agrees.
+- **`admit`**: whom this hub admits without being asked again, named by the holder and its identity key, as a
+  name alone proves nothing. It is the decision of a person, written down before. Used once: a holder dismissed
+  is not admitted again by it.
+
+Not in the configuration: dismissing, approving change sets of the operator, replacing keys.
+
+### In which order
+
+| Step | What | Where |
+|---|---|---|
+| 6.1 | The changes waiting are kept; the loop, by the timer; the steps that are no decisions | RoamingHub, built |
+| 6.2 | The topics and the notices; the pages ask again | WWCP POI, RoamingHub |
+| 6.3 | `url`, `follow`, `hold` | RoamingHub |
+| 6.4 | `signCommits`, `admit` | RoamingHub |
+
+6.1 alone ends the telling: slower, by up to a minute per step, which 6.2 takes away.
+
+Decided: the steps of the table are no decisions, also the commit of a change set a hub signed.
+
+To decide:
+
+- **Whether `admit` belongs into a configuration** at all, as decision 3 kept the changes of the operator with a
+  person; without it, admitting stays one command per holder.
+
+Open after it:
+
+- **Everything goes through the hub where the roaming network is made.** While it is not reached, nothing is
+  decided; another holder taking its place is a design of its own.
+- **A new holder and an old trust anchor**: a hub following by a trust anchor older than the first copy it is
+  given is refused (phase 2), also one a configuration names.
 
 
 ## The pages

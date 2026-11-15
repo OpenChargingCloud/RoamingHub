@@ -4,8 +4,8 @@
  * of a roaming network, what of that waits for the other holders, and the change sets waiting for their signatures.
  *
  * What is shown is public, as all of it is signed and told by the POI API. What is done - a key replaced, a roaming
- * network followed, a holder admitted or dismissed, a change set signed - is poi:edit, and never done by the hub
- * by itself: it signs for another holder only when somebody here says so.
+ * network followed, a holder admitted or dismissed, a change set signed - is poi:edit, and decided by somebody
+ * here, once per change: the hub does by itself only what follows from that (SHAREHOLDERS.md, phase 6).
  *
  * Each of the two parts draws itself into an element a page gives it, with a state of its own: the page is a list
  * or a roaming network, and neither is asked again because a key was renewed. What is typed into one of its forms
@@ -560,8 +560,9 @@ export function mountNetworkKeys(content: HTMLElement, roamingNetworkId: string)
                             <button type="submit" class="btn primary" ?disabled=${busy}>Ask to hold the keys</button>
                         </div>
                         <p class="hint">
-                            With the identity key of this hub. The holders there admit it at their hubs; asked again
-                            then, this hub signs the change set admitting it, as the proof that it holds its key.
+                            With the identity key of this hub. The holders there admit it at their hubs; then this
+                            hub signs the change set admitting it by itself, within a minute, as the proof that it
+                            holds its key - or at once, asked again.
                         </p>
                     </form>` : nothing}
 
