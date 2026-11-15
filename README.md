@@ -719,8 +719,9 @@ Named so already, no keys are made and only a roaming network that refused it
 before is tried again. A roaming network naming keys of its operator not held
 here, or a quorum of several holders, is not changed: a holder is named at its
 own hub. The trust anchor of each roaming network is another one afterwards,
-and nothing leads there from the old one: whoever pinned that needs the new
-one.
+and the old one leads there: the key statement of the new identity key is
+signed by the one it replaces as well, so it follows the one before, and a hub
+following goes on following (SPECIFICATION.md of WWCP POI, section 8.6).
 
 A hub **follows a roaming network of another server** (`RoamingHub.Follow.cs`):
 a copy of it, kept current over the WebSocket of its history there, stored

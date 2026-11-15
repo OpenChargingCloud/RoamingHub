@@ -86,18 +86,16 @@ keys.
   `{"holder": "…"}` over HTTP: a new identity key and a new signing key naming that holder, in the place of the
   current ones, in every roaming network this hub operates. One change set per roaming network, as an identity key
   certifies the signing keys of its own holder only: the identity keys, the certificates and the key statement
-  together, signed by the identity key and the signing key it replaces and by the new identity key, its proof. The
-  commit is signed by the new signing key.
+  together, signed by the identity key and the signing key it replaces and by the new identity key, its proof; the
+  key statement by the new identity key and by the one it replaces. The commit is signed by the new signing key.
 - **A roaming network that refuses it** keeps the keys it names, which this hub keeps for it; asked again with the
   same name, the hub makes no new keys and tries that roaming network again.
 - **Not where others hold keys as well.** A roaming network naming keys of its operator this hub does not hold, or a
   quorum of several, is not changed from here: a shareholder is named by itself, at its own hub.
 - **A key replaced later** names the holder the current ones name.
-- **The trust anchor changes, and nothing leads there from the old one**: the key statement of the new identity key is
-  signed by it alone, as a version takes no signature by a key it names no longer. Whoever pinned the old trust
-  anchor needs the new one. Leading over, as example A11 of WWCP POI does - the new keys next to the old ones first,
-  the old ones out afterwards - takes two holders for a while, and a quorum of two this hub would hold alone; not
-  built.
+- **The trust anchor changes, and the old one leads there**: the key statement of the new identity key is signed by
+  the one it replaces as well, which a version takes although it names that key no longer (*A holder named later*,
+  phase 6). Whoever pinned the old trust anchor follows the key statements to the new one.
 
 
 ## Phase 2: a hub follows a roaming network of another
@@ -128,9 +126,9 @@ served below `/poi` like the roaming networks made here. Useful alone, as a copy
 
 Open:
 
-- **A holder named** at the operator (phase 1) ends the following: the key statement of its new identity key is
-  signed by it alone, so nothing leads there from the trust anchor here. Followed again with the new trust anchor,
-  after `unfollow`. A trust anchor from before a holder was admitted or dismissed does not: the key statements
+- **A holder named** at the operator (phase 1) ended the following, as the key statement of its new identity key
+  was signed by it alone. It is signed by the identity key it replaces as well now, which it names no longer, and
+  so follows the one before (*A holder named later*, phase 6): a hub following goes on. A trust anchor from before a holder was admitted or dismissed does not: the key statements
   in between lead on from it (*An old trust anchor*, phase 6). An
   identity key replaced does not either: it is replaced in two changes, whose key statements follow one another (phase 5).
 - **A hub does not say where its roaming networks are:** the `urls` of a roaming network it makes are empty, so
@@ -227,8 +225,8 @@ Open:
   anchored in the attestations of as many holders as decide.
 - **The last but one leaving** leaves one holder stating its keys alone, as the one leaving signs no statement
   that names it no longer. Whoever follows the roaming network does not get there from the trust anchor it has, and
-  needs the new one. A key statement the holders before sign although it names them no longer would close that; it
-  is a change of WWCP POI.
+  needs the new one. A key statement the holders before sign although it names them no longer closes that: WWCP
+  POI takes such a one now (*A holder named later*, phase 6), and `resign` does not sign it yet.
 - **What waits is kept over a restart** of the hub where the roaming network is made since phase 6, beside its
   store; before, it was forgotten unless its change set was made, which the history keeps.
 - **The hub that makes the roaming network does not resign**, and a dismissal begins there.
@@ -499,6 +497,27 @@ Open after it:
 
 - **Everything goes through the hub where the roaming network is made.** While it is not reached, nothing is
   decided; another holder taking its place is a design of its own.
+
+### A holder named later
+
+Built (`NameNetworkOperatorHolder`, `HubRoamingNetworkOperator.CoSignWith`; in WWCP POI the verifiers of a key
+statement). A hub names the holder of the keys of its operator by new keys, as a key keeps its holder. The key
+statement of the new identity key was signed by that key alone, of another holder than the one before: nothing led
+there, and whoever followed the roaming network, or held its trust anchor, needed the new one.
+
+- **The rule changed** (SPECIFICATION.md of WWCP POI, section 8.6): a key statement may carry signatures of
+  identity keys of the statement before it that it names no longer. Verified alone, such a signature is passed
+  over and counts for nothing, as its key is not given; where the statements are followed one after the other,
+  the one before gives the key, and the signature is what leads on. It was refused before: *the identity key
+  that signed the key statement is not given*.
+- **Naming a holder** signs the key statement of the new identity key with the one it replaces as well. Still one
+  change set per roaming network. Two changes - the new keys next to the old ones, then the old ones out - do not
+  do it: two holders decide by two, and back to one the old key had to sign a statement not naming it all the same.
+- **So** a hub following goes on following, its trust anchor led to the new key, and a hub following anew by the
+  trust anchor from before is led there by the key statements (*An old trust anchor*).
+- **Not yet used for the last but one leaving** (phase 4): `resign` of one of two leaves the other stating its
+  keys alone, without the signature of the one leaving, so that ends the following as before. The rule allows it
+  now: the one leaving would sign the key statement of the one staying before its change set is made.
 
 ### An old trust anchor
 

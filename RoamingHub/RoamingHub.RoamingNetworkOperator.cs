@@ -352,6 +352,31 @@ namespace cloud.charging.open.RoamingHub
 
         #endregion
 
+        #region CoSignWith(KeyStatement, IdentityKeyId)
+
+        /// <summary>
+        /// The given key statement with the signature of the given identity key held here as well, whether the
+        /// statement names it or not: an identity key it replaces signs the statement of the one replacing it, so
+        /// that it follows the one before (SPECIFICATION.md of WWCP POI, section 8.6).
+        /// </summary>
+        /// <exception cref="InvalidOperationException">The identity key is not held here.</exception>
+        internal RoamingNetworkKeyStatement CoSignWith(RoamingNetworkKeyStatement  KeyStatement,
+                                                       String                      IdentityKeyId)
+        {
+
+            ECPrivateKeyParameters key;
+
+            lock (keysLock)
+                key = HeldKeys(POIKeyKind.Identity).TryGetValue(IdentityKeyId, out var held)
+                          ? held.Key
+                          : throw new InvalidOperationException($"The identity key '{IdentityKeyId}' is not held here, by the roaming network operator '{Id}'.");
+
+            return KeyStatement.WithSignature(COSEKeyPair.NewES512(KeyPairOf(key)));
+
+        }
+
+        #endregion
+
         #region Sign(RoamingNetwork, ChangeSet, Kind = Signing)
 
         /// <summary>

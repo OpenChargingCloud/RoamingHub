@@ -224,8 +224,8 @@ namespace cloud.charging.open.RoamingHub
         /// signing key it replaces and by the new identity key, its proof; the commit by the new signing key. A
         /// roaming network naming keys of its operator not held here, or a quorum of several, is not changed from
         /// here: a shareholder is named by itself, at its own hub. The trust anchor of a roaming network is another
-        /// one afterwards, and nothing leads there from the old one: its key statement is signed by the new identity
-        /// key alone, of another holder than the one before.
+        /// one afterwards, and the old one leads there: its key statement is signed by the new identity key and by
+        /// the one it replaces, so it follows the one before, as from one holder to the next.
         /// </remarks>
         /// <param name="Holder">The name of the organization: nonempty, without white space around it.</param>
         /// <exception cref="ArgumentException">The name is none.</exception>
@@ -292,6 +292,11 @@ namespace cloud.charging.open.RoamingHub
                             refused[network.Id] = "the new identity key is not held here";
                             continue;
                         }
+
+                        // By the identity key it replaces as well, which it names no longer: so it follows the key
+                        // statement before, and whoever trusts that one - a hub following, an app with its trust
+                        // anchor - is led to this one (SPECIFICATION.md of WWCP POI, section 8.6).
+                        keyStatement      = NetworkOperator.CoSignWith(keyStatement, heldIdentityKeyId);
 
                         var changeSet     = network.CreateChangeSet(
                                                 [

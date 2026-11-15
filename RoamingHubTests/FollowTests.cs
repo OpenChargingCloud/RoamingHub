@@ -370,6 +370,62 @@ namespace cloud.charging.open.RoamingHub.Tests
 
         #endregion
 
+        #region AHolderNamedLaterIsFollowed()
+
+        /// <summary>
+        /// A hub names the holder of the keys of its operator by new keys (SHAREHOLDERS.md, phase 1). The key statement
+        /// of the new identity key is signed by the one it replaces as well, so it follows the one before: a hub
+        /// following goes on following, and one following anew by the trust anchor from before does so too.
+        /// </summary>
+        [Test]
+        public async Task AHolderNamedLaterIsFollowed()
+        {
+
+            var id        = RoamingNetwork_Id.Parse("QA");
+
+            Assert.That(RoamingHub.CreateRoamingNetwork(id).Success,  Is.True);
+
+            var old       = TrustAnchorOf(RoamingHub, "QA");
+            var qa        = HistoryOf(RoamingHub, "QA");
+            var follower  = await Followed("QA");
+            var oldKey    = RoamingHub.NetworkOperator.IdentityKey.Id;
+
+            var named     = RoamingHub.NameNetworkOperatorHolder("OmegaOrg");
+            var newKey    = RoamingHub.NetworkOperator.IdentityKey.Id;
+
+            Assert.That(named.Success,  Is.True, named.Message);
+            Assert.That(newKey,         Is.Not.EqualTo(oldKey));
+
+            var caughtUp  = await Until(() => HistoryOf(follower, "QA").Head.Commit.Id == qa.Head.Commit.Id);
+            var followed  = follower.FollowedRoamingNetworks.Single();
+
+            // It goes on: what the hub commits next arrives as well.
+            Assert.That(POITests.AddedParty(RoamingHub, "QA", "DE*QAC").Success,  Is.True);
+
+            var wentOn    = await Until(() => HistoryOf(follower, "QA").Head.Commit.Id == qa.Head.Commit.Id);
+
+            // Anew, by the trust anchor from before.
+            var late      = await AnotherHub();
+            var following = await late.FollowRoamingNetwork(old);
+
+            Assert.Multiple(() => {
+
+                Assert.That(caughtUp,                                       Is.True, followed.Error ?? "the copy did not catch up");
+                Assert.That(wentOn,                                         Is.True, followed.Error ?? "the copy did not go on");
+                Assert.That(followed.Trust.TrustAnchor.Keys,                Is.EquivalentTo(new[] { newKey }), "the trust anchor of the hub following was not led to the new key");
+
+                Assert.That(qa.Head.RoamingNetwork.Operator!.KeyStatement!.Signatures.Select(signature => signature.KeyId),
+                            Is.EquivalentTo(new[] { oldKey, newKey }), "the key statement is signed by the identity key it replaces as well");
+
+                Assert.That(following.Status,                               Is.EqualTo(RoamingNetworkFollowingStatus.Synchronized), following.Message);
+                Assert.That(late.FollowedRoamingNetworks.Single().Trust.TrustAnchor.Keys,  Is.EquivalentTo(new[] { newKey }));
+
+            });
+
+        }
+
+        #endregion
+
         #region AShareholderSignsTheCommitsItFollows()
 
         /// <summary>
