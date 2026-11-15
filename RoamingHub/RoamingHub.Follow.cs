@@ -443,6 +443,9 @@ namespace cloud.charging.open.RoamingHub
 
             }
 
+            lock (waitingHere)
+                waitingHere.Remove(RoamingNetworkId);
+
             try
             {
                 if (Directory.Exists(network.Directory))

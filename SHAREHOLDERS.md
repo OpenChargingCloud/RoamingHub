@@ -336,7 +336,9 @@ were eight commands, and afterwards the head is signed and attested by all three
   proof of a hub that asked, the change set of a key statement it signed, and the commits of change sets it signed
   - the head and up to eight commits behind it, as far as they lack its signature - which it attests from then on.
 - **What waits for somebody here** is said in the log, tagged `poi` and `shareholders`, once: admitting,
-  dismissing, agreeing to another identity key, stating the keys anew, and resigning.
+  dismissing, agreeing to another identity key, stating the keys anew, resigning, and a change set of the operator
+  somebody else made, to approve or refuse. And in the list of the roaming networks (*The list of the roaming
+  networks*, below).
 - **Kept:** the changes waiting where a roaming network is made are written beside its store,
   `shareholderChanges.json`, whenever they change, and read at the start - those that still fit its head.
 - **Told since 6.2**, below: with 6.1 alone the proof of a hub admitted and the signatures of a commit took up to
@@ -400,9 +402,25 @@ by the hub (`POIWebSocketServer.AddTopic`), as these changes are its own.
   is another thing. It is not told: a browser asks.
 - **The one the others dismiss** is told so in its log, with `resign` for where it takes its signature to leave,
   and not that it should dismiss itself.
-- **Not built:** what waits for somebody here is not in the list of the roaming networks yet, only in the log and
-  on the page of the roaming network. `LooksWhenTold` of the hub switches the looking when told off, for tests
-  that look at every step alone.
+- **The list of the roaming networks** says what waits for somebody here: `roamingNetworks` below each roaming
+  network, `GET /api/v1/poi/waiting` as `{"waiting": {"QA": [ "…" ]}}`, public, and the page of the roaming
+  networks as a word beside its identification and the sentences below its description, as well as a word in the
+  table of what is followed; `WaitingHere` and `WaitingHereOf(…)` in C#. Each sentence names the command that
+  decides it.
+  - **It is what the hub found when it looked last**, kept in memory per roaming network, by the holder a change
+    is about or by the change set: a look replaces it, and what somebody decides here - `admit`, `dismiss`,
+    `resign`, `rekey`, `restate`, `approve`, `refuse` - is taken out at once. A hub that could not ask where a
+    roaming network is followed keeps what it knew. After a restart it is there again with the first look.
+  - **When a hub looks** is as before, and the hub where a roaming network is made looks now as well as soon as a
+    change of the holders waits there anew, otherwise or no longer - within moments, as one told does. A change
+    set of the operator another holder sent there it finds with its next look, within a minute.
+  - **A change set of the operator waits for somebody here** where this hub holds a key of the operator, did not
+    sign it with its signing key, and what it waits for names the operator; not the change set of a change of the
+    holders, which follows from its key statement. Neither the log nor the list said these before.
+  - **Not in it:** commits a hub did not sign by itself (`signCommits`), and what waits for the *other* holders,
+    which the page of the roaming network shows. The pages are not told and do not ask again by themselves here:
+    the list is as current as its last load.
+- `LooksWhenTold` of the hub switches the looking when told off, for tests that look at every step alone.
 
 ### The configuration
 

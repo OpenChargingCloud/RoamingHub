@@ -104,8 +104,10 @@ interface ListOptions<T> {
     placeholder:  string;
     /** The head of the table. */
     head:         TemplateResult;
-    /** A row of the table; the path of the list, to lead to the page of an entry below it. */
-    row:          (entry: T, roamingNetworkId: string, path: string) => TemplateResult;
+    /** A row of the table; the path of the list, to lead to the page of an entry below it, and what is noted of the entry. */
+    row:          (entry: T, roamingNetworkId: string, path: string, notes: string[]) => TemplateResult;
+    /** What is noted of the entries, by what makes each the one it is: asked with the list, and left out where it is not told. */
+    notes?:       () => Promise<Record<string, string[]>>;
     /** What makes an entry the one it is. */
     key:          (entry: T) => string;
     /** Whether the list can be narrowed to one charging station operator. */
@@ -141,6 +143,7 @@ function listPage<T>(Options: ListOptions<T>): Page {
             let part:        ListPart<T> | null       = null;
             let problem:     unknown                  = null;
             let operators:   Summary[]                = [];
+            let notes:       Record<string, string[]> = {};
             let asking:      AbortController | null   = null;
             let typing:      ReturnType<typeof setTimeout> | undefined;
             let cancelled                             = false;
@@ -203,7 +206,7 @@ function listPage<T>(Options: ListOptions<T>): Page {
                                         <div class="table-scroll">
                                             <table class="table poi-table">
                                                 <thead>${Options.head}</thead>
-                                                <tbody>${repeat(part.entries, Options.key, entry => Options.row(entry, roamingNetworkId, path))}</tbody>
+                                                <tbody>${repeat(part.entries, Options.key, entry => Options.row(entry, roamingNetworkId, path, notes[Options.key(entry)] ?? []))}</tbody>
                                             </table>
                                         </div>`}
 
@@ -229,11 +232,14 @@ function listPage<T>(Options: ListOptions<T>): Page {
                 try
                 {
 
-                    const [ loaded, operatorList ] = await Promise.all([
+                    const [ loaded, operatorList, noted ] = await Promise.all([
                         poiList<T>(path, query, ask.signal),
                         Options.byOperator && operators.length === 0
                             ? poiList<Summary>(`/RNs/${encodeURIComponent(roamingNetworkId)}/CSOs`, {}, ask.signal).then(list => list.entries)
-                            : Promise.resolve(operators)
+                            : Promise.resolve(operators),
+                        Options.notes
+                            ? Options.notes().catch(() => ({}))
+                            : Promise.resolve({})
                     ]);
 
                     if (cancelled || ask !== asking)
@@ -241,6 +247,7 @@ function listPage<T>(Options: ListOptions<T>): Page {
 
                     part       = loaded;
                     operators  = operatorList;
+                    notes      = noted;
 
                 }
                 catch (failure)
@@ -606,7 +613,10 @@ function newPartyCard(navigate: (path: string) => void): TemplateResult | typeof
 
 }
 
-/** The roaming networks this hub serves, each leading to its page; and a new one, for whoever may make it. */
+/**
+ * The roaming networks this hub serves, each leading to its page, with what waits there for somebody at this hub as
+ * a holder of the keys of its operator; and a new one, for whoever may make it.
+ */
 export const poiNetworksPage: Page = listPage<Summary>({
     title:        () => 'Roaming networks',
     subtitle:     'The points of interest of this hub, by roaming network.',
@@ -614,11 +624,20 @@ export const poiNetworksPage: Page = listPage<Summary>({
     placeholder:  'Search the roaming networks ...',
     head:         summaryHead,
     key:          entry => entry['@id'],
-    row:          entry => html`
-        <tr>
-            <td><a href=${entityURL(networkPath(entry['@id']))}><code>${entry['@id']}</code></a></td>
+    notes:        () => api.poi.waiting(),
+    row:          (entry, _roamingNetworkId, _path, waits) => html`
+        <tr data-network=${entry['@id']}>
+            <td>
+                <a href=${entityURL(networkPath(entry['@id']))}><code>${entry['@id']}</code></a>
+                ${waits.length > 0
+                    ? html`<span class="badge warn poi-waits" title="As a holder of the keys of its operator: decided on its page">waits for somebody here</span>`
+                    : nothing}
+            </td>
             <td>${textOf(entry.name)}</td>
-            <td class="muted">${textOf(entry.description)}</td>
+            <td class="muted">
+                ${textOf(entry.description)}
+                ${waits.map(waiting => html`<div class="poi-waiting">${waiting}</div>`)}
+            </td>
         </tr>`,
     below:        navigate => html`${newNetworkCard(navigate)}${newPartyCard(navigate)}`,
     mounted:      mountHubKeys

@@ -43,7 +43,9 @@ namespace cloud.charging.open.RoamingHub
     /// A decision, and never done by itself: signing a key statement - admitting, dismissing, agreeing to another
     /// identity key, stating the keys anew - resigning, approving a change set of the operator, and signing a commit
     /// of a change set this hub did not sign - unless its configuration says that it signs all commits it took of
-    /// a roaming network followed, "signCommits". What waits for somebody here is said in the log, once.
+    /// a roaming network followed, "signCommits". What waits for somebody here is said in the log, once, and
+    /// kept per roaming network as the last look found it, <see cref="WaitingHere"/>: the list of the roaming
+    /// networks says it.
     /// </para>
     /// <para>
     /// The changes waiting where a roaming network is made are kept beside its store, in "shareholderChanges.json",
@@ -77,6 +79,12 @@ namespace cloud.charging.open.RoamingHub
         private readonly SemaphoreSlim                          shareholdersAdvancing    = new (1, 1);
 
         private readonly HashSet<String>                        undecidedSaid            = [];
+
+        /// <summary>
+        /// What waits for somebody at this hub, per roaming network, as the last look at it found it: by the holder
+        /// a change of the holders is about, or by the change set of the operator.
+        /// </summary>
+        private readonly Dictionary<RoamingNetwork_Id, Dictionary<String, String>>  waitingHere  = [];
 
         /// <summary>
         /// The topic of the WebSocket of a history made here: a notice of every change of the holders of the keys of
@@ -157,13 +165,19 @@ namespace cloud.charging.open.RoamingHub
 
         /// <summary>
         /// Tell those following the history of the given roaming network made here which changes of the holders wait
-        /// anew, otherwise than told last, or no longer: a notice each, queued. Locked by the caller.
+        /// anew, otherwise than told last, or no longer: a notice each, queued. And this hub looks at it soon, as
+        /// one told does: so it knows what of it waits for somebody here. Locked by the caller.
         /// </summary>
         private void TellShareholderChanges(RoamingNetwork_Id RoamingNetworkId)
         {
 
+            var anything = false;
+
             void Tell(String Holder, ShareholderChangeKind Kind, Boolean Waits)
             {
+
+                anything = true;
+
                 try
                 {
                     POI.PushToHistorySubscribers(RoamingNetworkId,
@@ -193,12 +207,15 @@ namespace cloud.charging.open.RoamingHub
 
             }
 
-            foreach (var told in shareholderChangesTold.Where(told => told.Key.RoamingNetworkId == RoamingNetworkId &&
-                                                                      !shareholderChanges.ContainsKey(told.Key)).ToArray())
+            foreach (var gone in shareholderChangesTold.Where(gone => gone.Key.RoamingNetworkId == RoamingNetworkId &&
+                                                                      !shareholderChanges.ContainsKey(gone.Key)).ToArray())
             {
-                shareholderChangesTold.Remove(told.Key);
-                Tell(told.Key.Holder, told.Value.Kind, false);
+                shareholderChangesTold.Remove(gone.Key);
+                Tell(gone.Key.Holder, gone.Value.Kind, false);
             }
+
+            if (anything)
+                AdvanceShareholdersSoon(RoamingNetworkId);
 
         }
 
@@ -327,6 +344,133 @@ namespace cloud.charging.open.RoamingHub
 
         #endregion
 
+        #region WaitingHere / WaitingHereOf(RoamingNetworkId)
+
+        /// <summary>
+        /// What waits for somebody at this hub, per roaming network it makes or follows: a key statement to sign -
+        /// admitting, dismissing, agreeing to another identity key, stating the keys anew - resigning where the
+        /// others dismiss it, and a change set of the operator to approve or refuse. As the last look found it; what
+        /// somebody decided here since is in it no longer.
+        /// </summary>
+        public IReadOnlyDictionary<RoamingNetwork_Id, IReadOnlyList<String>> WaitingHere
+        {
+            get
+            {
+                lock (waitingHere)
+                    return waitingHere.Where       (network => network.Value.Count > 0).
+                                       ToDictionary(network => network.Key,
+                                                    network => (IReadOnlyList<String>) [ .. network.Value.Values ]);
+            }
+        }
+
+        /// <summary>
+        /// What waits for somebody at this hub in the given roaming network: see <see cref="WaitingHere"/>.
+        /// </summary>
+        public IReadOnlyList<String> WaitingHereOf(RoamingNetwork_Id RoamingNetworkId)
+        {
+            lock (waitingHere)
+                return waitingHere.TryGetValue(RoamingNetworkId, out var waiting)
+                           ? [ .. waiting.Values ]
+                           : [];
+        }
+
+        /// <summary>
+        /// Somebody decided here: what waited of the given holder, or change set, waits for somebody here no longer.
+        /// </summary>
+        private void DecidedHere(RoamingNetwork_Id  RoamingNetworkId,
+                                 String             Of)
+        {
+            lock (waitingHere)
+            {
+                if (waitingHere.TryGetValue(RoamingNetworkId, out var waiting) && waiting.Remove(Of) && waiting.Count == 0)
+                    waitingHere.Remove(RoamingNetworkId);
+            }
+        }
+
+        /// <summary>
+        /// What a look at the given roaming network found waiting for somebody here, in the place of what was before.
+        /// </summary>
+        private void KeepWaitingHere(RoamingNetwork_Id           RoamingNetworkId,
+                                     Dictionary<String, String>  Found)
+        {
+
+            // Said of one roaming network: without naming it once more.
+            var prefix = $"The roaming network '{RoamingNetworkId}': ";
+
+            lock (waitingHere)
+            {
+
+                if (Found.Count == 0)
+                    waitingHere.Remove(RoamingNetworkId);
+
+                else
+                    waitingHere[RoamingNetworkId] = Found.ToDictionary(found => found.Key,
+                                                                       found => found.Value.StartsWith(prefix, StringComparison.Ordinal) && found.Value.Length > prefix.Length
+                                                                                    ? Char.ToUpperInvariant(found.Value[prefix.Length]) + found.Value[(prefix.Length + 1)..]
+                                                                                    : found.Value);
+
+            }
+
+        }
+
+        #endregion
+
+        #region (private) ChangeSetsWaitingHere(RoamingNetworkId, Head, OfChanges)
+
+        /// <summary>
+        /// The change sets of the given roaming network that wait for a signature of its operator and are not signed
+        /// by this hub, one of the holders of its keys: approved or refused by somebody here. Not those of a change
+        /// of the holders, which follow from its key statement. Null where a server followed could not be asked.
+        /// </summary>
+        private async Task<IReadOnlyList<(String ChangeSetId, ShareholderChangeResult Result)>?> ChangeSetsWaitingHere(RoamingNetwork_Id       RoamingNetworkId,
+                                                                                                                         RoamingNetwork          Head,
+                                                                                                                         IReadOnlySet<String>    OfChanges)
+        {
+
+            if (Head.Operator is not RoamingNetworkOperator networkOperator ||
+                NetworkOperator.SigningKeyIdIn(Head) is not String signingKeyId)
+            {
+                return [];
+            }
+
+            if (await PendingChangeSetsOf(RoamingNetworkId) is not JArray pending)
+                return null;
+
+            var found       = new List<(String, ShareholderChangeResult)>();
+            var operatorId  = networkOperator.Id.ToString();
+            var command     = $"{CommandLine.RoamingNetworksCommand.CommandName} {RoamingNetworkId}";
+
+            foreach (var waiting in pending.OfType<JObject>())
+            {
+
+                if (waiting["status"]?.Value<String>() != "pending"            ||
+                    waiting["changeSet"] is not JObject changeSet              ||
+                    changeSet["@id"]?.Value<String>() is not String changeSetId ||
+                    OfChanges.Contains(changeSetId))
+                {
+                    continue;
+                }
+
+                if (changeSet["signatures"]?.OfType<JObject>().Any(signature => signature["keyId"]?.Value<String>() == signingKeyId) == true)
+                    continue;
+
+                // What it waits for is said by change: of its operator, or of somebody else.
+                if (waiting["missing"]?.Values<String>().Any(missing => missing?.Contains(operatorId, StringComparison.Ordinal) == true) != true)
+                    continue;
+
+                found.Add((changeSetId,
+                           new (ShareholderChangeStatus.Undecided,
+                                $"The roaming network '{RoamingNetworkId}': the change set '{changeSetId}' of its operator waits for somebody at this hub, " +
+                                $"'{command} approve {changeSetId}' or '{command} refuse {changeSetId}'; '{command} pending' shows it.")));
+
+            }
+
+            return found;
+
+        }
+
+        #endregion
+
         #region AdvanceShareholders()
 
         /// <summary>
@@ -367,7 +511,10 @@ namespace cloud.charging.open.RoamingHub
 
             {
 
-                void Take(ShareholderChangeResult Result)
+                // What waits for somebody here in the roaming network looked at, by what it is of.
+                var here = new Dictionary<String, String>();
+
+                void Take(ShareholderChangeResult Result, String Of)
                 {
 
                     if (Result.Status is ShareholderChangeStatus.Waiting or ShareholderChangeStatus.Committed)
@@ -394,6 +541,8 @@ namespace cloud.charging.open.RoamingHub
                         if (!said)
                             Log.Notice(Result.Message, "poi", "shareholders", "security");
 
+                        here[Of] = Result.Message;
+
                     }
 
                 }
@@ -412,17 +561,31 @@ namespace cloud.charging.open.RoamingHub
                         waiting = [ .. shareholderChanges.Where (change => change.Key.RoamingNetworkId == history.RoamingNetworkId).
                                                           Select(change => (change.Value.Kind, change.Value.Holder)) ];
 
+                    here = [];
+
                     foreach (var (kind, holder) in waiting)
                     {
                         try
                         {
-                            Take(await ChangeShareholders(kind, history.RoamingNetworkId, holder, ByItself: true));
+                            Take(await ChangeShareholders(kind, history.RoamingNetworkId, holder, ByItself: true), holder);
                         }
                         catch (Exception e)
                         {
                             Log.Exception(e, $"The roaming network '{history.RoamingNetworkId}': a change of the holders of the keys of its operator could not be gone on with.", "poi", "shareholders");
                         }
                     }
+
+                    // The change sets of the operator somebody else made: approved or refused by somebody here.
+                    HashSet<String> ofChanges;
+
+                    lock (poiLock)
+                        ofChanges = [ .. shareholderChanges.Where (change => change.Key.RoamingNetworkId == history.RoamingNetworkId && change.Value.ChangeSetId.HasValue).
+                                                            Select(change => change.Value.ChangeSetId!.Value.ToString()) ];
+
+                    foreach (var (changeSetId, result) in await ChangeSetsWaitingHere(history.RoamingNetworkId, history.Head.RoamingNetwork, ofChanges) ?? [])
+                        Take(result, changeSetId);
+
+                    KeepWaitingHere(history.RoamingNetworkId, here);
 
                 }
 
@@ -442,6 +605,10 @@ namespace cloud.charging.open.RoamingHub
 
                         IReadOnlyList<ShareholderChange> changes;
 
+                        var reached = true;
+
+                        here = [];
+
                         try
                         {
                             changes = await GetChanges(network);
@@ -449,7 +616,8 @@ namespace cloud.charging.open.RoamingHub
                         catch
                         {
                             // No hub, or not reached right now: asked again next time.
-                            changes = [];
+                            changes  = [];
+                            reached  = false;
                         }
 
                         // Asking to hold its keys, where the configuration says so: once.
@@ -472,10 +640,10 @@ namespace cloud.charging.open.RoamingHub
                             {
 
                                 if (holds)
-                                    Take(await ChangeShareholders(change.Kind, network.Id, change.Holder, ByItself: true));
+                                    Take(await ChangeShareholders(change.Kind, network.Id, change.Holder, ByItself: true), change.Holder);
 
                                 else if (change.Kind == ShareholderChangeKind.Admit && change.Holder == self)
-                                    Take(await Join(network.Id, null, ByItself: true));
+                                    Take(await Join(network.Id, null, ByItself: true), change.Holder);
 
                             }
                             catch (Exception e)
@@ -483,6 +651,36 @@ namespace cloud.charging.open.RoamingHub
                                 Log.Exception(e, $"The roaming network '{network.Id}': a change of the holders of the keys of its operator could not be gone on with.", "poi", "shareholders");
                             }
                         }
+
+                        // The change sets of the operator: approved or refused by somebody here.
+                        if (holds && reached)
+                        {
+                            try
+                            {
+
+                                if (await ChangeSetsWaitingHere(network.Id,
+                                                                copy.Head.RoamingNetwork,
+                                                                changes.Where (change => change.ChangeSetId.HasValue).
+                                                                        Select(change => change.ChangeSetId!.Value.ToString()).
+                                                                        ToHashSet()) is { } waitingHere)
+                                {
+                                    foreach (var (changeSetId, result) in waitingHere)
+                                        Take(result, changeSetId);
+                                }
+
+                                else
+                                    reached = false;
+
+                            }
+                            catch
+                            {
+                                reached = false;
+                            }
+                        }
+
+                        // Where it could not be asked, what waited before is not forgotten.
+                        if (reached)
+                            KeepWaitingHere(network.Id, here);
 
                         try
                         {

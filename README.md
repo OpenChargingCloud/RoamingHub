@@ -810,7 +810,10 @@ the others do the same. No hub signs a key statement by itself -
 admitting, dismissing, agreeing to another identity key, stating the keys
 anew - nor resigns, approves a change set of the operator, or signs a commit
 of a change set it did not sign: what waits for somebody is said in its log,
-once, tagged `poi` and `shareholders`. The changes waiting where a roaming
+once, tagged `poi` and `shareholders`, and in the list of the roaming
+networks - `roamingNetworks`, `GET /api/v1/poi/waiting`, public, and their
+page - as the hub found it when it looked last, each with the command that
+decides it. The changes waiting where a roaming
 network is made are kept beside its store, `shareholderChanges.json`, and
 read at the start.
 

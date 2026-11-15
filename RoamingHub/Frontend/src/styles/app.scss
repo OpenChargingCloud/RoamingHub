@@ -325,6 +325,12 @@ table.poi-table td.poi-number {
     overflow-wrap:  anywhere;
 }
 
+// What waits in a roaming network for somebody at this hub: below its description, in its list.
+.poi-waiting {
+    color:      #92400e;
+    font-size:  0.85rem;
+}
+
 // What draws itself into a page - the keys of an operator, what is followed: its cards stand among the others, as
 // if the element around them were not there.
 .poi-own {

@@ -1111,7 +1111,17 @@ namespace cloud.charging.open.RoamingHub
             // By itself: its caller looks, one at a time, or is the hub where the roaming network is made taking a signature.
             => ByItself
                    ? GoOnWithShareholders(Kind, RoamingNetworkId, Holder, true)
-                   : OneAfterTheOther(() => GoOnWithShareholders(Kind, RoamingNetworkId, Holder, false));
+                   : OneAfterTheOther(async () => {
+
+                         var result = await GoOnWithShareholders(Kind, RoamingNetworkId, Holder, false);
+
+                         // Decided here: it waits for somebody here no longer.
+                         if (result.Success)
+                             DecidedHere(RoamingNetworkId, Holder);
+
+                         return result;
+
+                     });
 
         /// <summary>
         /// What somebody says, and what this hub does by itself when it looks, one after the other: told of a change

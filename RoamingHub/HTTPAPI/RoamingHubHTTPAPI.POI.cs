@@ -58,6 +58,7 @@ namespace cloud.charging.open.RoamingHub
             AddHandler(HTTPPath.Root + "v1/poi/roamingNetworkOperator/name",                PutNetworkOperatorName,     HTTPMethod.PUT);
             AddHandler(HTTPPath.Root + "v1/poi/roamingNetworkOperator/holder",              PutNetworkOperatorHolder,   HTTPMethod.PUT);
             AddHandler(HTTPPath.Root + "v1/poi/RNs",                                        PostRoamingNetwork,         HTTPMethod.POST);
+            AddHandler(HTTPPath.Root + "v1/poi/waiting",                                    GetWaiting,                 HTTPMethod.GET);
             AddHandler(HTTPPath.Root + "v1/poi/followed",                                   GetFollowed,                HTTPMethod.GET);
             AddHandler(HTTPPath.Root + "v1/poi/followed",                                   PostFollowed,               HTTPMethod.POST);
             AddHandler(HTTPPath.Root + "v1/poi/followed/{roamingNetworkId}",                DeleteFollowed,             HTTPMethod.DELETE);
@@ -224,6 +225,26 @@ namespace cloud.charging.open.RoamingHub
                                 json);
 
         }
+
+        #endregion
+
+        #region (private) GetWaiting(Request)
+
+        /// <summary>
+        /// GET /api/v1/poi/waiting: what waits for somebody at this hub as a holder of the keys of an operator, per
+        /// roaming network it makes or follows, {"waiting": {"{roamingNetworkId}": [ "…" ]}} - as the hub found it
+        /// when it looked last; a roaming network nothing waits in is not named. Public, as what waits is where the
+        /// roaming network is made.
+        /// </summary>
+        private Task<HTTPResponse> GetWaiting(HTTPRequest Request)
+
+            => Task.FromResult(
+                   JSONResponse(Request,
+                                HTTPStatusCode.OK,
+                                new JObject(new JProperty("waiting", new JObject(RoamingHub.WaitingHere.
+                                                                                     OrderBy(network => network.Key.ToString(), StringComparer.OrdinalIgnoreCase).
+                                                                                     Select (network => new JProperty(network.Key.ToString(), new JArray(network.Value)))))))
+               );
 
         #endregion
 

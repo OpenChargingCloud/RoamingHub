@@ -105,13 +105,18 @@ describe('what this hub follows, and the operator it is', () => {
         await until(() => empty.querySelector('.poi-followed') === null, 'a card of nothing followed');
         assert.equal(empty.querySelector('.poi-operator'), null);
 
-        const root = await open(hubKeys, '/poi/RNs', null, hub([ followedQA, { '@id': 'RN2', url: 'https://gone.example/poi/RNs/RN2', connected: false, trustAnchor: 'x', error: 'no answer' } ]),
-                                root => root.querySelector('#followed-table') !== null);
+        const root = await open(hubKeys, '/poi/RNs', null, hub([ followedQA, { '@id': 'RN2', url: 'https://gone.example/poi/RNs/RN2', connected: false, trustAnchor: 'x', error: 'no answer' } ],
+                                    one => one.path === '/poi/waiting' ? { waiting: { QA: [ "Admitting 'Gamma' waits for somebody at this hub." ] } } : undefined),
+                                root => root.querySelector('#followed-table .poi-waits') !== null);
 
         assert.deepEqual([ ...root.querySelectorAll('#followed-table tbody tr') ].map(row => row.getAttribute('data-network')), [ 'QA', 'RN2' ]);
         assert.equal(root.querySelector<HTMLAnchorElement>('tr[data-network="QA"] a')!.getAttribute('href'), '/poi/RNs/QA');
         assert.match(root.querySelector('tr[data-network="QA"]')!.textContent!,  /connected\s+7/);
         assert.match(root.querySelector('tr[data-network="RN2"]')!.textContent!, /not connected\s+no answer\s+no copy yet/);
+
+        // What waits there for somebody at this hub, as a holder of the keys of its operator.
+        assert.equal(root.querySelector('tr[data-network="QA"] .poi-waits')!.getAttribute('title'), "Admitting 'Gamma' waits for somebody at this hub.");
+        assert.equal(root.querySelector('tr[data-network="RN2"] .poi-waits'), null);
 
         assert.equal(root.querySelector('#follow-form'),   null, 'a form for nobody signed in');
         assert.equal(root.querySelector('button'),         null, 'something to do for nobody signed in');

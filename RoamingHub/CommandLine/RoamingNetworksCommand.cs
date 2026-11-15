@@ -36,7 +36,8 @@ namespace cloud.charging.open.RoamingHub.CommandLine
     /// </summary>
     /// <remarks>
     /// <para>
-    /// roamingNetworks lists them, each with its revision, its operator and what it holds; roamingNetworks add
+    /// roamingNetworks lists them, each with its revision, its operator and what it holds, and below it what waits
+    /// there for somebody at this hub, as a holder of the keys of its operator; roamingNetworks add
     /// &lt;id&gt; [&lt;name&gt;] makes one, operated by this hub - see roamingNetworkOperator. roamingNetworks
     /// &lt;id&gt; shows one with its parties and their keys; roamingNetworks &lt;id&gt; add chargingStationOperator
     /// &lt;operatorId&gt; signingKey &lt;key&gt; identityKey &lt;key&gt; [signingKey &lt;key&gt; | identityKey
@@ -179,6 +180,10 @@ namespace cloud.charging.open.RoamingHub.CommandLine
 
                 lines.Add($"{network.Id}  {revision}  {network.Name.FirstText()}".TrimEnd() +
                           $"  ({OperatedBy(network)}, {operators} charging station operator(s), {pools} charging pool(s))");
+
+                // What waits there for somebody here, as the hub found it when it looked last.
+                foreach (var waiting in cli.Hub.WaitingHereOf(network.Id))
+                    lines.Add($"  waits for somebody here: {waiting}");
 
             }
 

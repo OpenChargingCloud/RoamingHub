@@ -748,9 +748,18 @@ namespace cloud.charging.open.RoamingHub.Tests
             var asked        = await third.     JoinRoamingNetworkOperator(id);
             var nothingYet   = await third.     AdvanceShareholders();          // nobody admitted it yet
             var undecided    = await second.    AdvanceShareholders();          // admitting is for somebody to say
+            var madeLooked   = await RoamingHub.AdvanceShareholders();          // where it is made as well
+
+            // What waits for somebody at a hub is kept as it found it, for the list of its roaming networks.
+            var waitsAtBeta  = second.    WaitingHereOf(id);
+            var waitsAtAlpha = RoamingHub.WaitingHereOf(id);
+            var waitsAtGamma = third.     WaitingHere;
+
             var byAlpha      = await RoamingHub.AdmitShareholder(id, gamma);    // signs the key statement: one of two
             var stillTwo     = HoldersOf(RoamingHub, "QA");
+            var saidAtAlpha  = RoamingHub.WaitingHere;
             var byBeta       = await second.    AdmitShareholder(id, gamma);    // signs it as well: its change set is made there, and signed here
+            var saidAtBeta   = second.    WaitingHere;
             var notYetThree  = HoldersOf(RoamingHub, "QA");
             var proved       = await third.     AdvanceShareholders();          // its proof, by itself: it asked
             var three        = HoldersOf(RoamingHub, "QA");
@@ -780,6 +789,15 @@ namespace cloud.charging.open.RoamingHub.Tests
                 Assert.That(byAlpha.Message,      Does.Contain("waits for the other holders"));
                 Assert.That(nothingYet,           Is.Empty,                                       "a hub asking does nothing more by itself while nobody admitted it");
                 Assert.That(undecided,            Is.Empty,                                       "no hub admits by itself");
+                Assert.That(madeLooked,           Is.Empty,                                       "nor the one where the roaming network is made");
+
+                Assert.That(waitsAtBeta,          Has.Count.EqualTo(1),                           "what waits for somebody at the hub following is not kept");
+                Assert.That(waitsAtBeta. FirstOrDefault(),  Does.StartWith("Admitting").And.Contain($"'roamingNetworks QA admit {gamma}'"));
+                Assert.That(waitsAtAlpha,         Has.Count.EqualTo(1),                           "what waits for somebody where the roaming network is made is not kept");
+                Assert.That(waitsAtAlpha.FirstOrDefault(),  Does.Contain($"'roamingNetworks QA admit {gamma}'"));
+                Assert.That(waitsAtGamma,         Is.Empty,                                       "nothing waits for somebody at the hub asking");
+                Assert.That(saidAtAlpha,          Is.Empty,                                       "what was decided here waits here no longer");
+                Assert.That(saidAtBeta,           Is.Empty,                                       "what was decided here waits here no longer");
                 Assert.That(stillTwo,             Is.EquivalentTo(new[] { alpha, beta }));
                 Assert.That(byBeta.Status,        Is.EqualTo(ShareholderChangeStatus.Waiting),    byBeta.Message);
                 Assert.That(byBeta.Message,       Does.Contain("is signed by this hub. It waits for signatures"), "the change set was made where the roaming network is made, and signed here");
@@ -1244,7 +1262,15 @@ namespace cloud.charging.open.RoamingHub.Tests
             var waitsAtOther = await second.    PendingChangeSetsOf(id);
             var notYet       = Names("DE*QAK");
 
+            // For somebody at the second holder, not where it was made and signed: said when each looks.
+            await RoamingHub.AdvanceShareholders();
+            await second.    AdvanceShareholders();
+
+            var forTheFirst  = RoamingHub.WaitingHereOf(id);
+            var forTheOther  = second.    WaitingHereOf(id);
+
             var approved     = await second.ApprovePendingChangeSet(id, addingId);
+            var forNobody    = second.    WaitingHereOf(id);
             var there        = Names("DE*QAK");
             var approvedTwice= await second.ApprovePendingChangeSet(id, addingId);
 
@@ -1290,6 +1316,11 @@ namespace cloud.charging.open.RoamingHub.Tests
                 Assert.That(waitsAtFirst?.Count,                                   Is.EqualTo(1));
                 Assert.That(waitsAtOther?[0]?["changeSet"]?["@id"]?.Value<String>(),  Is.EqualTo(addingId.ToString()), "told at the hub following as well");
                 Assert.That(notYet,                                                Is.False, "one of two adds no party");
+
+                Assert.That(forTheFirst,                                           Is.Empty, "the hub that made and signed it has nothing to decide");
+                Assert.That(forTheOther,                                           Has.Count.EqualTo(1), "the change set waiting for the second holder is not said there");
+                Assert.That(forTheOther.FirstOrDefault(),                          Does.Contain($"'roamingNetworks QA approve {addingId}'"));
+                Assert.That(forNobody,                                             Is.Empty, "approved, it waits for nobody here");
 
                 Assert.That(approved.Status,                                       Is.EqualTo(ShareholderChangeStatus.Committed), approved.Message);
                 Assert.That(there,                                                 Is.True);

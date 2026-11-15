@@ -111,6 +111,21 @@ namespace cloud.charging.open.RoamingHub
                                                                            Boolean            Approve)
         {
 
+            var result = await DecidedPendingChangeSet(RoamingNetworkId, ChangeSetId, Approve);
+
+            // Decided here, or waiting no longer: it waits for somebody here no longer.
+            if (result.Success || result.Status == ShareholderChangeStatus.NotFound)
+                DecidedHere(RoamingNetworkId, ChangeSetId.ToString());
+
+            return result;
+
+        }
+
+        private async Task<ShareholderChangeResult> DecidedPendingChangeSet(RoamingNetwork_Id  RoamingNetworkId,
+                                                                            ChangeSet_Id       ChangeSetId,
+                                                                            Boolean            Approve)
+        {
+
             var isFollowed = IsFollowed(RoamingNetworkId);
 
             RoamingNetworkHistory?    history;

@@ -549,6 +549,12 @@ export const api = {
 
         },
 
+        /**
+         * What waits for somebody at this hub as a holder of the keys of an operator, by roaming network, as the hub
+         * found it when it looked last: a roaming network nothing waits in is not named.
+         */
+        waiting:  () => request<{ waiting: Record<string, string[]> }>('GET', '/poi/waiting').then(answer => answer.waiting ?? {}),
+
         /** The roaming networks of other servers this hub follows. */
         followed: {
 

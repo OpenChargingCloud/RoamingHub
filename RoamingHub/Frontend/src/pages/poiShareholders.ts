@@ -91,6 +91,7 @@ export function mountHubKeys(content: HTMLElement): Mounted {
     const mayEdit = auth.can('poi', 'edit');
 
     let followed:      FollowedNetwork[] | null      = null;
+    let waiting:       Record<string, string[]>      = {};
     let operator:      NetworkOperator | null        = null;
     let update:        NetworkOperatorUpdate | null  = null;
     let followSaid:    Said | null                   = null;
@@ -216,7 +217,12 @@ export function mountHubKeys(content: HTMLElement): Mounted {
                                 <tbody>
                                     ${repeat(followed, network => network['@id'], network => html`
                                         <tr data-network=${network['@id']}>
-                                            <td><a href=${networkURL(network['@id'])}><code>${network['@id']}</code></a></td>
+                                            <td>
+                                                <a href=${networkURL(network['@id'])}><code>${network['@id']}</code></a>
+                                                ${(waiting[network['@id']]?.length ?? 0) > 0
+                                                    ? html`<span class="badge warn poi-waits" title=${waiting[network['@id']]!.join('\n')}>waits for somebody here</span>`
+                                                    : nothing}
+                                            </td>
                                             <td><code class="path">${network.url}</code></td>
                                             <td>
                                                 <span class="badge ${network.connected ? 'ok' : ''}">${network.connected ? 'connected' : 'not connected'}</span>
@@ -366,15 +372,17 @@ export function mountHubKeys(content: HTMLElement): Mounted {
     async function load(): Promise<void> {
 
         // Each on its own: what is followed is shown although the operator could not be asked, and the other way round.
-        const [ nowFollowed, nowOperator ] = await Promise.all([
+        const [ nowFollowed, nowOperator, nowWaiting ] = await Promise.all([
             api.poi.followed.get().then(answer => answer.followed, () => null),
-            mayEdit ? api.poi.operator.get().catch(() => null) : Promise.resolve(null)
+            mayEdit ? api.poi.operator.get().catch(() => null) : Promise.resolve(null),
+            api.poi.waiting().catch(() => ({}))
         ]);
 
         if (released)
             return;
 
         followed  = nowFollowed;
+        waiting   = nowWaiting;
         operator  = nowOperator ?? operator;
 
         draw();

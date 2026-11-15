@@ -125,6 +125,30 @@ describe('the points of interest', () => {
         assert.equal(count(root), '1 - 1 of 1');
         assert.equal(asked[0]!.query.get('limit'), '25');
 
+        // Nothing waits there, or the hub does not say: no word of it.
+        assert.equal(root.querySelector('.poi-waits'), null);
+
+    });
+
+    it('say in the list of the roaming networks what waits for somebody at this hub', async () => {
+
+        const root = await open(poiNetworksPage, '/poi/RNs', null,
+                                one => one.path === '/poi/waiting'
+                                           ? { waiting: { rn1: [ "Admitting 'Gamma' waits for somebody at this hub, 'roamingNetworks rn1 admit Gamma'." ] } }
+                                           : one.path === '/poi/RNs'
+                                                 ? listOf([ { '@id': 'rn1', name: { en: 'Roaming Network 1' } }, { '@id': 'rn2', name: { en: 'Roaming Network 2' } } ], 2)
+                                                 : poiAPI(one),
+                                root => root.querySelector('tbody') !== null);
+
+        assert.deepEqual(rows(root), [ 'rn1', 'rn2' ]);
+
+        const [ first, second ] = [ ...root.querySelectorAll('tbody tr') ];
+
+        assert.equal(first!.querySelector('.poi-waits')!.textContent!.trim(), 'waits for somebody here');
+        assert.match(first!.querySelector('.poi-waiting')!.textContent!, /Admitting 'Gamma' waits for somebody at this hub/);
+        assert.equal(second!.querySelector('.poi-waits'),   null);
+        assert.equal(second!.querySelector('.poi-waiting'), null);
+
     });
 
     it('list the charging pools of every operator, with their operators, addresses and EVSEs', async () => {
