@@ -394,7 +394,7 @@ namespace cloud.charging.open.RoamingHub
 
             }
 
-            var result = await RoamingHub.SignFollowedCommit(roamingNetworkId, commitId);
+            var result = await RoamingHub.SignCommitAsHolder(roamingNetworkId, commitId);
 
             if (!result.Success)
                 return ErrorJSON(Request,

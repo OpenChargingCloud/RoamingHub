@@ -179,6 +179,51 @@ namespace cloud.charging.open.RoamingHub
         public String                       Directory     { get; }
 
         internal RoamingNetworkPeer?                 Peer      { get; set; }
+
+        /// <summary>
+        /// The copy served here, once there is one: whichever peer brought it.
+        /// </summary>
+        internal RoamingNetworkHistory?              Copy      { get; set; }
+
+        /// <summary>
+        /// Whether the commits made or taken here go to the other servers: where this hub holds a key of its operator
+        /// (SHAREHOLDERS.md, phase 7.1).
+        /// </summary>
+        internal Boolean                             Pushes    { get; set; }
+
+        /// <summary>
+        /// The peers to the copies of the other holders of the keys of its operator, by their URLs, ~/RNs/{RN_Id}:
+        /// none while this hub holds no key of it.
+        /// </summary>
+        internal Dictionary<String, RoamingNetworkPeer>  Others  { get; } = new (StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>
+        /// Further copies of it this hub was told of, ~/RNs/{RN_Id} at other hubs: connected with as those the
+        /// roaming network names, where this hub holds a key of its operator. Kept beside the copy.
+        /// </summary>
+        internal HashSet<String>                     AlsoAt    { get; } = new (StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>
+        /// Every peer of it, with where it leads: the one it is followed at first.
+        /// </summary>
+        internal IReadOnlyList<(String URL, RoamingNetworkPeer Peer)> Peers
+        {
+            get
+            {
+
+                var peers = new List<(String, RoamingNetworkPeer)>();
+
+                if (Peer is RoamingNetworkPeer peer)
+                    peers.Add((URL.ToString(), peer));
+
+                lock (Others)
+                    peers.AddRange(Others.Select(other => (other.Key, other.Value)));
+
+                return peers;
+
+            }
+        }
+
         internal RoamingNetworkHistoryFileStore      Store     { get; }
         internal RoamingNetworkHistoryFileArchive?   Archive   { get; }
         internal String?                             LastError { get; set; }
@@ -198,7 +243,7 @@ namespace cloud.charging.open.RoamingHub
         /// Its copy here, once there is one.
         /// </summary>
         public RoamingNetworkHistory? History
-            => Peer?.History;
+            => Copy ?? Peer?.History;
 
         /// <summary>
         /// What went wrong last, if anything did since it was last caught up.
@@ -224,7 +269,8 @@ namespace cloud.charging.open.RoamingHub
         }
 
         /// <summary>
-        /// {"@id", "url", "connected", "revision"?, "commit"?, "trustAnchor", "error"?}.
+        /// {"@id", "url", "connected", "alsoAt"?, "revision"?, "commit"?, "trustAnchor", "error"?}: "alsoAt" the
+        /// copies of the other holders this hub is connected with as one of them, [ { "url", "connected" } ].
         /// </summary>
         public JObject ToJSON()
         {
@@ -235,6 +281,16 @@ namespace cloud.charging.open.RoamingHub
                            new JProperty("connected",    IsConnected),
                            new JProperty("trustAnchor",  Trust.TrustAnchor.ToQRCode())
                        );
+
+            lock (Others)
+            {
+                if (Others.Count > 0)
+                    json["alsoAt"] = new JArray(Others.OrderBy(other => other.Key, StringComparer.OrdinalIgnoreCase).
+                                                       Select (other => new JObject(
+                                                                            new JProperty("url",        other.Key),
+                                                                            new JProperty("connected",  other.Value.IsConnected)
+                                                                        )));
+            }
 
             if (History is RoamingNetworkHistory history)
             {
@@ -268,6 +324,12 @@ namespace cloud.charging.open.RoamingHub
     /// This hub is no operator of a roaming network it follows, and changes nothing of it: a change set or a
     /// runtime status sent here for it is refused, as it would be a commit of this copy alone. They go to the server
     /// followed.
+    /// </para>
+    /// <para>
+    /// Where this hub holds a key of its operator, it is one of several making it (SHAREHOLDERS.md, phase 7.1): its
+    /// copy is connected with the copies of the other holders as well, the commits made or taken here go to all of
+    /// them, and theirs are taken here, merged as everywhere. So what one of them commits gets to everybody while any
+    /// way between them is open, whichever hub is away.
     /// </para>
     /// </remarks>
     public partial class RoamingHub
@@ -396,6 +458,57 @@ namespace cloud.charging.open.RoamingHub
 
         #endregion
 
+        #region FollowAlsoAt(RoamingNetworkId, URL)
+
+        /// <summary>
+        /// Tell this hub of a further copy of a roaming network it follows, at another hub: where it holds a key of
+        /// its operator, it is connected with that copy as well when it looks next, as with those the roaming network
+        /// names itself (SHAREHOLDERS.md, phase 7.1). Kept beside the copy here; the "alsoAt" of the configuration says
+        /// the same.
+        /// </summary>
+        /// <param name="RoamingNetworkId">A roaming network this hub follows.</param>
+        /// <param name="URL">The copy, ~/RNs/{RN_Id} at the other hub.</param>
+        public RoamingNetworkFollowing FollowAlsoAt(RoamingNetwork_Id  RoamingNetworkId,
+                                                    URL                URL)
+        {
+
+            FollowedRoamingNetwork? network;
+
+            lock (poiLock)
+                followed.TryGetValue(RoamingNetworkId, out network);
+
+            if (network is null)
+                return new (RoamingNetworkFollowingStatus.NotFollowed,
+                            $"This hub follows no roaming network '{RoamingNetworkId}'.",
+                            RoamingNetworkId);
+
+            var text = URL.ToString().TrimEnd('/');
+
+            if (!TryGetHistoryWebSocketURL(URL, out _) || !text.EndsWith($"/RNs/{RoamingNetworkId}", StringComparison.Ordinal))
+                return new (RoamingNetworkFollowingStatus.Invalid,
+                            $"'{URL}' is no URL of the roaming network '{RoamingNetworkId}' at another hub: it is http or https, and ends in 'RNs/{RoamingNetworkId}'.",
+                            RoamingNetworkId);
+
+            Boolean added;
+
+            lock (network.Others)
+                added = network.AlsoAt.Add(text);
+
+            if (added)
+            {
+                WriteFollowed(network);
+                Log.Notice($"The roaming network '{RoamingNetworkId}' has a copy at '{text}' as well, this hub was told.", "poi", "follow");
+                AdvanceShareholdersSoon(RoamingNetworkId);
+            }
+
+            return new (RoamingNetworkFollowingStatus.Following,
+                        $"The roaming network '{RoamingNetworkId}' has a copy at '{text}' as well: this hub is connected with it while it holds a key of its operator.",
+                        RoamingNetworkId);
+
+        }
+
+        #endregion
+
         #region UnfollowRoamingNetwork(RoamingNetworkId)
 
         /// <summary>
@@ -418,7 +531,7 @@ namespace cloud.charging.open.RoamingHub
 
             }
 
-            if (network.Peer is RoamingNetworkPeer peer)
+            foreach (var (_, peer) in network.Peers)
                 await peer.DisposeAsync();
 
             POI.RemoveRoamingNetworkHistory(RoamingNetworkId);
@@ -471,17 +584,18 @@ namespace cloud.charging.open.RoamingHub
         #endregion
 
 
-        #region SignFollowedCommit(RoamingNetworkId, CommitId = null)
+        #region SignCommitAsHolder(RoamingNetworkId, CommitId = null)
 
         /// <summary>
-        /// Sign a commit of a roaming network followed as one of the holders of the keys of its operator
-        /// (SHAREHOLDERS.md, phase 3), and send the signature to the server followed: with as many holders signing as
-        /// its quorum requires, whoever checks the roaming network takes the commit. Asked for by somebody who looked
-        /// at the commit; by this hub itself only what RoamingHub.ShareholdersAdvance.cs says.
+        /// Sign a commit of a roaming network as one of the holders of the keys of its operator (SHAREHOLDERS.md,
+        /// phases 3 and 7.1): with as many holders signing as its quorum requires, whoever checks the roaming network
+        /// takes the commit. Of a roaming network followed the signature is sent to every server this hub is connected
+        /// with there; of one made here it is taken here, and told to whoever follows it. Asked for by somebody who
+        /// looked at the commit; by this hub itself only what RoamingHub.ShareholdersAdvance.cs says.
         /// </summary>
-        /// <param name="RoamingNetworkId">A roaming network this hub follows.</param>
+        /// <param name="RoamingNetworkId">A roaming network this hub makes or follows.</param>
         /// <param name="CommitId">The commit; its head otherwise.</param>
-        public async Task<RoamingNetworkCommitSigning> SignFollowedCommit(RoamingNetwork_Id         RoamingNetworkId,
+        public async Task<RoamingNetworkCommitSigning> SignCommitAsHolder(RoamingNetwork_Id         RoamingNetworkId,
                                                                           RoamingNetworkCommit_Id?  CommitId   = null)
         {
 
@@ -490,10 +604,15 @@ namespace cloud.charging.open.RoamingHub
             lock (poiLock)
                 followed.TryGetValue(RoamingNetworkId, out network);
 
-            if (network?.History is not RoamingNetworkHistory history || network.Peer is not RoamingNetworkPeer peer)
+            var history = network?.History;
+
+            if (network is null && !POI.TryGetRoamingNetworkHistory(RoamingNetworkId, out history))
+                history = null;
+
+            if (history is null)
                 return new (RoamingNetworkCommitSigningStatus.NotFollowed,
                             network is null
-                                ? $"This hub follows no roaming network '{RoamingNetworkId}'."
+                                ? $"This hub neither makes nor follows a roaming network '{RoamingNetworkId}'."
                                 : $"The roaming network '{RoamingNetworkId}' has no copy here yet.");
 
             var head    = history.Head;
@@ -517,26 +636,71 @@ namespace cloud.charging.open.RoamingHub
 
             var signature = signer.Sign(commit, TimeProvider.GetUtcNow());
 
-            try
+            RoamingNetworkCommit?  signed;
+            String                 where;
+
+            #region One made here: taken here, and told to whoever follows it
+
+            if (network is null)
             {
 
-                using var timeout = new CancellationTokenSource(FollowTimeout);
+                if (!history.TryAddSignatures(commit.Id, [ signature ], VerifyOperatorCommitSignature, out signed, out _, out var addError))
+                    return new (RoamingNetworkCommitSigningStatus.Refused,
+                                $"The signature of the commit '{commit.Id}' of the roaming network '{RoamingNetworkId}' was not taken: {addError}",
+                                commit);
 
-                await peer.SignCommitAsync(commit.Id, [ signature ], timeout.Token);
+                // Signed, so attested from now on while it is the head.
+                Attest(history, TimeProvider.GetUtcNow());
+
+                where = "and the signature was taken here";
 
             }
-            catch (Exception e)
+
+            #endregion
+
+            #region One followed: sent to every server this hub is connected with there
+
+            else
             {
-                return new (RoamingNetworkCommitSigningStatus.Refused,
-                            $"The signature of the commit '{commit.Id}' of the roaming network '{RoamingNetworkId}' was not taken at '{network.URL}': {e.Message}",
-                            commit);
+
+                var took     = new List<String>();
+                var refused  = new List<String>();
+
+                foreach (var (url, peer) in network.Peers)
+                {
+                    try
+                    {
+
+                        using var timeout = new CancellationTokenSource(FollowTimeout);
+
+                        await peer.SignCommitAsync(commit.Id, [ signature ], timeout.Token);
+
+                        took.Add(url);
+
+                    }
+                    catch (Exception e)
+                    {
+                        refused.Add($"'{url}': {e.Message}");
+                    }
+                }
+
+                if (took.Count == 0)
+                    return new (RoamingNetworkCommitSigningStatus.Refused,
+                                $"The signature of the commit '{commit.Id}' of the roaming network '{RoamingNetworkId}' was not taken at {String.Join("; ", refused)}",
+                                commit);
+
+                // In the copy here at once: it comes back from there as well, and is known then.
+                if (!history.TryAddSignatures(commit.Id, [ signature ], network.Trust.VerifyCommitSignature, out signed, out _, out var copyError))
+                    Log.Warning($"The signature of this hub of the commit '{commit.Id}' of the roaming network '{RoamingNetworkId}' was not taken by its copy here: {copyError}", "poi", "follow", "security");
+
+                // Signed, so attested from now on while it is the head: see AttestFollowed.
+                AttestFollowed(network, TimeProvider.GetUtcNow());
+
+                where = $"and the signature was taken at {String.Join(", ", took.Select(url => $"'{url}'"))}";
+
             }
 
-            // In the copy here at once: it comes back from there as well, and is known then.
-            history.TryAddSignatures(commit.Id, [ signature ], network.Trust.VerifyCommitSignature, out var signed, out _, out _);
-
-            // Signed, so attested from now on while it is the head: see AttestFollowed.
-            AttestFollowed(network, TimeProvider.GetUtcNow());
+            #endregion
 
             Log.Notice($"The commit '{commit.Id}' of the roaming network '{RoamingNetworkId}', revision {commit.Revision}, was signed as '{NetworkOperator.Holder}', " +
                        $"one of the holders of the keys of its operator '{head.RoamingNetwork.Operator?.Id}'.",
@@ -544,7 +708,7 @@ namespace cloud.charging.open.RoamingHub
 
             return new (RoamingNetworkCommitSigningStatus.Signed,
                         $"The commit '{commit.Id}' of the roaming network '{RoamingNetworkId}', revision {commit.Revision}, is signed as '{NetworkOperator.Holder}', " +
-                        $"one of the holders of the keys of its operator, and the signature was taken at '{network.URL}'.",
+                        $"one of the holders of the keys of its operator, {where}.",
                         signed ?? commit);
 
         }
@@ -585,7 +749,7 @@ namespace cloud.charging.open.RoamingHub
                                                                         DateTimeOffset          Now)
         {
 
-            if (Network.History is not RoamingNetworkHistory history || Network.Peer is not RoamingNetworkPeer peer)
+            if (Network.History is not RoamingNetworkHistory history)
                 return [];
 
             var head = history.Head;
@@ -624,28 +788,52 @@ namespace cloud.charging.open.RoamingHub
             }
 
             if (made.Count > 0)
-                _ = SendAttestations(Network, peer, made);
+                foreach (var (url, peer) in Network.Peers)
+                    _ = SendAttestations(Network, url, peer, made);
 
             return made;
 
         }
 
         private async Task SendAttestations(FollowedRoamingNetwork                    Network,
+                                            String                                    URL,
                                             RoamingNetworkPeer                        Peer,
                                             IReadOnlyList<RoamingNetworkAttestation>  Attestations)
         {
 
-            try
+            // A server that is away is said to be so where it is followed: it is attested to at the next turn.
+            if (!Peer.IsConnected)
+                return;
+
+            for (var attempt = 1; ; attempt++)
             {
+                try
+                {
 
-                using var timeout = new CancellationTokenSource(FollowTimeout);
+                    using var timeout = new CancellationTokenSource(FollowTimeout);
 
-                await Peer.AddAttestationsAsync(Attestations, timeout.Token);
+                    await Peer.AddAttestationsAsync(Attestations, timeout.Token);
 
-            }
-            catch (Exception e)
-            {
-                Log.Warning($"The attestation of the head of the roaming network '{Network.Id}' was not taken at '{Network.URL}': {e.Message}", "poi", "follow", "security");
+                    return;
+
+                }
+                catch (Exception e)
+                {
+
+                    // Once more, a moment later: the attestation of a head made here may get there before its commit,
+                    // which names the key it is signed with.
+                    if (attempt == 1 && Peer.IsConnected)
+                    {
+                        await Task.Delay(TimeSpan.FromSeconds(2));
+                        continue;
+                    }
+
+                    if (Peer.IsConnected)
+                        Log.Warning($"The attestation of the head of the roaming network '{Network.Id}' was not taken at '{URL}': {e.Message}", "poi", "follow", "security");
+
+                    return;
+
+                }
             }
 
         }
@@ -657,7 +845,7 @@ namespace cloud.charging.open.RoamingHub
         private Boolean VerifyOperatorAttestation(RoamingNetworkAttestation Attestation)
 
             => Attestation.Role == RoamingNetworkCommitSignatureRoles.RoamingNetworkOperator       &&
-               !IsFollowed(Attestation.RoamingNetworkId)                                           &&
+               (!IsFollowed(Attestation.RoamingNetworkId) || IsMadeBySeveral(Attestation.RoamingNetworkId)) &&
                POI.TryGetRoamingNetworkHistory(Attestation.RoamingNetworkId, out var history)      &&
                history.Head.RoamingNetwork.Operator?.SigningKeyCertificates.
                    FirstOrDefault(certificate => certificate.SigningKey.Id == Attestation.KeyId          &&
@@ -737,6 +925,9 @@ namespace cloud.charging.open.RoamingHub
                 var network = NewFollowed(trustAnchor.Id, url, trustAnchor, Directory);
 
                 network.AskedToHold = json["askedToHold"]?.Type == JTokenType.Boolean && json["askedToHold"]!.Value<Boolean>();
+
+                foreach (var also in (json["alsoAt"] as JArray)?.Where(also => also.Type == JTokenType.String).Select(also => also.Value<String>()!) ?? [])
+                    network.AlsoAt.Add(also.TrimEnd('/'));
 
                 // The copy it holds, if it got one: the peer goes on from there.
                 if (!RoamingNetworkHistory.TryLoad(network.Store, out var history, out var loadError, poiConfiguration.EffectiveRetention, Archive: network.Archive))
@@ -866,6 +1057,12 @@ namespace cloud.charging.open.RoamingHub
             if (Network.AskedToHold)
                 json.Add("askedToHold", true);
 
+            lock (Network.Others)
+            {
+                if (Network.AlsoAt.Count > 0)
+                    json.Add("alsoAt", new JArray(Network.AlsoAt.Order(StringComparer.OrdinalIgnoreCase)));
+            }
+
             File.WriteAllText(temporary, json.ToString());
 
             File.Move(temporary, file, overwrite: true);
@@ -885,79 +1082,7 @@ namespace cloud.charging.open.RoamingHub
                                                                    TimeSpan                Timeout)
         {
 
-            var trust = Network.Trust;
-
-            RoamingNetwork? Head()
-                => Network.History?.Head.RoamingNetwork;
-
-            var peer = new RoamingNetworkPeer(WebSocketURL,
-                                              History,
-                                              new RoamingNetworkPeerOptions {
-
-                                                  TrustAnchor                = trust.TrustAnchor,
-
-                                                  // A trust anchor from before the holders of the keys changed is
-                                                  // led on by the key statements in between, before the first copy.
-                                                  FollowKeyStatements        = statements => {
-                                                                                   trust.FollowChain(statements);
-                                                                                   return trust.TrustAnchor;
-                                                                               },
-                                                  Store                      = Network.Store,
-                                                  Retention                  = poiConfiguration.EffectiveRetention,
-                                                  Archive                    = Network.Archive,
-
-                                                  VerifyCommitSignature      = trust.VerifyCommitSignature,
-                                                  VerifyCheckpointSignature  = trust.VerifyCheckpointSignature(Head),
-                                                  VerifyAttestation          = trust.VerifyAttestation(Head),
-
-                                                  // A copy, changed from here by nobody: nothing of it goes back.
-                                                  PushCommits                = false,
-                                                  PushStatus                 = false,
-                                                  PushCheckpoints            = false,
-                                                  PushPriceStatements        = false,
-
-                                                  // Notices of what waits there, where several hold the keys of its
-                                                  // operator: see RoamingHub.ShareholdersAdvance.cs.
-                                                  FurtherTopics              = [ POI_API.PendingChangeSetsTopic, ShareholderChangesTopic ]
-
-                                              });
-
-            peer.OnHistoryReplaced += (_, oldHistory, newHistory) => {
-
-                try
-                {
-                    Serve(Network, newHistory, oldHistory);
-                }
-                catch (Exception e)
-                {
-                    Log.Exception(e, $"The copy of the roaming network '{Network.Id}' could not be served.", "poi", "follow");
-                }
-
-            };
-
-            peer.OnSynchronized += (_, history) => {
-                Network.LastError = null;
-                trust.Follow(history.Head.RoamingNetwork);
-                // A notice is missed while not connected.
-                AdvanceShareholdersSoon(Network.Id);
-            };
-
-            // Something waits there anew, otherwise or no longer: read, and verified, when this hub looks.
-            peer.OnNotice += (_, _, _) => AdvanceShareholdersSoon(Network.Id);
-
-            peer.OnHistoryReplacementRefused += (_, _, reason) => {
-                Network.LastError = reason;
-                Log.Warning($"The roaming network '{Network.Id}' followed at '{Network.URL}' is another one there than its copy here, which is kept: {reason}", "poi", "follow");
-            };
-
-            peer.OnError += (_, description, exception) => {
-
-                if (Network.LastError != description)
-                    Log.Warning($"Following the roaming network '{Network.Id}' at '{Network.URL}': {description}", "poi", "follow");
-
-                Network.LastError = description;
-
-            };
+            var peer = NewPeer(Network, WebSocketURL, History, Network.Pushes, Network.URL.ToString());
 
             Network.Peer = peer;
 
@@ -989,6 +1114,412 @@ namespace cloud.charging.open.RoamingHub
 
         #endregion
 
+        #region (private) NewPeer(Network, WebSocketURL, History, Pushes, At, Other = false)
+
+        /// <summary>
+        /// A peer of the given roaming network followed, not started: to the server it is followed at, or to the copy
+        /// of another holder of the keys of its operator. It takes what is signed by the keys the trust anchor leads
+        /// to, and pushes the commits made or taken here where this hub is a holder itself.
+        /// </summary>
+        /// <param name="Network">A roaming network followed.</param>
+        /// <param name="WebSocketURL">The WebSocket of the history of the other server.</param>
+        /// <param name="History">The copy here, if there is one.</param>
+        /// <param name="Pushes">Whether the commits made or taken here go there.</param>
+        /// <param name="At">Where it leads, ~/RNs/{RN_Id}, for what is said of it.</param>
+        /// <param name="Other">Whether it leads to the copy of another holder, not to where the roaming network is followed.</param>
+        private RoamingNetworkPeer NewPeer(FollowedRoamingNetwork  Network,
+                                           Uri                     WebSocketURL,
+                                           RoamingNetworkHistory?  History,
+                                           Boolean                 Pushes,
+                                           String                  At,
+                                           Boolean                 Other   = false)
+        {
+
+            var     trust      = Network.Trust;
+            String? lastError  = null;
+
+            RoamingNetwork? Head()
+                => Network.History?.Head.RoamingNetwork;
+
+            var peer = new RoamingNetworkPeer(WebSocketURL,
+                                              History,
+                                              new RoamingNetworkPeerOptions {
+
+                                                  TrustAnchor                = trust.TrustAnchor,
+
+                                                  // A trust anchor from before the holders of the keys changed is
+                                                  // led on by the key statements in between, before the first copy.
+                                                  FollowKeyStatements        = statements => {
+                                                                                   trust.FollowChain(statements);
+                                                                                   return trust.TrustAnchor;
+                                                                               },
+                                                  Store                      = Network.Store,
+                                                  Retention                  = poiConfiguration.EffectiveRetention,
+                                                  Archive                    = Network.Archive,
+
+                                                  VerifyCommitSignature      = trust.VerifyCommitSignature,
+                                                  VerifyCheckpointSignature  = trust.VerifyCheckpointSignature(Head),
+                                                  VerifyAttestation          = trust.VerifyAttestation(Head),
+
+                                                  // A copy, changed from here by nobody: nothing of it goes back. Where
+                                                  // this hub holds a key of its operator, its commits do, and those it
+                                                  // took from the other holders (SHAREHOLDERS.md, phase 7.1).
+                                                  PushCommits                = Pushes,
+                                                  PushStatus                 = false,
+                                                  PushCheckpoints            = false,
+                                                  PushPriceStatements        = false,
+
+                                                  // Notices of what waits there, where several hold the keys of its
+                                                  // operator: see RoamingHub.ShareholdersAdvance.cs.
+                                                  FurtherTopics              = [ POI_API.PendingChangeSetsTopic, ShareholderChangesTopic ]
+
+                                              });
+
+            peer.OnHistoryReplaced += (_, oldHistory, newHistory) => {
+
+                try
+                {
+                    Serve(Network, newHistory, oldHistory);
+                }
+                catch (Exception e)
+                {
+                    Log.Exception(e, $"The copy of the roaming network '{Network.Id}' could not be served.", "poi", "follow");
+                }
+
+            };
+
+            peer.OnSynchronized += (synchronized, history) => {
+
+                lastError = null;
+
+                if (!Other)
+                    Network.LastError = null;
+
+                trust.Follow(history.Head.RoamingNetwork);
+
+                // A notice is missed while not connected.
+                AdvanceShareholdersSoon(Network.Id);
+
+                // And a signature of this hub the other server may have missed.
+                _ = SendOwnSignatures(Network, synchronized);
+
+            };
+
+            // Something waits there anew, otherwise or no longer: read, and verified, when this hub looks.
+            peer.OnNotice += (_, _, _) => AdvanceShareholdersSoon(Network.Id);
+
+            peer.OnHistoryReplacementRefused += (_, _, reason) => {
+
+                if (!Other)
+                    Network.LastError = reason;
+
+                Log.Warning($"The roaming network '{Network.Id}' followed at '{At}' is another one there than its copy here, which is kept: {reason}", "poi", "follow");
+
+            };
+
+            peer.OnError += (_, description, exception) => {
+
+                // The copy of another holder: one way of several, said once.
+                if (Other)
+                {
+
+                    if (lastError != description)
+                        Log.Warning($"The roaming network '{Network.Id}', the copy of another holder at '{At}': {description}", "poi", "follow");
+
+                    lastError = description;
+
+                    return;
+
+                }
+
+                if (Network.LastError != description)
+                    Log.Warning($"Following the roaming network '{Network.Id}' at '{At}': {description}", "poi", "follow");
+
+                Network.LastError = description;
+
+            };
+
+            return peer;
+
+        }
+
+        #endregion
+
+        #region (private) KeepPeersOf(Network)
+
+        /// <summary>
+        /// What this hub is in the given roaming network followed, as its head says (SHAREHOLDERS.md, phase 7.1), and
+        /// the peers that follow from it. Where the head names a signing key held here for its operator, this hub is
+        /// one of several making it: the commits it makes there are signed with that key, they and those it took go to
+        /// every server it is connected with, and it is connected with the copies of the other holders as well, as the
+        /// "urls" of the roaming network name them, and as this hub was told ("alsoAt"). Where it names none, it is a
+        /// copy nobody changes from here, at the one server it is followed at. Called whenever this hub looks; nothing
+        /// is done where nothing changed.
+        /// </summary>
+        private async Task KeepPeersOf(FollowedRoamingNetwork Network)
+        {
+
+            if (Network.Copy is not RoamingNetworkHistory history)
+                return;
+
+            var head     = history.Head.RoamingNetwork;
+            var signer   = NetworkOperator.CommitSignerIn(head);
+            var holds    = signer is not null;
+            var signers  = history.Signers;
+
+            // A merge is signed where both its commits are, when this hub looks: see SignCommitsByItself.
+            history.SignMerges = false;
+
+            if (signer is null
+                    ? !signers.IsDefaultOrEmpty
+                    :  signers.IsDefaultOrEmpty || signers[0].KeyId != signer.KeyId)
+            {
+                history.Signers = signer is null ? [] : [ signer ];
+            }
+
+            var gone = new List<RoamingNetworkPeer>();
+
+            #region Where it is followed: pushing or not, and with the copy served here
+
+            if (Network.Peer is RoamingNetworkPeer primary              &&
+                (Network.Pushes != holds || (primary.History is not null && primary.History != history)) &&
+                TryGetHistoryWebSocketURL(Network.URL, out var primaryURL))
+            {
+
+                Network.Pushes  = holds;
+
+                var next        = NewPeer(Network, primaryURL, history, holds, Network.URL.ToString());
+
+                Network.Peer    = next;
+
+                gone.Add(primary);
+                StartSoon(next);
+
+                Log.Notice(holds
+                               ? $"The roaming network '{Network.Id}': this hub holds a key of its operator, so what is committed here goes to '{Network.URL}' from now on."
+                               : $"The roaming network '{Network.Id}': this hub holds no key of its operator any more, so nothing goes from here to '{Network.URL}' any longer.",
+                           "poi", "follow", "security");
+
+            }
+
+            #endregion
+
+            #region The copies of the other holders
+
+            var own      = OwnURLsOf(Network.Id);
+            var desired  = new Dictionary<String, Uri>(StringComparer.OrdinalIgnoreCase);
+
+            if (holds)
+            {
+
+                // As the roaming network names them, which is https only, and as this hub was told.
+                var copies = new List<URL>();
+
+                if (!head.URLs.IsDefaultOrEmpty)
+                    copies.AddRange(head.URLs);
+
+                copies.AddRange(poiConfiguration.EffectiveFollow.FirstOrDefault(follow => follow.TrustAnchor.Id == Network.Id)?.AlsoAt ?? []);
+
+                lock (Network.Others)
+                    foreach (var also in Network.AlsoAt)
+                        if (URL.TryParse(also, out var told))
+                            copies.Add(told);
+
+                foreach (var url in copies)
+                {
+
+                    var text = url.ToString().TrimEnd('/');
+
+                    if (!own.Contains(text)                                                                                &&
+                        !String.Equals(text, Network.URL.ToString().TrimEnd('/'), StringComparison.OrdinalIgnoreCase)      &&
+                        TryGetHistoryWebSocketURL(url, out var webSocketURL))
+                    {
+                        desired[text] = webSocketURL;
+                    }
+
+                }
+
+            }
+
+            lock (Network.Others)
+            {
+
+                foreach (var (text, peer) in Network.Others.ToArray())
+                    if (!desired.ContainsKey(text) || (peer.History is not null && peer.History != history))
+                    {
+                        Network.Others.Remove(text);
+                        gone.Add(peer);
+                        Log.Info($"The roaming network '{Network.Id}': the copy at '{text}' is followed no longer.", "poi", "follow");
+                    }
+
+                foreach (var (text, webSocketURL) in desired)
+                    if (!Network.Others.ContainsKey(text))
+                    {
+
+                        var peer = NewPeer(Network, webSocketURL, history, true, text, Other: true);
+
+                        Network.Others.Add(text, peer);
+                        StartSoon(peer);
+
+                        Log.Info($"The roaming network '{Network.Id}': the copy of another holder of the keys of its operator at '{text}' is followed as well.", "poi", "follow");
+
+                    }
+
+            }
+
+            #endregion
+
+            foreach (var peer in gone)
+            {
+                try
+                {
+                    await peer.DisposeAsync();
+                }
+                catch (Exception e)
+                {
+                    Log.Exception(e, $"A peer of the roaming network '{Network.Id}' could not be stopped.", "poi", "follow");
+                }
+            }
+
+        }
+
+        /// <summary>
+        /// Start the given peer, not waiting for the other server: it keeps trying.
+        /// </summary>
+        private static void StartSoon(RoamingNetworkPeer Peer)
+
+            => _ = Task.Run(async () => {
+
+                   try
+                   {
+
+                       using var waiting = new CancellationTokenSource(FollowTimeout);
+
+                       await Peer.StartAsync(waiting.Token);
+
+                   }
+                   catch
+                   { }
+
+               });
+
+        /// <summary>
+        /// Where this hub itself serves the given roaming network, as far as it knows: as its configuration says, and at
+        /// its own web interface.
+        /// </summary>
+        private HashSet<String> OwnURLsOf(RoamingNetwork_Id RoamingNetworkId)
+        {
+
+            var own = new HashSet<String>(StringComparer.OrdinalIgnoreCase) {
+                          $"{WebInterfaceURL.ToString().TrimEnd('/')}/{POIPathSegment}/RNs/{RoamingNetworkId}"
+                      };
+
+            if (poiConfiguration.URLOf(RoamingNetworkId) is URL configured)
+                own.Add(configured.ToString().TrimEnd('/'));
+
+            return own;
+
+        }
+
+        #endregion
+
+        #region IsMadeBySeveral(RoamingNetworkId) / (private static) RecentCommits(History, Max) / (private) SendOwnSignatures(Network, Peer)
+
+        /// <summary>
+        /// Whether the given roaming network served here is one several make, this hub among them (SHAREHOLDERS.md,
+        /// phase 7.1): its head names more than one holder of the keys of its operator, and a signing key held here.
+        /// Such a roaming network takes the commits of the other holders' hubs, whether it was made here or is followed.
+        /// </summary>
+        public Boolean IsMadeBySeveral(RoamingNetwork_Id RoamingNetworkId)
+
+            => POI.TryGetRoamingNetworkHistory(RoamingNetworkId, out var history)  &&
+               history.Head.RoamingNetwork is RoamingNetwork head                  &&
+               IsHeldBySeveral(head)                                               &&
+               NetworkOperator.SigningKeyIdIn(head) is not null;
+
+        /// <summary>
+        /// Whether the given version of a roaming network names more than one holder of the keys of its operator.
+        /// </summary>
+        private static Boolean IsHeldBySeveral(RoamingNetwork Version)
+
+            => Version.Operator is RoamingNetworkOperator networkOperator &&
+               POIPartyKeys.Holders(networkOperator.IdentityKeys).Distinct(StringComparer.Ordinal).Count() > 1;
+
+        /// <summary>
+        /// The head of the given history and the commits behind it, the nearest first, at most as many as given: both
+        /// parents of a merge.
+        /// </summary>
+        private static IReadOnlyList<RoamingNetworkCommit> RecentCommits(RoamingNetworkHistory  History,
+                                                                         Int32                  Max)
+        {
+
+            var found  = new List<RoamingNetworkCommit>();
+            var seen   = new HashSet<RoamingNetworkCommit_Id>();
+            var next   = new Queue<RoamingNetworkCommit>();
+            var head   = History.Head.Commit;
+
+            seen.Add(head.Id);
+            next.Enqueue(head);
+
+            while (next.Count > 0 && found.Count < Max)
+            {
+
+                var commit = next.Dequeue();
+
+                found.Add(commit);
+
+                if (!commit.ParentIds.IsDefaultOrEmpty)
+                    foreach (var parentId in commit.ParentIds)
+                        if (seen.Add(parentId) && History.TryGetCommit(parentId, out var parent))
+                            next.Enqueue(parent);
+
+            }
+
+            return found;
+
+        }
+
+        /// <summary>
+        /// Send the signatures of this hub on the latest commits of the given roaming network to the given server once
+        /// more, after it connected: one made while that server was away is known there only so. Taken again without
+        /// harm; what fails is sent at the next connect.
+        /// </summary>
+        private async Task SendOwnSignatures(FollowedRoamingNetwork  Network,
+                                             RoamingNetworkPeer      Peer)
+        {
+
+            try
+            {
+
+                if (Network.Copy is not RoamingNetworkHistory history ||
+                    NetworkOperator.SigningKeyIdIn(history.Head.RoamingNetwork) is not String keyId)
+                {
+                    return;
+                }
+
+                foreach (var commit in RecentCommits(history, MaxCommitsSignedByItself + 1))
+                {
+
+                    var own = commit.Signatures.Where(signature => signature.KeyId == keyId &&
+                                                                   signature.Role  == RoamingNetworkCommitSignatureRoles.RoamingNetworkOperator).ToArray();
+
+                    if (own.Length == 0)
+                        continue;
+
+                    using var timeout = new CancellationTokenSource(FollowTimeout);
+
+                    await Peer.SignCommitAsync(commit.Id, own, timeout.Token);
+
+                }
+
+            }
+            catch
+            { }
+
+        }
+
+        #endregion
+
         #region (private) Serve(Network, History, OldHistory = null)
 
         /// <summary>
@@ -999,6 +1530,11 @@ namespace cloud.charging.open.RoamingHub
                            RoamingNetworkHistory   History,
                            RoamingNetworkHistory?  OldHistory   = null)
         {
+
+            Network.Copy        = History;
+
+            // A merge is signed where both its commits are, when this hub looks: see SignCommitsByItself.
+            History.SignMerges  = false;
 
             Network.Trust.Follow(History.Head.RoamingNetwork);
 
@@ -1042,7 +1578,7 @@ namespace cloud.charging.open.RoamingHub
                 networks = [ .. followed.Values ];
 
             foreach (var network in networks)
-                if (network.Peer is RoamingNetworkPeer peer)
+                foreach (var (_, peer) in network.Peers)
                 {
                     try
                     {

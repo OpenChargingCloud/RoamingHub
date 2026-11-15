@@ -753,22 +753,35 @@ followed, whether it is connected and what went wrong last. It is the second
 step of several hubs operating one roaming network together, see
 [SHAREHOLDERS.md](SHAREHOLDERS.md).
 
-A hub holding keys of the operator of a roaming network it follows **signs a
-commit of it when told to**: `SignFollowedCommit(roamingNetworkId, commitId?)`,
+A hub holding keys of the operator of a roaming network **signs a commit of
+it when told to**, whether it follows the roaming network or made it:
+`SignCommitAsHolder(roamingNetworkId, commitId?)`,
 `POST /api/v1/poi/followed/{id}/signatures` with `{"commit"?: "…"}`, or
 `roamingNetworks <id> sign [<commit>]`, `poi:edit` - its head unless a commit
 is named, in the role of the roaming network operator, with the signing key of
-this hub that operator certifies. The signature is sent where the roaming
-network is followed and added to the copy here; with as many holders signing as
-the quorum requires, whoever checks the roaming network takes the commit. 201
-once it is signed and taken there, 200 where the commit has a signature of this
-hub already, 404 where the roaming network is not followed or has no such
-commit here, 409 where this hub holds no key of its operator, 502 where the
-server followed did not take it. A hub signs by itself only the commit of a
-change set it signed, see below. The hub of the
-operator takes such a signature from everybody, below `/poi`, as it is one only
+this hub that operator certifies. The signature is sent to every server this
+hub is connected with there and added to the copy here; with as many holders
+signing as the quorum requires, whoever checks the roaming network takes the
+commit. 201 once it is signed and taken, 200 where the commit has a signature
+of this hub already, 404 where the roaming network is not served here or has
+no such commit, 409 where this hub holds no key of its operator, 502 where no
+server took it. A hub signs by itself the commits it makes, the commit of a
+change set it signed, and a merge of two commits it signed, see below. A hub
+takes such a signature from everybody, below `/poi`, as it is one only
 by a signing key the version of the commit certifies. `roamingNetworks <id>`
 says who signed its head as its operator, and how many holders decide.
+
+Where several hold the keys of the operator, **each of their hubs commits**:
+the hubs following are connected with each other as well as with the one that
+made the roaming network, what one commits goes to all of them, and two tips
+are merged to the same commit everywhere. So far a holder renews its signing
+key at its own hub that way, and what it commits gets to the others while any
+way between them is open, whichever hub is away; change sets are still
+committed where the roaming network was made. The copies of the other holders
+are those the roaming network names, its `urls`, and those the hub is told of,
+`alsoAt` in its configuration; `GET /api/v1/poi/followed` says them as
+`"alsoAt": [ { "url", "connected" } ]`. See phase 7 of
+[SHAREHOLDERS.md](SHAREHOLDERS.md).
 
 **Who holds the keys of the operator changes** by commands
 (`RoamingHub.Shareholders.cs`), each doing what its hub can do right then and
@@ -943,6 +956,10 @@ nothing is said; `"none"`, only when somebody says `sign`; `"all"`, every
 commit it took into its copy, back to the last one it signed or approved - its
 signature says that the history took the commit rightly, which the hub
 verified, not that whoever runs it agrees. Every head is attested by it then.
+`alsoAt` names further copies of that roaming network at other hubs,
+`[ "https://hub-c.example/poi/RNs/QA" ]`: the hub is connected with them as
+well while it holds a key of its operator, beside those the roaming network
+names itself.
 What the section names no longer is
 not undone: `roamingNetworks unfollow <id>` deletes a copy. Whom a hub admits
 is not in it: admitting stays with somebody.
@@ -989,7 +1006,7 @@ tagged `poi` and `store`.
   "statusRoles":                { "gef-feed": [ "DE*GEF" ] },
   "allowedOrigins":             [ "https://map.example.org" ],
   "url":                        "https://hub-b.example/poi",
-  "follow":                     [ { "trustAnchor": "https://hub-a.example/poi/RNs/QA/trustAnchor/…", "hold": true, "signCommits": "approved" } ]
+  "follow":                     [ { "trustAnchor": "https://hub-a.example/poi/RNs/QA/trustAnchor/…", "hold": true, "signCommits": "approved", "alsoAt": [ "https://hub-c.example/poi/RNs/QA" ] } ]
 }
 ```
 

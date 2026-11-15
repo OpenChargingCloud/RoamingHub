@@ -796,7 +796,8 @@ namespace cloud.charging.open.RoamingHub
         /// <remarks>
         /// <para>
         /// A signing key at once: a holder renews its own signing key with its identity key, alone, by a change set of
-        /// its certificate, committed where the roaming network is made and sent there by a hub following.
+        /// its certificate, committed at its own hub, whether it made the roaming network or follows it, and sent to
+        /// the other holders' hubs from there (SHAREHOLDERS.md, phase 7.1).
         /// </para>
         /// <para>
         /// An identity key in two changes of the shareholders of each roaming network that names it, as example A11 of
@@ -824,12 +825,17 @@ namespace cloud.charging.open.RoamingHub
             foreach (var network in FollowedRoamingNetworks)
             {
 
-                if (network.History?.Head.RoamingNetwork is not RoamingNetwork head || head.Operator is not RoamingNetworkOperator networkOperator)
+                if (network.History is not RoamingNetworkHistory history ||
+                    history.Head.RoamingNetwork is not RoamingNetwork head || head.Operator is not RoamingNetworkOperator networkOperator)
+                {
                     continue;
+                }
 
                 // Only where it names the key replaced: this hub holds it of that operator.
                 if (!networkOperator.SigningKeys.Any(key => key.Id == oldKeyId))
                     continue;
+
+                var signersBefore = history.Signers;
 
                 try
                 {
@@ -851,20 +857,39 @@ namespace cloud.charging.open.RoamingHub
                                         head
                                     );
 
-                    var (status, answer) = await Post($"{network.URL.ToString().TrimEnd('/')}/history/changeSets/pending", changeSet.ToJSON());
+                    // Committed here, as one of several making it, and signed by the new signing key: the version it
+                    // leads to certifies the old one no longer. It goes to the other holders' hubs from here.
+                    if (NetworkOperator.CommitSignerOf(NetworkOperator.SigningKey.Id, networkOperator.Id.ToString()) is RoamingNetworkCommitSigner signer)
+                        history.Signers = [ signer ];
 
-                    if (status is >= 200 and < 300 && answer?["status"]?.Value<String>() is "committed" or "alreadyCommitted")
+                    var result = history.Commit(changeSet);
+
+                    if (result.IsCommitted)
                     {
+
                         changed.Add(network.Id);
                         Log.Notice($"The signing key of this hub, '{NetworkOperator.Holder}', as a holder of the keys of the operator of the roaming network '{network.Id}' is {NetworkOperator.SigningKey.Id[..16]}… now.", "poi", "shareholders", "security");
+
+                        // Signed by this hub, so attested by it.
+                        AttestFollowed(network, now);
+
                     }
                     else
-                        refused[network.Id] = $"'{network.URL}' did not take it: {Description(answer)}";
+                    {
+                        history.Signers      = signersBefore;
+                        refused[network.Id]  = result.ErrorResponse ?? "its copy here refused the commit";
+                    }
 
                 }
                 catch (Exception e)
                 {
+
+                    // Signed by what signed it before, unless the commit was made: then its head names the new key.
+                    if (history.Head.RoamingNetwork.Operator?.SigningKeys.Any(key => key.Id == NetworkOperator.SigningKey.Id) != true)
+                        history.Signers = signersBefore;
+
                     refused[network.Id] = e.Message;
+
                 }
 
             }

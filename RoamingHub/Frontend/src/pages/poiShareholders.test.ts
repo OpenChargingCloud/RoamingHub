@@ -394,7 +394,7 @@ describe('who holds the keys of the operator of a roaming network', () => {
                                 root => root.querySelector('#shareholders-table') !== null);
 
         assert.equal(root.querySelector('tr[data-holder="Alpha"] button'), null, 'the hub that makes the roaming network resigns');
-        assert.equal(root.querySelector('#sign-head'), null, 'a head signed where the roaming network is made');
+        assert.ok(root.querySelector('#sign-head'), 'what another holder committed is not signed where the roaming network was made');
         assert.equal(root.querySelector('#join-form'), null);
 
         root.querySelector<HTMLButtonElement>('tr[data-holder="Beta"] button')!.click();

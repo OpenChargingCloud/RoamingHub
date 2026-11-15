@@ -135,6 +135,12 @@ namespace cloud.charging.open.RoamingHub.Configuration
         /// The name of the field of a roaming network followed saying which of its commits this hub signs by itself.
         /// </summary>
         public const String  SignCommitsName       = "signCommits";
+        public const String  AlsoAtName            = "alsoAt";
+
+        /// <summary>
+        /// How many further copies of a roaming network followed an entry may name.
+        /// </summary>
+        public const Int32   MaxAlsoAt             = 16;
 
         private static readonly RoamingNetworkHistoryRetention  defaults  = new ();
 
@@ -290,8 +296,8 @@ namespace cloud.charging.open.RoamingHub.Configuration
         #region (private static) TryParseFollow(JSON, out Follow, out Error)
 
         /// <summary>
-        /// The roaming networks of other servers this hub follows, [ { "trustAnchor", "url"?, "hold"?, "signCommits"? } ], or the one
-        /// sentence that says what is wrong with them.
+        /// The roaming networks of other servers this hub follows, [ { "trustAnchor", "url"?, "hold"?, "signCommits"?, "alsoAt"? } ],
+        /// or the one sentence that says what is wrong with them.
         /// </summary>
         private static Boolean TryParseFollow(JObject                           JSON,
                                               out IReadOnlyList<POIFollow>?     Follow,
@@ -326,9 +332,9 @@ namespace cloud.charging.open.RoamingHub.Configuration
 
                 var entryPath = $"{path}[{number++}]";
 
-                if (entry.Properties().FirstOrDefault(property => property.Name is not ("trustAnchor" or URLName or "hold" or SignCommitsName)) is JProperty other)
+                if (entry.Properties().FirstOrDefault(property => property.Name is not ("trustAnchor" or URLName or "hold" or SignCommitsName or AlsoAtName)) is JProperty other)
                 {
-                    Error = $"'{entryPath}' says '{other.Name}', which is none of \"trustAnchor\", \"{URLName}\", \"hold\" and \"{SignCommitsName}\".";
+                    Error = $"'{entryPath}' says '{other.Name}', which is none of \"trustAnchor\", \"{URLName}\", \"hold\", \"{SignCommitsName}\" and \"{AlsoAtName}\".";
                     return false;
                 }
 
@@ -378,7 +384,44 @@ namespace cloud.charging.open.RoamingHub.Configuration
                     return false;
                 }
 
-                follow.Add(new POIFollow(trustAnchor, anchorText.Trim(), url, hold ?? false, signCommits));
+                #region The copies of the other holders, where the roaming network does not name them
+
+                var alsoAt = new List<org.GraphDefined.Vanaheimr.Hermod.HTTP.URL>();
+
+                if (entry.TryGetValue(AlsoAtName, out var alsoAtToken) && alsoAtToken.Type != JTokenType.Null)
+                {
+
+                    if (alsoAtToken is not JArray alsoAtJSON || alsoAtJSON.Count > MaxAlsoAt || alsoAtJSON.Any(also => also.Type != JTokenType.String))
+                    {
+                        Error = $"'{entryPath}.{AlsoAtName}' must be a JSON array of at most {MaxAlsoAt} URLs of the roaming network '{trustAnchor.Id}' at other hubs, e.g. [ \"https://hub-c.example.org/poi/RNs/{trustAnchor.Id}\" ].";
+                        return false;
+                    }
+
+                    foreach (var text in alsoAtJSON.Select(also => also.Value<String>()!))
+                    {
+
+                        if (!Uri.TryCreate(text, UriKind.Absolute, out var uri)     ||
+                            uri.Scheme is not ("http" or "https")                   ||
+                            uri.Host.Length  == 0                                   ||
+                            uri.UserInfo.Length > 0                                 ||
+                            uri.Query.Length    > 0                                 ||
+                            uri.Fragment.Length > 0                                 ||
+                            !uri.AbsolutePath.TrimEnd('/').EndsWith($"/RNs/{trustAnchor.Id}", StringComparison.Ordinal) ||
+                            !org.GraphDefined.Vanaheimr.Hermod.HTTP.URL.TryParse(text.TrimEnd('/'), out var also))
+                        {
+                            Error = $"'{entryPath}.{AlsoAtName}' names '{text}', which is no URL of the roaming network '{trustAnchor.Id}' at another hub, over http or https, ending in 'RNs/{trustAnchor.Id}'.";
+                            return false;
+                        }
+
+                        alsoAt.Add(also);
+
+                    }
+
+                }
+
+                #endregion
+
+                follow.Add(new POIFollow(trustAnchor, anchorText.Trim(), url, hold ?? false, signCommits) { AlsoAt = alsoAt });
 
             }
 
@@ -632,6 +675,13 @@ namespace cloud.charging.open.RoamingHub.Configuration
     {
 
         /// <summary>
+        /// The copies of the other holders of the keys of its operator, ~/RNs/{RN_Id} at their hubs, which this hub
+        /// is connected with as one of them: beside those the roaming network names itself, its "urls", which are
+        /// https only (SHAREHOLDERS.md, phase 7.1).
+        /// </summary>
+        public IReadOnlyList<org.GraphDefined.Vanaheimr.Hermod.HTTP.URL> AlsoAt { get; init; } = [];
+
+        /// <summary>
         /// The entry as it is written to the file.
         /// </summary>
         public JObject ToJSON()
@@ -647,6 +697,9 @@ namespace cloud.charging.open.RoamingHub.Configuration
 
             if (SignCommits != POISignCommits.Approved)
                 json.Add(POIConfiguration.SignCommitsName, SignCommits.ToString().ToLowerInvariant());
+
+            if (AlsoAt.Count > 0)
+                json.Add(POIConfiguration.AlsoAtName, new JArray(AlsoAt.Select(also => also.ToString())));
 
             return json;
 

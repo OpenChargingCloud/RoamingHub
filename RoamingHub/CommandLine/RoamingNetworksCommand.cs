@@ -372,7 +372,7 @@ namespace cloud.charging.open.RoamingHub.CommandLine
 
             }
 
-            var result = await cli.Hub.SignFollowedCommit(RoamingNetworkId, commitId);
+            var result = await cli.Hub.SignCommitAsHolder(RoamingNetworkId, commitId);
 
             if (result.Status == RoamingNetworkCommitSigningStatus.Signed)
                 cli.Hub.Log.Notice($"{cli.Caller.Asker} had the commit '{result.Commit?.Id}' of the roaming network '{RoamingNetworkId}' signed.",

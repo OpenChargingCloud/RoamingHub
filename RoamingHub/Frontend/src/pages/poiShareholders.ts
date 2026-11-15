@@ -578,9 +578,9 @@ export function mountNetworkKeys(content: HTMLElement, roamingNetworkId: string)
                                            title="Before their statement ends: signed by as many holders as decide"
                                            @click=${() => act(() => api.poi.shareholders.restate(roamingNetworkId))}>State the keys anew</button>`
                             : nothing}
-                        ${holders.followed
+                        ${holders.followed || several
                             ? html`<button type="button" id="sign-head" class="btn" ?disabled=${busy}
-                                           title="As one of the holders: its head is attested by this hub from then on"
+                                           title="As one of the holders, also what another holder's hub committed: its head is attested by this hub from then on"
                                            @click=${() => act(() => api.poi.followed.sign(roamingNetworkId))}>Sign its head commit</button>`
                             : nothing}
                     </div>` : nothing}

@@ -447,7 +447,10 @@ namespace cloud.charging.open.RoamingHub
         /// one no roaming network names yet, as the commit that enters it is signed by it already. Null where it is not
         /// held here.
         /// </summary>
-        internal RoamingNetworkCommitSigner? CommitSignerOf(String SigningKeyId)
+        /// <param name="SigningKeyId">A signing key.</param>
+        /// <param name="Operator">The roaming network operator it signs for, where that is another one than this hub is: one it holds keys of with others.</param>
+        internal RoamingNetworkCommitSigner? CommitSignerOf(String   SigningKeyId,
+                                                            String?  Operator   = null)
         {
 
             lock (keysLock)
@@ -456,7 +459,7 @@ namespace cloud.charging.open.RoamingHub
                                                             SigningKeyId,
                                                             COSEAlgorithm.ES256,
                                                             RoamingNetworkCommitSignatureRoles.RoamingNetworkOperator,
-                                                            Id.ToString())
+                                                            Operator ?? Id.ToString())
                            : null;
 
         }

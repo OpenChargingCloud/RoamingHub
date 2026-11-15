@@ -209,10 +209,20 @@ namespace cloud.charging.open.RoamingHub
                                 // Everybody may send a signature of a commit in the role of the roaming network
                                 // operator: it is one only by a signing key the version of the commit certifies,
                                 // the one of another holder of the keys of its operator - see RoamingHub.Follow.cs.
-                                // Not for a roaming network followed: its signatures go where it is followed.
+                                // Not for a roaming network followed: its signatures go where it is followed,
+                                // unless this hub is one of several making it, which are told each other's.
                                 AuthorizeCommitSignature      = (request, commit, signature) => signature.Role == RoamingNetworkCommitSignatureRoles.RoamingNetworkOperator &&
-                                                                                                !IsFollowed(commit.RoamingNetworkId),
+                                                                                                (!IsFollowed(commit.RoamingNetworkId) || IsMadeBySeveral(commit.RoamingNetworkId)),
                                 VerifyCommitSignature         = VerifyOperatorCommitSignature,
+
+                                // The commits of the other holders' hubs, where several make a roaming network and
+                                // this hub is one of them (SHAREHOLDERS.md, phase 7.1): taken from everybody, as a
+                                // change set is - each is checked as every commit, signed by the owners of what it
+                                // changes, or the merge of its parents. Nowhere else: a roaming network this hub
+                                // makes alone, or only follows, is changed by commits of nobody else.
+                                AuthorizeCommitPush           = (request, commits) => commits.Count > 0 &&
+                                                                                      commits.All(commit => commit.RoamingNetworkId == commits[0].RoamingNetworkId) &&
+                                                                                      IsMadeBySeveral(commits[0].RoamingNetworkId),
 
                                 // And an attestation of a head, by the same keys: so that a head is attested by as
                                 // many holders as its quorum requires.
@@ -299,6 +309,8 @@ namespace cloud.charging.open.RoamingHub
                     if (NetworkOperator.CommitSigner(history.Head.RoamingNetwork) is RoamingNetworkCommitSigner signer)
                         history.Signers = [ signer ];
 
+                    AsOneOfSeveral(history);
+
                     // Its heads attested by that key as well, the current one now: see RoamingHub.Attestations.cs.
                     Attest(history, TimeProvider.GetUtcNow());
 
@@ -319,6 +331,45 @@ namespace cloud.charging.open.RoamingHub
                 }
 
             }
+
+        }
+
+        #endregion
+
+        #region (private) AsOneOfSeveral(History)
+
+        /// <summary>
+        /// Let the given history of a roaming network made here be one several hubs make (SHAREHOLDERS.md, phase 7.1),
+        /// while several hold the keys of its operator: the commits of the other holders' hubs are taken here then.
+        /// This hub vouches for what it signed only, so a merge is not signed by being made, and a head is attested
+        /// only where its commit is signed here; both are signed when this hub looks - see SignCommitsByItself - which
+        /// it does with every commit then. While this hub holds the keys alone, every commit and so every head is its
+        /// own, signed and attested at once, as before.
+        /// </summary>
+        private void AsOneOfSeveral(RoamingNetworkHistory History)
+        {
+
+            var roamingNetworkId = History.RoamingNetworkId;
+
+            Boolean Several()
+            {
+
+                var several = IsHeldBySeveral(History.Head.RoamingNetwork);
+
+                History.SignMerges             = !several;
+                History.AttestOnlySignedHeads  =  several;
+
+                return several;
+
+            }
+
+            Several();
+
+            // Called while the history is locked, which the same thread may enter again: the look is only queued.
+            History.OnCommitAnnouncement += announcement => {
+                if (Several())
+                    AdvanceShareholdersSoon(roamingNetworkId);
+            };
 
         }
 
@@ -464,6 +515,8 @@ namespace cloud.charging.open.RoamingHub
                                                                Store:      store,
                                                                Retention:  poiConfiguration.EffectiveRetention,
                                                                Archive:    archive);
+
+                    AsOneOfSeveral(history);
 
                     Attest(history, TimeProvider.GetUtcNow());
 

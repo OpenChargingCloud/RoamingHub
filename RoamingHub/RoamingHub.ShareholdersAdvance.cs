@@ -587,6 +587,16 @@ namespace cloud.charging.open.RoamingHub
 
                     KeepWaitingHere(history.RoamingNetworkId, here);
 
+                    // The commits of the other holders' hubs, and the merges with them (phase 7.1).
+                    try
+                    {
+                        done.AddRange(await SignCommitsByItself(history.RoamingNetworkId, history));
+                    }
+                    catch (Exception e)
+                    {
+                        Log.Exception(e, $"The roaming network '{history.RoamingNetworkId}': its commits could not be signed.", "poi", "shareholders");
+                    }
+
                 }
 
                 #endregion
@@ -600,6 +610,16 @@ namespace cloud.charging.open.RoamingHub
 
                         if (network.History is not RoamingNetworkHistory copy || Only?.Contains(network.Id) == false)
                             continue;
+
+                        // What this hub is there, as its head says, and whom it is connected with (phase 7.1).
+                        try
+                        {
+                            await KeepPeersOf(network);
+                        }
+                        catch (Exception e)
+                        {
+                            Log.Exception(e, $"The roaming network '{network.Id}': its peers could not be kept.", "poi", "follow");
+                        }
 
                         var holds = NetworkOperator.SigningKeyIdIn(copy.Head.RoamingNetwork) is not null;
 
@@ -684,7 +704,7 @@ namespace cloud.charging.open.RoamingHub
 
                         try
                         {
-                            done.AddRange(await SignCommitsByItself(network));
+                            done.AddRange(await SignCommitsByItself(network.Id, copy));
                         }
                         catch (Exception e)
                         {
@@ -704,29 +724,30 @@ namespace cloud.charging.open.RoamingHub
 
         #endregion
 
-        #region (private) SignCommitsByItself(Network)
+        #region (private) SignCommitsByItself(RoamingNetworkId, History)
 
         /// <summary>
-        /// Sign commits of the given roaming network followed as one of the holders of the keys of its operator: the
-        /// head and up to <see cref="MaxCommitsSignedByItself"/> commits behind it, as far as they lack its signature.
-        /// Which, the configuration says ("signCommits" beside its trust anchor, SHAREHOLDERS.md, phase 6.4): those
-        /// whose change set this hub signed, as it approved what they change, unless it says otherwise; none; or all
-        /// of them back to the last one this hub signed or approved, as it verified each to take it into its copy.
-        /// What is not signed here is signed when somebody says so.
+        /// Sign commits of the given roaming network as one of the holders of the keys of its operator: the head and
+        /// up to <see cref="MaxCommitsSignedByItself"/> commits behind it, both parents of a merge, as far as they lack
+        /// its signature. Which, the configuration says ("signCommits" beside its trust anchor, SHAREHOLDERS.md,
+        /// phase 6.4): those whose change set this hub signed, as it approved what they change, unless it says
+        /// otherwise; none; or all of them back to the last one this hub signed or approved, as it verified each to
+        /// take it. A merge says nothing its two commits do not, so it is signed where both of them are signed here
+        /// (phase 7.1), the older ones first. What is not signed here is signed when somebody says so.
         /// </summary>
-        private async Task<IReadOnlyList<String>> SignCommitsByItself(FollowedRoamingNetwork Network)
+        /// <param name="RoamingNetworkId">A roaming network this hub makes or follows.</param>
+        /// <param name="History">Its history here.</param>
+        private async Task<IReadOnlyList<String>> SignCommitsByItself(RoamingNetwork_Id      RoamingNetworkId,
+                                                                      RoamingNetworkHistory  History)
         {
 
             var signed = new List<String>();
-            var which  = poiConfiguration.SignCommitsOf(Network.Id);
+            var which  = poiConfiguration.SignCommitsOf(RoamingNetworkId);
 
             if (which == Configuration.POISignCommits.None)
                 return signed;
 
-            if (Network.History is not RoamingNetworkHistory history)
-                return signed;
-
-            var head = history.Head;
+            var head = History.Head;
 
             if (NetworkOperator.CommitSignerIn(head.RoamingNetwork) is not RoamingNetworkCommitSigner signer)
                 return signed;
@@ -746,44 +767,72 @@ namespace cloud.charging.open.RoamingHub
                     mine.Add(keyId);
             }
 
-            var commit = head.Commit;
+            Boolean IsSigned(RoamingNetworkCommit Commit)
+                => Commit.Signatures.Any(signature => signature.KeyId == signer.KeyId && signature.Role == signer.Role);
 
-            for (var behind = 0; behind <= MaxCommitsSignedByItself; behind++)
+            Boolean IsApproved(RoamingNetworkCommit Commit)
+                => !Commit.IsMerge && Commit.ChangeSet?.Signatures.Any(signature => mine.Contains(signature.KeyId)) == true;
+
+            #region The commits lacking its signature, from the head backwards
+
+            var lacking  = new List<RoamingNetworkCommit>();
+            var seen     = new HashSet<RoamingNetworkCommit_Id> { head.Commit.Id };
+            var next     = new Queue<RoamingNetworkCommit>();
+
+            next.Enqueue(head.Commit);
+
+            while (next.Count > 0 && lacking.Count <= MaxCommitsSignedByItself)
             {
 
+                var commit = next.Dequeue();
+
                 // Signed from here on backwards.
-                if (commit.Signatures.Any(signature => signature.KeyId == signer.KeyId && signature.Role == signer.Role))
-                    break;
+                if (IsSigned(commit))
+                    continue;
 
-                var approved = commit.ChangeSet?.Signatures.Any(signature => mine.Contains(signature.KeyId)) == true;
-
-                if (approved || which == Configuration.POISignCommits.All)
-                {
-
-                    var signing = await SignFollowedCommit(Network.Id, commit.Id);
-
-                    if (signing.Status == RoamingNetworkCommitSigningStatus.Signed)
-                    {
-
-                        signed.Add(approved
-                                       ? signing.Message
-                                       : "As the configuration says: " + signing.Message);
-
-                        if (!approved)
-                            Log.Notice(signed[^1], "poi", "follow", "security", "config");
-
-                    }
-
-                }
+                lacking.Add(commit);
 
                 // All of them: back to the last one this hub approved, not what was before it held a key.
-                if (approved && which == Configuration.POISignCommits.All)
-                    break;
+                if (which == Configuration.POISignCommits.All && IsApproved(commit))
+                    continue;
 
-                if (commit.ParentIds.IsDefaultOrEmpty || !history.TryGetCommit(commit.ParentIds[0], out var parent))
-                    break;
+                if (!commit.ParentIds.IsDefaultOrEmpty)
+                    foreach (var parentId in commit.ParentIds)
+                        if (seen.Add(parentId) && History.TryGetCommit(parentId, out var parent))
+                            next.Enqueue(parent);
 
-                commit = parent;
+            }
+
+            #endregion
+
+            // The older ones first: a merge is signed once both its commits are.
+            foreach (var lacked in lacking.OrderBy(commit => commit.Revision))
+            {
+
+                if (!History.TryGetCommit(lacked.Id, out var commit) || IsSigned(commit))
+                    continue;
+
+                var approved = commit.IsMerge
+                                   ? !commit.ParentIds.IsDefaultOrEmpty &&
+                                      commit.ParentIds.All(parentId => History.TryGetCommit(parentId, out var parent) && IsSigned(parent))
+                                   : IsApproved(commit);
+
+                if (!approved && which != Configuration.POISignCommits.All)
+                    continue;
+
+                var signing = await SignCommitAsHolder(RoamingNetworkId, commit.Id);
+
+                if (signing.Status == RoamingNetworkCommitSigningStatus.Signed)
+                {
+
+                    signed.Add(approved
+                                   ? signing.Message
+                                   : "As the configuration says: " + signing.Message);
+
+                    if (!approved)
+                        Log.Notice(signed[^1], "poi", "follow", "security", "config");
+
+                }
 
             }
 

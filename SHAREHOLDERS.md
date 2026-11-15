@@ -14,7 +14,7 @@ sections 4.1 and 8.6; example A1 there plays it with three organizations in one 
 | 4 | A hub is admitted as a shareholder, is dismissed, resigns | built |
 | 5 | Operating under a quorum: what waits for the others | built |
 | 6 | The hubs tell each other what waits, and a configuration says what a hub takes part in | built |
-| 7 | Every holder's hub makes changes: none of them is the one the others need | designed |
+| 7 | Every holder's hub makes changes: none of them is the one the others need | 7.1 built, 7.2 and 7.3 designed |
 
 
 ## What is there, and what is missing
@@ -263,9 +263,10 @@ Built (`RoamingHub.Pending.cs`, and `Restate`, `AddKey`, `DropKey` and `RotateNe
 - **A holder renews its signing key alone.** `roamingNetworkOperator rotate signingKey` replaces the signing key
   of this hub in every roaming network it makes and in every one it follows whose operator it holds keys of. Where
   several decide, the change is one of its own certificate only, signed by its identity key, alone, as the
-  specification lets a holder renew its signing keys without the others: committed at once where the roaming
-  network is made, sent there by a hub following. Its commits, its signatures and its attestations are by the new
-  key from then on; the old one is kept until no roaming network names it.
+  specification lets a holder renew its signing keys without the others: committed at once at its own hub,
+  whether it made the roaming network or follows it, and sent on from there (phase 7.1; sent to the hub where
+  the roaming network is made before). Its commits, its signatures and its attestations are by the new key from
+  then on; the old one is kept until no roaming network names it.
 - **An identity key is replaced in two changes**, as example A11 of WWCP POI does it, in every roaming network
   that names it - those this hub makes, and those it follows whose operator it holds keys of. `roamingNetworkOperator
   rotate identityKey`, `POST /api/v1/poi/roamingNetworkOperator/identityKey/rotate`: the new identity key next to
@@ -495,7 +496,8 @@ and `"approved"` where nothing is said, also of a roaming network followed that 
   `signCommits` says.
 - **Not for a roaming network made here**, deviating from the design: the hub where it is made signs every
   commit it makes, as it did before anybody else held a key, and a commit without that signature were none. So
-  there is no `roamingNetworks` beside `follow`.
+  there is no `roamingNetworks` beside `follow`. Since phase 7.1 it takes commits of the other holders' hubs,
+  which it signs as `"approved"` says.
 - **Not shown**: which of the three a hub does is in its configuration only, not in its log and not on the
   page of the roaming network.
 
@@ -569,7 +571,7 @@ its turn.
 
 ## Phase 7: every holder's hub makes changes
 
-Designed, not built. Until here one hub writes the history of a roaming network, the one where it was made, and
+Designed; 7.1 is built, see *Built (7.1)* below. Until here one hub writes the history of a roaming network, the one where it was made, and
 every other hub, also one holding keys of its operator, has a copy nobody changes from there. That is a question
 of who is reached, not of whom to trust: under a quorum that hub decides nothing alone. But while it is away
 nothing is decided at all, although as many holders as decide may be there.
@@ -628,6 +630,64 @@ dismissal begins at any of them, and `signCommits` is said for it as for them.
 
 Useful alone: what one holder commits alone - its signing key renewed, the commits of a charging station
 operator sending its change sets there - gets to everybody while any way between the hubs is open.
+
+**Built (7.1)** (`KeepPeersOf`, `NewPeer`, `SignCommitAsHolder`, `IsMadeBySeveral` in `RoamingHub.Follow.cs`;
+`SignMerges` and `AttestOnlySignedHeads` of the history in WWCP POI):
+
+- **What a hub is** in a roaming network it follows is read from its head whenever it looks: where the head names
+  a signing key held here, the commits made here are signed with it, and they and those taken here go to every
+  server this hub is connected with. Its log says when that begins and ends.
+- **Connected with the copies of the other holders**: those the roaming network names, its `urls` - which are
+  `https` only, as WWCP POI specifies them - and those this hub was told of: `"alsoAt": [ "…/poi/RNs/QA" ]`
+  beside a trust anchor in the configuration, or `FollowAlsoAt(…)` in C#, kept beside the copy in
+  `followed.json`. `GET /api/v1/poi/followed` says them, `"alsoAt": [ { "url", "connected" } ]`. The hub where
+  a roaming network was made connects with nobody: the others connect with it, and one connection carries both
+  ways.
+- **Commits of other hubs are taken** where several hold the keys of the operator and this hub is one of them
+  (`AuthorizeCommitPush`), whether it made the roaming network or follows it, from everybody, as a change set
+  is: each is checked as every commit. Not where a hub makes a roaming network alone, or only follows it.
+- **A holder renews its signing key at its own hub**: committed in its copy, signed by its new key, and sent on
+  from there. It was sent to the hub where the roaming network is made before. Nothing else is committed at a
+  hub following yet: change sets and the runtime status sent there are refused as before (7.3).
+- **A signature goes to every server connected**, and is taken where one of them took it; after every connect a
+  hub sends its signatures of the head and the eight commits behind it once more, as one made while that server
+  was away is known there only so. A holder's hub takes a signature and an attestation of another holder for
+  its copy as well.
+- **`sign` at every holder's hub**, also where the roaming network was made, `roamingNetworks <id> sign
+  [<commit>]`, `POST /api/v1/poi/followed/{id}/signatures` and `Sign its head commit` on its page: a hub signs
+  the commits it makes itself, and those of the others when told to or as `signCommits` says.
+- **A merge is not signed by being made** where several hold the keys: it is signed by itself where both
+  commits merged are signed here, when the hub looks, which it does with every commit - also where the roaming
+  network was made. And a head is attested only where its commit is signed here, there as well. A hub holding
+  the keys alone signs and attests everything at once, as before.
+
+What changed by it, **to be decided**:
+
+- **A commit of another holder is signed by nobody else by itself.** A holder renewing its signing key was
+  committed where the roaming network is made, and signed by that hub by making it; now it is committed at the
+  holder's own hub and signed by that one alone. With two of two deciding its head is attested by one until
+  somebody says `sign` at the other hub, or `signCommits` says `"all"` there; a first copy waits that long.
+  Decision 3 says so - nothing is signed for another by itself - but it was otherwise before for this one
+  commit.
+
+Found by it:
+
+- **Two holders renewing their signing keys at once conflict**: both replace the certificates of the operator,
+  one property. Where the commit of the first one arrived, the second one is refused and says so, *prepare it
+  again for the head* - its hub has its new key already, and the roaming network names the old one until it is
+  asked again. Where both were committed, the two tips conflict and stay; no hub resolves that yet. The same
+  holds for every two changes of one property of the operator, which 7.3 makes more of.
+
+Not built of 7.1:
+
+- **The runtime status both ways**, and whatever else a hub following does not take yet.
+- **A hub that only follows tries the next URL** of its trust anchor: it stays with the one it follows.
+- **`signCommits` for a roaming network made here**: it signs the commits of the others as `"approved"` says,
+  and nothing says otherwise.
+- **Telling a hub of a copy** at the prompt or on a page: the configuration and C# only.
+- **The signatures of others are not passed on**: a hub sends its own again after a connect, not those it took.
+- **Not tested with a merge between hubs**: that a merge is left unsigned and signed later is tested in WWCP
+  POI, and that a hub signs one where it signed both commits is not tested.
 
 ### 7.2 What waits is with every holder
 
