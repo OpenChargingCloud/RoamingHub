@@ -870,6 +870,13 @@ namespace cloud.charging.open.RoamingHub
                                               new RoamingNetworkPeerOptions {
 
                                                   TrustAnchor                = trust.TrustAnchor,
+
+                                                  // A trust anchor from before the holders of the keys changed is
+                                                  // led on by the key statements in between, before the first copy.
+                                                  FollowKeyStatements        = statements => {
+                                                                                   trust.FollowChain(statements);
+                                                                                   return trust.TrustAnchor;
+                                                                               },
                                                   Store                      = Network.Store,
                                                   Retention                  = poiConfiguration.EffectiveRetention,
                                                   Archive                    = Network.Archive,

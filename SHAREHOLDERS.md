@@ -130,8 +130,9 @@ Open:
 
 - **A holder named** at the operator (phase 1) ends the following: the key statement of its new identity key is
   signed by it alone, so nothing leads there from the trust anchor here. Followed again with the new trust anchor,
-  after `unfollow`. The same for a trust anchor older than the copy the other server starts this hub from. An
-  identity key replaced does not: it is replaced in two changes, whose key statements follow one another (phase 5).
+  after `unfollow`. A trust anchor from before a holder was admitted or dismissed does not: the key statements
+  in between lead on from it (*An old trust anchor*, phase 6). An
+  identity key replaced does not either: it is replaced in two changes, whose key statements follow one another (phase 5).
 - **A hub does not say where its roaming networks are:** the `urls` of a roaming network it makes are empty, so
   the trust anchor it serves names the URL it was asked at.
 - **OCPI and DATEX II** read the roaming networks of this hub: whether a copy is published by them is not decided,
@@ -455,10 +456,10 @@ keeps the changes of the operator with a person, so admitting stays one command 
   deletes the copy and with it that it asked.
 - **What could not be done** - no holder named, the other hub away - is said in the log once, tagged `config`, and
   tried again at the next look.
-- **A trust anchor older than the roaming network** is refused as before (the open point below): a configuration
-  written while one held the keys does not follow a roaming network two hold by now. The roaming network counts
-  as followed all the same, without a copy, so a newer trust anchor in the configuration is not taken until
-  somebody says `roamingNetworks unfollow <id>`.
+- **A trust anchor older than the roaming network** is followed all the same (*An old trust anchor*, below): a
+  configuration written while one held the keys follows a roaming network two hold by now. One that leads
+  nowhere is refused; the roaming network counts as followed then, without a copy, so another trust anchor in
+  the configuration is not taken until somebody says `roamingNetworks unfollow <id>`.
 - **Read at the start only**: a section changed while the hub runs is done at its next start.
 
 **Built (6.4):** `signCommits` beside the trust anchor of an entry of `follow`: `"none"`, `"approved"` or `"all"`,
@@ -498,8 +499,31 @@ Open after it:
 
 - **Everything goes through the hub where the roaming network is made.** While it is not reached, nothing is
   decided; another holder taking its place is a design of its own.
-- **A new holder and an old trust anchor**: a hub following by a trust anchor older than the first copy it is
-  given is refused (phase 2), also one a configuration names.
+
+### An old trust anchor
+
+Built (`RoamingNetworkFollowerTrust.FollowChain`, `RoamingNetworkPeerOptions.FollowKeyStatements` of WWCP POI).
+A trust anchor names the holders of the day it was handed out. A hub following by it later was refused its
+first copy once a holder was admitted or dismissed since: the head is attested by the holders of today, of whom
+the trust anchor knows too few. A hub following already had no such trouble, as it saw every key statement in
+its turn.
+
+- **Before its first copy** a hub asks the one it follows for the key statements of the operator, the oldest
+  first (`keyStatements` over the WebSocket of the history, as `GET ~/RNs/{id}/keyStatements` gives them), and
+  follows them from its trust anchor: those before the first one the trust anchor takes are passed over, and
+  every one after it is signed by the quorum of the one before it and by its own (SPECIFICATION.md of WWCP POI,
+  section 8.6, succession over several statements). The trust anchor they lead to is the one the copy is
+  anchored in, and is kept beside it, `followed.json`.
+- **Nothing is trusted that was not before**: the key statements are public and prove nothing by themselves; each
+  counts by the signatures of those the one before names. Where they lead nowhere - another operator's roaming
+  network, an identity key replaced at once - the trust anchor stays as it is, and the copy is refused as before.
+- **Also later**: a hub that starts its copy anew, e.g. in the next epoch, asks again, from the trust anchor it
+  has got to.
+- **As far as the hub followed knows them**: a history gives the key statements since its first commit, at most
+  the latest 100. A hub that itself began from a copy, or dropped older commits, begins later: a trust anchor
+  older than that is refused there, and followed where the roaming network is made.
+- **Not for an app**: a driver's app verifying a proof by an old trust anchor follows the key statements itself,
+  `RoamingNetworkKeyStatement.TryVerifyChain`; nothing changed there.
 
 
 ## The pages

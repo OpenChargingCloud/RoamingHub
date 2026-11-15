@@ -739,6 +739,10 @@ identity key the trust anchor leads to. A version stating the keys of its
 operator anew is followed where the keys trusted so far signed that, and the
 trust anchor as far as it was followed is kept beside the copy, in
 `followed.json`, with the URL: the next start serves the copy and catches up.
+A trust anchor handed out before a holder of the keys was admitted or
+dismissed follows all the same: before its first copy the hub asks for the
+key statements of the operator and follows them from its trust anchor, each
+signed by the quorum of the one before it, to the keys of today.
 Nothing of a roaming network followed is changed from here - a change set or a
 runtime status sent for it is refused, and its operator's keys are neither
 replaced nor named from here. `roamingNetworks unfollow <id>` or

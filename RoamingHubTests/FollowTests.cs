@@ -306,6 +306,70 @@ namespace cloud.charging.open.RoamingHub.Tests
 
         #endregion
 
+        #region ATrustAnchorFromBeforeTheHoldersChangedLeadsToTheKeysOfToday()
+
+        /// <summary>
+        /// A trust anchor handed out while one held the keys of the operator still follows the roaming network once
+        /// two hold them: the hub following asks for the key statements of the operator before its first copy, and
+        /// each is signed by the quorum of the one before it (SPECIFICATION.md of WWCP POI, section 8.6). The trust
+        /// anchor kept beside the copy is the one of today then. One of another operator leads nowhere, as before.
+        /// </summary>
+        [Test]
+        public async Task ATrustAnchorFromBeforeTheHoldersChangedLeadsToTheKeysOfToday()
+        {
+
+            var id        = RoamingNetwork_Id.Parse("QA");
+
+            Assert.That(RoamingHub.CreateRoamingNetwork(id).Success,  Is.True);
+
+            // Handed out now: one holder, one deciding.
+            var old       = TrustAnchorOf(RoamingHub, "QA");
+            var qa        = HistoryOf(RoamingHub, "QA");
+
+            var second    = await Followed("QA", WhenTold: true);
+            var beta      = second.NetworkOperator;
+
+            Assert.That((await second.    JoinRoamingNetworkOperator(id)).Status,      Is.EqualTo(ShareholderChangeStatus.Waiting));
+            Assert.That((await RoamingHub.AdmitShareholder(id, beta.Holder!)).Success,  Is.True);
+            Assert.That(await Until(() => HoldersOf(RoamingHub, "QA").Length == 2),      Is.True, "the hub admitted did not prove its key by itself");
+
+            // Two decide, so a first copy is given once both signed and attested its head.
+            Assert.That(await Until(() => qa.CurrentAttestations().Any(attestation => attestation.CommitId == qa.Head.Commit.Id &&
+                                                                                      attestation.KeyId    == beta.SigningKey.Id)),
+                        Is.True, "the head is not attested by the hub admitted");
+
+            var third     = await AnotherHub();
+            var following = await third.FollowRoamingNetwork(old);
+            var followed  = third.FollowedRoamingNetworks.Single();
+            var kept      = File.ReadAllText(Path.Combine(followed.Directory, RoamingHub.FollowedFileName));
+
+            // Another operator's roaming network of the same name, at the same place: its key statements lead nowhere.
+            var stranger  = await AnotherHub();
+
+            Assert.That(stranger.CreateRoamingNetwork(id).Success,  Is.True);
+
+            var fourth    = await AnotherHub();
+            var nowhere   = await fourth.FollowRoamingNetwork(TrustAnchorOf(stranger, "QA"), URLOf(RoamingHub, "QA"), TimeSpan.FromSeconds(3));
+
+            Assert.Multiple(() => {
+
+                Assert.That(following.Status,                          Is.EqualTo(RoamingNetworkFollowingStatus.Synchronized), following.Message);
+                Assert.That(followed.History?.Head.Commit.Id,          Is.EqualTo(qa.Head.Commit.Id));
+                Assert.That(followed.Trust.TrustAnchor.Holders.Count,  Is.EqualTo(2), "the trust anchor was not led to the keys of today");
+                Assert.That(followed.Trust.TrustAnchor.MinConsensus,   Is.EqualTo(2));
+                Assert.That(kept,                                      Does.Contain(followed.Trust.TrustAnchor.ToQRCode()), "the trust anchor of today is not kept beside the copy");
+                Assert.That(kept,                                      Does.Not.Contain(old));
+
+                Assert.That(nowhere.Status,                            Is.EqualTo(RoamingNetworkFollowingStatus.Following), nowhere.Message);
+                Assert.That(fourth.FollowedRoamingNetworks.Single().History,  Is.Null);
+                Assert.That(fourth.FollowedRoamingNetworks.Single().Trust.TrustAnchor.Holders.Count,  Is.EqualTo(1));
+
+            });
+
+        }
+
+        #endregion
+
         #region AShareholderSignsTheCommitsItFollows()
 
         /// <summary>
