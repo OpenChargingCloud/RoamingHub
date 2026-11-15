@@ -42,7 +42,8 @@ namespace cloud.charging.open.RoamingHub
     /// <para>
     /// A decision, and never done by itself: signing a key statement - admitting, dismissing, agreeing to another
     /// identity key, stating the keys anew - resigning, approving a change set of the operator, and signing a commit
-    /// of a change set this hub did not sign. What waits for somebody here is said in the log, once.
+    /// of a change set this hub did not sign - unless its configuration says that it signs all commits it took of
+    /// a roaming network followed, "signCommits". What waits for somebody here is said in the log, once.
     /// </para>
     /// <para>
     /// The changes waiting where a roaming network is made are kept beside its store, in "shareholderChanges.json",
@@ -485,7 +486,7 @@ namespace cloud.charging.open.RoamingHub
 
                         try
                         {
-                            done.AddRange(await SignWhatThisHubApproved(network));
+                            done.AddRange(await SignCommitsByItself(network));
                         }
                         catch (Exception e)
                         {
@@ -505,18 +506,24 @@ namespace cloud.charging.open.RoamingHub
 
         #endregion
 
-        #region (private) SignWhatThisHubApproved(Network)
+        #region (private) SignCommitsByItself(Network)
 
         /// <summary>
-        /// Sign the commits of the given roaming network followed whose change set this hub signed, as one of the
-        /// holders of the keys of its operator: the head and up to <see cref="MaxCommitsSignedByItself"/> commits
-        /// behind it, as far as they lack its signature. It approved what they change; a commit of a change set it
-        /// did not sign is signed when somebody says so.
+        /// Sign commits of the given roaming network followed as one of the holders of the keys of its operator: the
+        /// head and up to <see cref="MaxCommitsSignedByItself"/> commits behind it, as far as they lack its signature.
+        /// Which, the configuration says ("signCommits" beside its trust anchor, SHAREHOLDERS.md, phase 6.4): those
+        /// whose change set this hub signed, as it approved what they change, unless it says otherwise; none; or all
+        /// of them back to the last one this hub signed or approved, as it verified each to take it into its copy.
+        /// What is not signed here is signed when somebody says so.
         /// </summary>
-        private async Task<IReadOnlyList<String>> SignWhatThisHubApproved(FollowedRoamingNetwork Network)
+        private async Task<IReadOnlyList<String>> SignCommitsByItself(FollowedRoamingNetwork Network)
         {
 
             var signed = new List<String>();
+            var which  = poiConfiguration.SignCommitsOf(Network.Id);
+
+            if (which == Configuration.POISignCommits.None)
+                return signed;
 
             if (Network.History is not RoamingNetworkHistory history)
                 return signed;
@@ -550,15 +557,30 @@ namespace cloud.charging.open.RoamingHub
                 if (commit.Signatures.Any(signature => signature.KeyId == signer.KeyId && signature.Role == signer.Role))
                     break;
 
-                if (commit.ChangeSet?.Signatures.Any(signature => mine.Contains(signature.KeyId)) == true)
+                var approved = commit.ChangeSet?.Signatures.Any(signature => mine.Contains(signature.KeyId)) == true;
+
+                if (approved || which == Configuration.POISignCommits.All)
                 {
 
                     var signing = await SignFollowedCommit(Network.Id, commit.Id);
 
                     if (signing.Status == RoamingNetworkCommitSigningStatus.Signed)
-                        signed.Add(signing.Message);
+                    {
+
+                        signed.Add(approved
+                                       ? signing.Message
+                                       : "As the configuration says: " + signing.Message);
+
+                        if (!approved)
+                            Log.Notice(signed[^1], "poi", "follow", "security", "config");
+
+                    }
 
                 }
+
+                // All of them: back to the last one this hub approved, not what was before it held a key.
+                if (approved && which == Configuration.POISignCommits.All)
+                    break;
 
                 if (commit.ParentIds.IsDefaultOrEmpty || !history.TryGetCommit(commit.ParentIds[0], out var parent))
                     break;

@@ -877,9 +877,13 @@ namespace cloud.charging.open.RoamingHub.Tests
                                  new JProperty("follow",  new JArray(new JObject(
                                      new JProperty("trustAnchor",  anchor),
                                      new JProperty("url",          URLOf(RoamingHub, "QA").ToString()),
-                                     new JProperty("hold",         true)
+                                     new JProperty("hold",         true),
+                                     new JProperty("signCommits",  "all")
                                  )))
                              ));
+
+            var approved   = Parsed(Follow(new JProperty("trustAnchor", anchor)));
+            var some       = Parsed(Follow(new JProperty("trustAnchor", anchor), new JProperty("signCommits", "some")));
 
             var noURL      = Parsed(new JObject(new JProperty("url", "hub-b.example")));
             var query      = Parsed(new JObject(new JProperty("url", "https://hub-b.example/poi?x=1")));
@@ -897,6 +901,9 @@ namespace cloud.charging.open.RoamingHub.Tests
                 Assert.That(good.POI.URLOf(RoamingNetwork_Id.Parse("QA")).ToString(),  Is.EqualTo("https://hub-b.example/poi/RNs/QA"));
                 Assert.That(good.POI.EffectiveFollow.Single().TrustAnchor.Id,   Is.EqualTo(RoamingNetwork_Id.Parse("QA")));
                 Assert.That(good.POI.EffectiveFollow.Single().Hold,             Is.True);
+                Assert.That(good.POI.EffectiveFollow.Single().SignCommits,      Is.EqualTo(global::cloud.charging.open.RoamingHub.Configuration.POISignCommits.All));
+                Assert.That(approved.POI!.SignCommitsOf(RoamingNetwork_Id.Parse("QA")),  Is.EqualTo(global::cloud.charging.open.RoamingHub.Configuration.POISignCommits.Approved), "what a hub signed the change set of, unless said otherwise");
+                Assert.That(approved.POI.SignCommitsOf(RoamingNetwork_Id.Parse("QB")),   Is.EqualTo(global::cloud.charging.open.RoamingHub.Configuration.POISignCommits.Approved), "also of what the section does not name");
                 Assert.That(good.POI.EffectiveFollow.Single().URL,              Is.EqualTo(URLOf(RoamingHub, "QA")));
                 Assert.That(Parsed(good.POI.ToJSON()).POI!.ToJSON().ToString(), Is.EqualTo(good.POI.ToJSON().ToString()), "written and read again, it is the same");
 
@@ -906,7 +913,90 @@ namespace cloud.charging.open.RoamingHub.Tests
                 Assert.That(noAnchor.Read,  Is.False);  Assert.That(noAnchor.Error,  Does.Contain("poi.follow[0].trustAnchor"));
                 Assert.That(missing.Read,   Is.False);  Assert.That(missing.Error,   Does.Contain("poi.follow[0].trustAnchor"));
                 Assert.That(unknown.Read,   Is.False);  Assert.That(unknown.Error,   Does.Contain("'admit'"));
+                Assert.That(some.Read,      Is.False);  Assert.That(some.Error,      Does.Contain("poi.follow[0].signCommits"));
                 Assert.That(twice.Read,     Is.False);  Assert.That(twice.Error,     Does.Contain("twice"));
+
+            });
+
+        }
+
+        #endregion
+
+        #region TheConfigurationSaysWhichCommitsAHubSigns(SignCommits, Admission, Others)
+
+        /// <summary>
+        /// "signCommits" beside the trust anchor of a roaming network followed says which of its commits a hub signs
+        /// by itself as one of the holders of the keys of its operator (SHAREHOLDERS.md, phase 6.4): none; those of
+        /// the change sets it signed, as before and where nothing is said; or all it took. The commit admitting it is
+        /// one it approved, and the other holder renewing its signing key alone is one it did not.
+        /// </summary>
+        [TestCase("none",      false, false)]
+        [TestCase(null,        true,  false)]
+        [TestCase("approved",  true,  false)]
+        [TestCase("all",       true,  true)]
+        public async Task TheConfigurationSaysWhichCommitsAHubSigns(String? SignCommits, Boolean Admission, Boolean Others)
+        {
+
+            var id        = RoamingNetwork_Id.Parse("QA");
+
+            Assert.That(RoamingHub.CreateRoamingNetwork(id).Success,  Is.True);
+
+            var qa        = HistoryOf(RoamingHub, "QA");
+            var before    = qa.Head.Commit.Id;
+            var entry     = new JObject(
+                                new JProperty("trustAnchor",  TrustAnchorOf(RoamingHub, "QA")),
+                                new JProperty("hold",         true)
+                            );
+
+            if (SignCommits is not null)
+                entry.Add("signCommits", SignCommits);
+
+            var second    = await AnotherHub(WhenTold: true, POI: new JObject(new JProperty("follow", new JArray(entry))));
+            var beta      = second.NetworkOperator.Holder!;
+
+            Boolean SignedBySecond(RoamingNetworkCommit Commit)
+                => RoamingHub.OperatorSignersOf(Commit, qa.Head.RoamingNetwork).Contains(beta);
+
+            Assert.That(await Until(() => RoamingHub.ShareholdersOf(id)?["changes"] is JArray changes &&
+                                          changes.Any(change => change["holder"]?.Value<String>() == beta)),
+                        Is.True, "the hub did not ask to hold the keys as its configuration says");
+
+            var admitted  = await RoamingHub.AdmitShareholder(id, beta);
+
+            Assert.That(admitted.Success,                                         Is.True, admitted.Message);
+            Assert.That(await Until(() => HoldersOf(RoamingHub, "QA").Length == 2),  Is.True, "the hub admitted did not prove its key by itself");
+
+            await CaughtUp("QA", second);
+
+            // The commit admitting it: of a change set it signed.
+            var admission       = qa.Head.Commit.Id;
+            var admissionSigned = await Until(() => SignedBySecond(qa.Head.Commit), Admission ? 15 : 1);
+
+            // A commit it signed no change set of: the other holder renews its signing key, alone.
+            var renewed   = await RoamingHub.RotateNetworkOperatorKeyEverywhere(POIKeyKind.Signing);
+
+            Assert.That(renewed.Success,     Is.True, renewed.Message);
+            Assert.That(qa.Head.Commit.Id,   Is.Not.EqualTo(admission));
+
+            await CaughtUp("QA", second);
+
+            var othersSigned  = await Until(() => SignedBySecond(qa.Head.Commit), Others ? 15 : 1);
+            var looked        = await second.AdvanceShareholders();
+
+            Assert.That(qa.TryGetCommit(before,    out var genesis),   Is.True);
+            Assert.That(qa.TryGetCommit(admission, out var admitting), Is.True);
+
+            Assert.Multiple(() => {
+
+                Assert.That(admissionSigned,             Is.EqualTo(Admission),  "the commit of the change set admitting it");
+                Assert.That(SignedBySecond(admitting!),  Is.EqualTo(Admission));
+                Assert.That(othersSigned,                Is.EqualTo(Others),     "a commit of a change set it did not sign");
+                Assert.That(SignedBySecond(qa.Head.Commit),  Is.EqualTo(Others), String.Join(" ", looked));
+                Assert.That(SignedBySecond(genesis!),    Is.False,               "what was before it held a key is not signed by it");
+
+                // Told to, it signs whatever it is.
+                Assert.That(second.SignFollowedCommit(id).Result.Status,
+                            Is.EqualTo(Others ? RoamingNetworkCommitSigningStatus.AlreadySigned : RoamingNetworkCommitSigningStatus.Signed));
 
             });
 

@@ -29,7 +29,7 @@ namespace cloud.charging.open.RoamingHub
 {
 
     /// <summary>
-    /// What the "poi" section of the configuration has this hub take part in (SHAREHOLDERS.md, phase 6.3): where it
+    /// What the "poi" section of the configuration has this hub take part in (SHAREHOLDERS.md, phases 6.3, 6.4): where it
     /// is reached, which roaming networks of other servers it follows, and of which it asks to hold the keys of the
     /// operator as well.
     /// </summary>
@@ -48,6 +48,8 @@ namespace cloud.charging.open.RoamingHub
     /// <para>
     /// "follow": a roaming network followed already goes on from the trust anchor it has got to. "hold" asks once,
     /// which is kept beside the copy: a hub dismissed is not asking again by itself.
+    /// "signCommits" says which commits of it this hub signs by itself as one of the holders of the keys of its
+    /// operator: see SignCommitsByItself in RoamingHub.ShareholdersAdvance.cs.
     /// </para>
     /// </remarks>
     public partial class RoamingHub

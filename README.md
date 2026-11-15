@@ -917,7 +917,7 @@ changes a history over HTTP takes `application/json` or `application/cbor`, and
 answers anything else with 415.
 
 **What a hub takes part in** is said by the same section
-(`RoamingHub.POIConfigured.cs`, SHAREHOLDERS.md, phase 6.3), read at every
+(`RoamingHub.POIConfigured.cs`, SHAREHOLDERS.md, phases 6.3 and 6.4), read at every
 start and done as if somebody had said it then. `url` says where the POI API
 of this hub is reached, as no hub knows its own public URL: a roaming network
 made from then on names `{url}/RNs/{id}` among its `urls`, every trust anchor
@@ -927,7 +927,14 @@ networks of other servers to follow, each by its trust anchor - the text of
 its QR code, or its URL - and by `url` where the trust anchor names none; one
 followed already is left as it is. With `hold` the hub asks to hold the keys
 of its operator as well, once: that it asked is kept beside the copy, so a hub
-dismissed does not ask again by itself. What the section names no longer is
+dismissed does not ask again by itself. `signCommits` says which commits of
+that roaming network the hub signs by itself as one of the holders of the keys
+of its operator: `"approved"`, those of the change sets it signed, where
+nothing is said; `"none"`, only when somebody says `sign`; `"all"`, every
+commit it took into its copy, back to the last one it signed or approved - its
+signature says that the history took the commit rightly, which the hub
+verified, not that whoever runs it agrees. Every head is attested by it then.
+What the section names no longer is
 not undone: `roamingNetworks unfollow <id>` deletes a copy. Whom a hub admits
 is not in it: admitting stays with somebody.
 
@@ -973,7 +980,7 @@ tagged `poi` and `store`.
   "statusRoles":                { "gef-feed": [ "DE*GEF" ] },
   "allowedOrigins":             [ "https://map.example.org" ],
   "url":                        "https://hub-b.example/poi",
-  "follow":                     [ { "trustAnchor": "https://hub-a.example/poi/RNs/QA/trustAnchor/…", "hold": true } ]
+  "follow":                     [ { "trustAnchor": "https://hub-a.example/poi/RNs/QA/trustAnchor/…", "hold": true, "signCommits": "approved" } ]
 }
 ```
 

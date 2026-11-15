@@ -474,7 +474,7 @@ namespace cloud.charging.open.RoamingHub
         /// Sign a commit of a roaming network followed as one of the holders of the keys of its operator
         /// (SHAREHOLDERS.md, phase 3), and send the signature to the server followed: with as many holders signing as
         /// its quorum requires, whoever checks the roaming network takes the commit. Asked for by somebody who looked
-        /// at the commit, never done by this hub itself.
+        /// at the commit; by this hub itself only what RoamingHub.ShareholdersAdvance.cs says.
         /// </summary>
         /// <param name="RoamingNetworkId">A roaming network this hub follows.</param>
         /// <param name="CommitId">The commit; its head otherwise.</param>

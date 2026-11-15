@@ -13,7 +13,7 @@ sections 4.1 and 8.6; example A1 there plays it with three organizations in one 
 | 3 | A hub signs the commits it follows, and attests with a quorum | built |
 | 4 | A hub is admitted as a shareholder, is dismissed, resigns | built |
 | 5 | Operating under a quorum: what waits for the others | built |
-| 6 | The hubs tell each other what waits, and a configuration says what a hub takes part in | 6.1 to 6.3 built, 6.4 designed |
+| 6 | The hubs tell each other what waits, and a configuration says what a hub takes part in | built |
 
 
 ## What is there, and what is missing
@@ -299,8 +299,8 @@ Open:
 
 ## Phase 6: the hubs tell each other, and a configuration says what a hub takes part in
 
-Steps 6.1 and 6.2 are built (`RoamingHub.ShareholdersAdvance.cs`), and 6.3 (`RoamingHub.POIConfigured.cs`); 6.4
-is a design. Example A1 with three hubs
+Built: 6.1, 6.2 and 6.4 in `RoamingHub.ShareholdersAdvance.cs`, 6.3 in `RoamingHub.POIConfigured.cs`. Example A1
+with three hubs
 ([gui/exampleA1.md](https://github.com/OpenChargingCloud/WWCP_POI/blob/master/examples/gui/exampleA1.md)) took
 three people telling each other what to do next: `admit` twice at every holder's hub, `join` twice, `sign` after
 every commit. Two things were missing: a hub did not learn what waits elsewhere, and what it takes part in is said
@@ -416,11 +416,7 @@ undone, as unfollowing deletes a copy. Commands and pages stay, for what is said
     { "trustAnchor":  "https://hub-a.example/poi/RNs/QA/trustAnchor/…",
       "hold":         true,
       "signCommits":  "approved" }
-  ],
-  "roamingNetworks": {
-    "QA": { "signCommits": "approved",
-            "admit":       [ { "holder": "GammaOrg", "identityKey": "63dfb2da…" } ] }
-  }
+  ]
 }
 ```
 
@@ -431,18 +427,17 @@ undone, as unfollowing deletes a copy. Commands and pages stay, for what is said
   goes on from the trust anchor it has got to.
 - **`hold`**: asks to hold the keys of its operator, once it is followed, and again while it is neither admitted
   nor refused.
-- **`signCommits`**, per roaming network followed or made with others: `"none"`, only when told; `"approved"`,
+- **`signCommits`**, per roaming network followed: `"none"`, only when told; `"approved"`,
   the commits of change sets this hub signed, the default; `"all"`, every commit this hub took, which it verified
   to take it. `"all"` is what decision 3 left for later: a commit of a charging station operator changes what is
   its own, and the signature of a holder says that the history took it rightly, not that the holder agrees.
-- **`admit`**: whom this hub admits without being asked again, named by the holder and its identity key, as a
-  name alone proves nothing. It is the decision of a person, written down before. Used once: a holder dismissed
-  is not admitted again by it.
 
-Not in the configuration: dismissing, approving change sets of the operator, replacing keys.
+Not in the configuration: admitting, dismissing, approving change sets of the operator, replacing keys. Whom a
+hub admits was designed as `admit`, a list of holders and their identity keys, and decided against: decision 3
+keeps the changes of the operator with a person, so admitting stays one command per holder.
 
 **Built (6.3):** `url`, `follow` with `trustAnchor`, `url` and `hold`, in the `poi` section. An entry of
-`follow` saying anything else, `signCommits` among it, is refused until 6.4.
+`follow` saying anything else is refused.
 
 - **`url`** is a URL over http or https without a query. A roaming network made from then on names
   `{url}/RNs/{RN_Id}` as its `urls` from its genesis; every trust anchor served, of a roaming network made here or
@@ -466,6 +461,25 @@ Not in the configuration: dismissing, approving change sets of the operator, rep
   somebody says `roamingNetworks unfollow <id>`.
 - **Read at the start only**: a section changed while the hub runs is done at its next start.
 
+**Built (6.4):** `signCommits` beside the trust anchor of an entry of `follow`: `"none"`, `"approved"` or `"all"`,
+and `"approved"` where nothing is said, also of a roaming network followed that the section does not name.
+
+- **When the hub looks**, as in 6.1: the head and up to eight commits behind it, as far as they lack its
+  signature. `"approved"` signs those whose change set carries a signature of this hub, as before; `"none"` signs
+  nothing by itself, also not those; `"all"` signs every one, which the log says with *As the configuration says*.
+- **`"all"` goes back to the last commit this hub signed or approved**, and not further: the commit admitting it
+  carries its proof, so nothing from before it held a key is signed by it. A commit lying behind one it approved
+  and taken in the same look is left out by that; `sign <commit>` signs it.
+- **Signed, so attested**: with `"all"` every head is signed by this hub, and so attested by it every five
+  minutes, without anybody saying so. With `"none"` no head is, until somebody says `sign`.
+- **Told to, a hub signs whatever it is**, with `roamingNetworks <id> sign [<commit>]` and on the page, whatever
+  `signCommits` says.
+- **Not for a roaming network made here**, deviating from the design: the hub where it is made signs every
+  commit it makes, as it did before anybody else held a key, and a commit without that signature were none. So
+  there is no `roamingNetworks` beside `follow`.
+- **Not shown**: which of the three a hub does is in its configuration only, not in its log and not on the
+  page of the roaming network.
+
 ### In which order
 
 | Step | What | Where |
@@ -473,16 +487,12 @@ Not in the configuration: dismissing, approving change sets of the operator, rep
 | 6.1 | The changes waiting are kept; the loop, by the timer; the steps that are no decisions | RoamingHub, built |
 | 6.2 | The topics and the notices; the pages ask again | WWCP POI, RoamingHub, built |
 | 6.3 | `url`, `follow`, `hold` | RoamingHub, WWCP POI, built |
-| 6.4 | `signCommits`, `admit` | RoamingHub |
+| 6.4 | `signCommits` | RoamingHub, built |
 
 6.1 alone ends the telling: slower, by up to a minute per step, which 6.2 takes away.
 
-Decided: the steps of the table are no decisions, also the commit of a change set a hub signed.
-
-To decide:
-
-- **Whether `admit` belongs into a configuration** at all, as decision 3 kept the changes of the operator with a
-  person; without it, admitting stays one command per holder.
+Decided: the steps of the table are no decisions, also the commit of a change set a hub signed; and `admit` is not
+in a configuration.
 
 Open after it:
 

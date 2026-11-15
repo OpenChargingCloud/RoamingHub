@@ -59,7 +59,9 @@ namespace cloud.charging.open.RoamingHub.Configuration
     /// public URL. Follow names the roaming networks of other servers this hub follows, by their trust anchors, and
     /// whether it asks to hold the keys of their operators as well - "follow": [ { "trustAnchor": "...", "hold": true } ].
     /// What it says is done at every start as if somebody had said it then; what it names no longer is not undone.
-    /// See SHAREHOLDERS.md, phase 6, and RoamingHub.POIConfigured.cs.
+    /// "signCommits" beside a trust anchor says which commits of that roaming network this hub signs by itself as one
+    /// of the holders of the keys of its operator: "none", "approved" - those of the change sets it signed, the
+    /// default - or "all" it took. See SHAREHOLDERS.md, phase 6, and RoamingHub.POIConfigured.cs.
     /// </para>
     /// </remarks>
     /// <param name="RetainCommits">How many revisions behind the head the commits are kept in the store when compacting; 1000 by default.</param>
@@ -129,6 +131,11 @@ namespace cloud.charging.open.RoamingHub.Configuration
         /// </summary>
         public const Int32   MaxFollowed           = 100;
 
+        /// <summary>
+        /// The name of the field of a roaming network followed saying which of its commits this hub signs by itself.
+        /// </summary>
+        public const String  SignCommitsName       = "signCommits";
+
         private static readonly RoamingNetworkHistoryRetention  defaults  = new ();
 
         #endregion
@@ -180,6 +187,15 @@ namespace cloud.charging.open.RoamingHub.Configuration
             => URL.HasValue
                    ? org.GraphDefined.Vanaheimr.Hermod.HTTP.URL.Parse($"{URL.Value.ToString().TrimEnd('/')}/RNs/{RoamingNetworkId}")
                    : null;
+
+        /// <summary>
+        /// Which commits of the given roaming network followed this hub signs by itself: those of the change sets it
+        /// signed, where the section says nothing of it.
+        /// </summary>
+        public POISignCommits SignCommitsOf(RoamingNetwork_Id RoamingNetworkId)
+
+            => EffectiveFollow.FirstOrDefault(follow => follow.TrustAnchor.Id == RoamingNetworkId)?.SignCommits
+                   ?? POISignCommits.Approved;
 
         #endregion
 
@@ -274,7 +290,7 @@ namespace cloud.charging.open.RoamingHub.Configuration
         #region (private static) TryParseFollow(JSON, out Follow, out Error)
 
         /// <summary>
-        /// The roaming networks of other servers this hub follows, [ { "trustAnchor", "url"?, "hold"? } ], or the one
+        /// The roaming networks of other servers this hub follows, [ { "trustAnchor", "url"?, "hold"?, "signCommits"? } ], or the one
         /// sentence that says what is wrong with them.
         /// </summary>
         private static Boolean TryParseFollow(JObject                           JSON,
@@ -310,9 +326,9 @@ namespace cloud.charging.open.RoamingHub.Configuration
 
                 var entryPath = $"{path}[{number++}]";
 
-                if (entry.Properties().FirstOrDefault(property => property.Name is not ("trustAnchor" or URLName or "hold")) is JProperty other)
+                if (entry.Properties().FirstOrDefault(property => property.Name is not ("trustAnchor" or URLName or "hold" or SignCommitsName)) is JProperty other)
                 {
-                    Error = $"'{entryPath}' says '{other.Name}', which is none of \"trustAnchor\", \"{URLName}\" and \"hold\".";
+                    Error = $"'{entryPath}' says '{other.Name}', which is none of \"trustAnchor\", \"{URLName}\", \"hold\" and \"{SignCommitsName}\".";
                     return false;
                 }
 
@@ -337,13 +353,32 @@ namespace cloud.charging.open.RoamingHub.Configuration
                 if (!ConfigurationReader.TryReadBoolean(entry, "hold", entryPath, out var hold, out Error))
                     return false;
 
+                if (!ConfigurationReader.TryReadString(entry, SignCommitsName, entryPath, 16, out var signCommitsText, out Error))
+                    return false;
+
+                POISignCommits signCommits;
+
+                switch (signCommitsText)
+                {
+
+                    case null:        signCommits = POISignCommits.Approved;  break;
+                    case "none":      signCommits = POISignCommits.None;      break;
+                    case "approved":  signCommits = POISignCommits.Approved;  break;
+                    case "all":       signCommits = POISignCommits.All;       break;
+
+                    default:
+                        Error = $"'{entryPath}.{SignCommitsName}' is '{signCommitsText}', which is none of \"none\", \"approved\" and \"all\".";
+                        return false;
+
+                }
+
                 if (follow.Any(known => known.TrustAnchor.Id == trustAnchor.Id))
                 {
                     Error = $"'{path}' names the roaming network '{trustAnchor.Id}' twice.";
                     return false;
                 }
 
-                follow.Add(new POIFollow(trustAnchor, anchorText.Trim(), url, hold ?? false));
+                follow.Add(new POIFollow(trustAnchor, anchorText.Trim(), url, hold ?? false, signCommits));
 
             }
 
@@ -545,12 +580,38 @@ namespace cloud.charging.open.RoamingHub.Configuration
                         ? $", reached at {URL.Value}"
                         : "") +
                    (EffectiveFollow.Count > 0
-                        ? ", following " + String.Join(", ", EffectiveFollow.Select(follow => $"'{follow.TrustAnchor.Id}'{(follow.Hold ? " to hold the keys of its operator as well" : "")}"))
+                        ? ", following " + String.Join(", ", EffectiveFollow.Select(follow => $"'{follow.TrustAnchor.Id}'{(follow.Hold ? " to hold the keys of its operator as well" : "")}{(follow.SignCommits switch { POISignCommits.None => ", signing none of its commits by itself", POISignCommits.All => ", signing all of its commits", _ => "" })}"))
                         : "");
 
         }
 
         #endregion
+
+    }
+
+
+    /// <summary>
+    /// Which commits of a roaming network followed a hub signs by itself, as one of the holders of the keys of its
+    /// operator (SHAREHOLDERS.md, phase 6.4). Its signature says that the history took the commit rightly, which the
+    /// hub verified to take it into its copy; not that whoever runs the hub agrees with what it changes.
+    /// </summary>
+    public enum POISignCommits
+    {
+
+        /// <summary>
+        /// None: every commit is signed when somebody says so.
+        /// </summary>
+        None,
+
+        /// <summary>
+        /// The commits of the change sets this hub signed; every other when somebody says so.
+        /// </summary>
+        Approved,
+
+        /// <summary>
+        /// Every commit this hub took into its copy.
+        /// </summary>
+        All
 
     }
 
@@ -562,10 +623,12 @@ namespace cloud.charging.open.RoamingHub.Configuration
     /// <param name="TrustAnchorText">The trust anchor as the file says it: the text of its QR code, or its URL.</param>
     /// <param name="URL">Where it is followed, ~/RNs/{RN_Id} at the other server; the first URL of the trust anchor otherwise.</param>
     /// <param name="Hold">Whether this hub asks to hold the keys of its operator as well, once.</param>
+    /// <param name="SignCommits">Which of its commits this hub signs by itself as one of the holders of the keys of its operator.</param>
     public sealed record POIFollow(RoamingNetworkTrustAnchor                    TrustAnchor,
                                    String                                       TrustAnchorText,
                                    org.GraphDefined.Vanaheimr.Hermod.HTTP.URL?  URL,
-                                   Boolean                                      Hold)
+                                   Boolean                                      Hold,
+                                   POISignCommits                               SignCommits   = POISignCommits.Approved)
     {
 
         /// <summary>
@@ -581,6 +644,9 @@ namespace cloud.charging.open.RoamingHub.Configuration
 
             if (Hold)
                 json.Add("hold", true);
+
+            if (SignCommits != POISignCommits.Approved)
+                json.Add(POIConfiguration.SignCommitsName, SignCommits.ToString().ToLowerInvariant());
 
             return json;
 
