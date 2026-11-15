@@ -192,7 +192,7 @@ command without a further decision, a hub does by itself since phase 6; asked ag
 | `roamingNetworks <id> join [at <url>]` | `POST …/join` | at a hub following: asks; later signs the change set admitting it |
 | `roamingNetworks <id> admit <holder>` | `POST …/admit/{holder}` | at every holder's hub: signs the key statement; later the change set |
 | `roamingNetworks <id> dismiss <holder>` | `POST …/dismiss/{holder}` | the same, to dismiss; begun where the roaming network is made |
-| `roamingNetworks <id> resign` | `POST …/dismiss/{own holder}` | at the hub leaving: signs the change set dismissing it |
+| `roamingNetworks <id> resign` | `POST …/dismiss/{own holder}` | at the hub leaving: signs the key statement of those who stay, and the change set dismissing it |
 
 **A change waits where the roaming network is made**, in memory, told to everybody at
 `GET /api/v1/poi/shareholders/{id}`, as all of it is signed: the kind, the holder, the key statement of the holders
@@ -215,7 +215,7 @@ set of the change waiting, made again from the copy there.
 
 So one hub admitting a second: `join` there, `admit` here, and the proof of the one asking. Two admitting a third:
 `join`, `admit` here, `admit` at the second, and the proof of the third. Two of three dismiss the third without
-it; of two the one leaving signs the change set, with `resign`. The proof of the one asking is its signature of
+it; of two the one leaving signs the key statement of the one staying and the change set, with `resign`. The proof of the one asking is its signature of
 the change set admitting it: its hub signs it by itself when it looks (phase 6), or at once with `join` again.
 
 Open:
@@ -223,10 +223,11 @@ Open:
 - **A new holder is not vouched for yet.** After a hub was admitted, the head is attested by the hub that made it
   only, until the others signed that commit (phase 3): until then no further hub gets a first copy, as that is
   anchored in the attestations of as many holders as decide.
-- **The last but one leaving** leaves one holder stating its keys alone, as the one leaving signs no statement
-  that names it no longer. Whoever follows the roaming network does not get there from the trust anchor it has, and
-  needs the new one. A key statement the holders before sign although it names them no longer closes that: WWCP
-  POI takes such a one now (*A holder named later*, phase 6), and `resign` does not sign it yet.
+- **The last but one leaving** signs the key statement of the one staying as well, although it names it no
+  longer (*A holder named later*, phase 6): `resign` at its hub signs that key statement first, then the change set
+  made of it where the roaming network is made, in the one command. So the key statement follows the one before,
+  and whoever follows the roaming network is led to the one staying. Until then the key statement waits, also for
+  the one staying: of two, nobody states the keys alone.
 - **What waits is kept over a restart** of the hub where the roaming network is made since phase 6, beside its
   store; before, it was forgotten unless its change set was made, which the history keeps.
 - **The hub that makes the roaming network does not resign**, and a dismissal begins there.
@@ -515,9 +516,11 @@ there, and whoever followed the roaming network, or held its trust anchor, neede
   do it: two holders decide by two, and back to one the old key had to sign a statement not naming it all the same.
 - **So** a hub following goes on following, its trust anchor led to the new key, and a hub following anew by the
   trust anchor from before is led there by the key statements (*An old trust anchor*).
-- **Not yet used for the last but one leaving** (phase 4): `resign` of one of two leaves the other stating its
-  keys alone, without the signature of the one leaving, so that ends the following as before. The rule allows it
-  now: the one leaving would sign the key statement of the one staying before its change set is made.
+- **The last but one leaving** (phase 4) uses it as well: `resign` of one of two signs the key statement of the
+  one staying, with the identity key the roaming network names still, before its change set is made. The way
+  around it - one staying alone stating its keys alone - is gone, so a hub following goes on following there too.
+  Where the others dismiss a hub without it, two of three, nothing changed: their quorum signs, and `resign`
+  adds its signatures where somebody says so.
 
 ### An old trust anchor
 

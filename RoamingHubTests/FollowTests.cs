@@ -627,11 +627,37 @@ namespace cloud.charging.open.RoamingHub.Tests
             var seenHeld   = await follower.  ShareholdersSeenOf(id);
             var already    = await follower.  JoinRoamingNetworkOperator(id);
 
+            // Somebody else following, while two hold the keys: by the trust anchor of the two.
+            Assert.That((await follower.SignFollowedCommit(id)).Status,  Is.AnyOf(RoamingNetworkCommitSigningStatus.Signed, RoamingNetworkCommitSigningStatus.AlreadySigned));
+            Assert.That(await Until(() => HistoryOf(RoamingHub, "QA").CurrentAttestations().Any(attestation => attestation.CommitId == HistoryOf(RoamingHub, "QA").Head.Commit.Id &&
+                                                                                                             attestation.KeyId    == follower.NetworkOperator.SigningKey.Id)),
+                        Is.True, "the head is not attested by both");
+
+            var ofTwo      = HistoryOf(RoamingHub, "QA").Head.RoamingNetwork.CreateTrustAnchor(HistoryOf(RoamingHub, "QA").Head.RoamingNetwork.Operator!.KeyStatement!, URLOf(RoamingHub, "QA")).ToQRCode();
+            var watching   = await AnotherHub();
+
+            Assert.That((await watching.FollowRoamingNetwork(ofTwo)).Status,  Is.EqualTo(RoamingNetworkFollowingStatus.Synchronized));
+
             // It resigns: begun where the roaming network is made, by the one staying, signed by the one leaving as well.
             var dismissed  = await RoamingHub.DismissShareholder(id, beta);
             var twoStill   = HoldersOf(RoamingHub, "QA");
             var resigned   = await follower.  DismissShareholder(id, beta);
             var alone      = HoldersOf(RoamingHub, "QA");
+
+            // The key statement of the one staying is signed by the one leaving as well: who follows, follows on.
+            var statedBy   = HistoryOf(RoamingHub, "QA").Head.RoamingNetwork.Operator!.KeyStatement!.Signatures.Length;
+            var wentOn     = await Until(() => HistoryOf(watching, "QA").Head.Commit.Id == HistoryOf(RoamingHub, "QA").Head.Commit.Id);
+            var ledTo      = watching.FollowedRoamingNetworks.Single().Trust.TrustAnchor;
+            var late       = await AnotherHub();
+            var anew       = await late.FollowRoamingNetwork(ofTwo);
+
+            Assert.Multiple(() => {
+                Assert.That(statedBy,                 Is.EqualTo(2),  "the key statement of the one staying is not signed by the one leaving as well");
+                Assert.That(wentOn,                   Is.True,        watching.FollowedRoamingNetworks.Single().Error ?? "the copy of somebody else following did not go on");
+                Assert.That(ledTo.Holders.Count,      Is.EqualTo(1));
+                Assert.That(ledTo.MinConsensus,       Is.EqualTo(1));
+                Assert.That(anew.Status,              Is.EqualTo(RoamingNetworkFollowingStatus.Synchronized), anew.Message);
+            });
 
             Assert.Multiple(() => {
 

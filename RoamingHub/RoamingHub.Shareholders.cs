@@ -1310,7 +1310,10 @@ namespace cloud.charging.open.RoamingHub
                     if (!IsSignedByItsQuorums(change, head, out var missing))
                         return new (ByItself ? ShareholderChangeStatus.NothingToDo : ShareholderChangeStatus.Waiting,
                                     $"The key statement {what} is signed by this hub. It waits for the other holders: {missing} " +
-                                    $"Each signs it with '{CommandLine.RoamingNetworksCommand.CommandName} {RoamingNetworkId} {command}' at its hub.");
+                                    $"Each signs it with '{CommandLine.RoamingNetworksCommand.CommandName} {RoamingNetworkId} {command}' at its hub" +
+                                    (Kind == ShareholderChangeKind.Dismiss
+                                         ? $", and '{Holder}' itself with '{CommandLine.RoamingNetworksCommand.CommandName} {RoamingNetworkId} resign'."
+                                         : "."));
 
                     #region The key statement is signed: the change set of it, signed by this hub, waits for the others
 
@@ -1366,6 +1369,9 @@ namespace cloud.charging.open.RoamingHub
             if (NetworkOperator.SigningKeyIdIn(version) is null)
                 return new (ShareholderChangeStatus.NothingToDo, $"This hub holds no key of the operator of the roaming network '{RoamingNetworkId}': it is none of those who decide.");
 
+            // This hub is the one leaving.
+            var leaving = Kind == ShareholderChangeKind.Dismiss && Holder == NetworkOperator.Holder;
+
             try
             {
 
@@ -1405,10 +1411,14 @@ namespace cloud.charging.open.RoamingHub
                 if (waiting.ChangeSetId is null)
                 {
 
-                    // The one leaving signs no key statement of those who stay: it names it no longer.
-                    if (NetworkOperator.IdentityKeyIdFor(version, waiting.KeyStatement) is not String identityKeyId)
+                    // The one leaving signs the key statement of those who stay as well, with the identity key the
+                    // roaming network names still: the statement names it no longer, and follows the one before by it.
+                    if ((NetworkOperator.IdentityKeyIdFor(version, waiting.KeyStatement) ??
+                         (leaving ? NetworkOperator.IdentityKeyIdIn(version) : null)) is not String identityKeyId)
+                    {
                         return new (ByItself ? ShareholderChangeStatus.NothingToDo : ShareholderChangeStatus.Waiting,
-                                    $"The key statement {what} is one of those who stay: this hub signs the change set of it, once it is made at '{network.URL}'.");
+                                    $"The key statement {what} names no identity key of this hub: it waits for the others, and for its change set to be made at '{network.URL}'.");
+                    }
 
                     if (waiting.KeyStatement.Signatures.Any(signature => signature.KeyId == identityKeyId))
                         return new (ByItself ? ShareholderChangeStatus.NothingToDo : ShareholderChangeStatus.Waiting,
@@ -1417,7 +1427,9 @@ namespace cloud.charging.open.RoamingHub
                     // The decision: somebody here says so.
                     if (ByItself)
                         return new (ShareholderChangeStatus.Undecided,
-                                    $"The roaming network '{RoamingNetworkId}': {what} waits for somebody at this hub, '{CommandLine.RoamingNetworksCommand.CommandName} {RoamingNetworkId} {command}'.");
+                                    leaving
+                                        ? $"The roaming network '{RoamingNetworkId}': the others dismiss this hub, '{Holder}'. Where it takes its signature to leave, somebody here says '{CommandLine.RoamingNetworksCommand.CommandName} {RoamingNetworkId} resign'."
+                                        : $"The roaming network '{RoamingNetworkId}': {what} waits for somebody at this hub, '{CommandLine.RoamingNetworksCommand.CommandName} {RoamingNetworkId} {command}'.");
 
                     var (status, answer) = await Post($"{ShareholdersURL(network)}/changes/{(Holder.Length > 0 ? Uri.EscapeDataString(Holder) : "-")}/keyStatement",
                                                       NetworkOperator.CoSign(waiting.KeyStatement, identityKeyId).ToJSON(Embedded: true));
@@ -1445,10 +1457,11 @@ namespace cloud.charging.open.RoamingHub
                 if (ChangeSetOf(waiting, version, changeSet)?.Id != changeSet.Id)
                     return new (ShareholderChangeStatus.Invalid, $"The change set '{changeSet.Id}' at '{network.URL}' is not the one {what} with the key statement waiting: it is not signed.");
 
-                // By itself only the change set of a key statement this hub signed: of one leaving, which signs none of
-                // those who stay, somebody here says that it resigns.
+                // By itself only the change set of a key statement this hub signed: of one the others dismiss
+                // without it, somebody here says that it resigns.
                 if (ByItself &&
-                    !(NetworkOperator.IdentityKeyIdFor(version, waiting.KeyStatement) is String decidedWith &&
+                    !((NetworkOperator.IdentityKeyIdFor(version, waiting.KeyStatement) ??
+                       (leaving ? NetworkOperator.IdentityKeyIdIn(version) : null)) is String decidedWith &&
                       waiting.KeyStatement.Signatures.Any(signature => signature.KeyId == decidedWith)))
                 {
 
@@ -1665,9 +1678,9 @@ namespace cloud.charging.open.RoamingHub
         /// <summary>
         /// Whether the key statement of the given change is signed as the one following the one of the given version:
         /// by identity keys of as many holders before as their quorum requires, and by its own quorum
-        /// (RoamingNetworkKeyStatement.TryVerifyChain). One holder staying alone states its keys alone: the one leaving
-        /// signs no statement that names it no longer, and whoever follows the roaming network needs its new trust
-        /// anchor then.
+        /// (RoamingNetworkKeyStatement.TryVerifyChain). Of two, the one leaving signs the key statement of the one
+        /// staying as well, although it names it no longer (SPECIFICATION.md of WWCP POI, section 8.6): so it follows
+        /// the one before, and whoever follows the roaming network is led to the one staying.
         /// </summary>
         private static Boolean IsSignedByItsQuorums(ShareholderChange  Change,
                                                     RoamingNetwork     Head,
@@ -1676,26 +1689,13 @@ namespace cloud.charging.open.RoamingHub
 
             var before = Head.Operator!.KeyStatement!;
 
-            if (RoamingNetworkKeyStatement.TryVerifyChain([ before, Change.KeyStatement ],
-                                                          before.Holders,
-                                                          out _,
-                                                          out _,
-                                                          out Missing,
-                                                          before.MinConsensus,
-                                                          OtherIdentityKeys: Head.Operator.IdentityKeys))
-            {
-                return true;
-            }
-
-            if (Change.Kind == ShareholderChangeKind.Dismiss                         &&
-                POIPartyKeys.Holders(Change.KeyStatement.IdentityKeys).Count == 1     &&
-                Change.KeyStatement.Signatures.Any(signature => Change.KeyStatement.IdentityKeys.Any(key => key.Id == signature.KeyId)))
-            {
-                Missing = null;
-                return true;
-            }
-
-            return false;
+            return RoamingNetworkKeyStatement.TryVerifyChain([ before, Change.KeyStatement ],
+                                                             before.Holders,
+                                                             out _,
+                                                             out _,
+                                                             out Missing,
+                                                             before.MinConsensus,
+                                                             OtherIdentityKeys: Head.Operator.IdentityKeys);
 
         }
 

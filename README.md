@@ -785,8 +785,9 @@ network is made makes the change set of it, which waits for the signatures of
 the holders before and for the identity key of the one asking, its proof.
 `dismiss
 <holder>` works the same, begun where the roaming network is made; two of three
-dismiss the third without it, and of two the one leaving signs the change set,
-with `resign`. `roamingNetworks <id> shareholders` and `GET
+dismiss the third without it, and of two the one leaving signs the key
+statement of the one staying and the change set, with `resign`, so that
+whoever follows the roaming network follows on. `roamingNetworks <id> shareholders` and `GET
 /api/v1/poi/shareholders/{id}`, public, show who holds the keys, how many
 decide, and what waits. All of them but the two showing are `poi:edit`.
 
