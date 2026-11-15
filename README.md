@@ -789,13 +789,18 @@ decide, and what waits. All of them but the two showing are `poi:edit`.
 (`RoamingHub.ShareholdersAdvance.cs`, SHAREHOLDERS.md, phase 6). The change
 set of a key statement is made when the last signature it lacked arrives where
 the roaming network is made, and the hub that sent that signature signs the
-change set in the same command. Every minute each hub looks,
-`AdvanceShareholders()`, at what waits in the roaming networks it makes and
-where it follows one at a hub: a hub that asked signs the change set admitting
+change set in the same command. The hub where a roaming network is made tells
+those following it that something waits anew, otherwise or no longer - a
+notice over the WebSocket of its history, the topics `shareholderChanges` and
+`pendingChangeSets` - and each hub looks, `AdvanceShareholders()`, as soon as
+it is told, after it connected, when its copy took a commit, and every minute
+besides, at what waits in the roaming networks it makes and where it follows
+one at a hub: a hub that asked signs the change set admitting
 it, a hub that signed a key statement signs the change set of it, and a hub
 signs the commits of change sets it signed - the head and up to eight commits
-behind it - which it attests from then on. Asked again, `join`, `admit` and
-the others do the same at once. No hub signs a key statement by itself -
+behind it - which it attests from then on. So two hubs admitting a third are
+three decisions, and the rest takes moments. Asked again, `join`, `admit` and
+the others do the same. No hub signs a key statement by itself -
 admitting, dismissing, agreeing to another identity key, stating the keys
 anew - nor resigns, approves a change set of the operator, or signs a commit
 of a change set it did not sign: what waits for somebody is said in its log,

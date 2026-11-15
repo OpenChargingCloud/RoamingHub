@@ -33,6 +33,14 @@ export interface Mounted {
  */
 const followsWithin_ms = 1500;
 
+/**
+ * How often the page of a roaming network asks again by itself, while it is looked at: the hubs go on by themselves
+ * with what follows from a decision (SHAREHOLDERS.md, phase 6), within moments once they are told, so what waits is
+ * another thing soon; and what somebody asks for at another hub appears here without anybody doing anything here.
+ */
+const asksAgainWhileWaiting_ms = 3000;
+const asksAgainOtherwise_ms    = 15000;
+
 /** What something done said: what became of it, or why it was not done. */
 interface Said {
     text:    string;
@@ -400,6 +408,32 @@ export function mountNetworkKeys(content: HTMLElement, roamingNetworkId: string)
     let busy                                  = false;
     let released                              = false;
     let again:     ReturnType<typeof setTimeout> | undefined;
+    let watching:  ReturnType<typeof setTimeout> | undefined;
+    let shown                                 = '';
+
+    /** Ask again later, by itself: sooner while something waits. Not while somebody types, or the page is hidden. */
+    function watch(): void {
+
+        clearTimeout(watching);
+
+        if (released)
+            return;
+
+        const waits = (holders?.changes?.length ?? 0) > 0 || (pending?.length ?? 0) > 0;
+
+        watching = setTimeout(() => {
+
+            if (busy || document.hidden || anyFormTypedSinceDrawn(content))
+                watch();
+            else
+                void load();
+
+        }, waits ? asksAgainWhileWaiting_ms : asksAgainOtherwise_ms);
+
+        // Where a timer is more than a number, outside a browser: asking again shall keep nothing running.
+        (watching as { unref?: () => void }).unref?.();
+
+    }
 
     /** Do it as a holder, say what the hub says of it, and show what is there afterwards. */
     function act(doing: () => Promise<{ message: string }>): void {
@@ -413,7 +447,7 @@ export function mountNetworkKeys(content: HTMLElement, roamingNetworkId: string)
         void doing().
             then (answer  => { said = { text: answer.message,         failed: false }; },
                   problem => { said = { text: errorMessage(problem),  failed: true  }; }).
-            then (()      => { busy = false; return released ? undefined : load(); }).
+            then (()      => { busy = false; shown = ''; return released ? undefined : load(); }).
             then (()      => {
                       clearTimeout(again);
                       if (!released)
@@ -561,8 +595,8 @@ export function mountNetworkKeys(content: HTMLElement, roamingNetworkId: string)
                         </div>
                         <p class="hint">
                             With the identity key of this hub. The holders there admit it at their hubs; then this
-                            hub signs the change set admitting it by itself, within a minute, as the proof that it
-                            holds its key - or at once, asked again.
+                            hub signs the change set admitting it by itself, as soon as it is told, as the proof
+                            that it holds its key.
                         </p>
                     </form>` : nothing}
 
@@ -637,7 +671,16 @@ export function mountNetworkKeys(content: HTMLElement, roamingNetworkId: string)
         holders  = nowHolders;
         pending  = nowPending;
 
-        draw();
+        // Drawn anew only where something is another thing: asked again by itself, nothing shall flicker.
+        const now = JSON.stringify([ holders, pending, said, busy ]);
+
+        if (now !== shown)
+        {
+            shown = now;
+            draw();
+        }
+
+        watch();
 
     }
 
@@ -647,7 +690,7 @@ export function mountNetworkKeys(content: HTMLElement, roamingNetworkId: string)
 
     return {
         reload:   () => void load(),
-        release:  () => { released = true; clearTimeout(again); letGo(); }
+        release:  () => { released = true; clearTimeout(again); clearTimeout(watching); letGo(); }
     };
 
 }

@@ -612,7 +612,7 @@ namespace cloud.charging.open.RoamingHub
         public Task<ShareholderChangeResult> JoinRoamingNetworkOperator(RoamingNetwork_Id  RoamingNetworkId,
                                                                         URL?               URL   = null)
 
-            => Join(RoamingNetworkId, URL, ByItself: false);
+            => OneAfterTheOther(() => Join(RoamingNetworkId, URL, ByItself: false));
 
         /// <summary>
         /// The same; by itself this hub only goes on with what it asked for: it signs the change set admitting it, and
@@ -697,8 +697,7 @@ namespace cloud.charging.open.RoamingHub
                 return status is >= 200 and < 300
                            ? new (ShareholderChangeStatus.Waiting,
                                   $"This hub, '{holder}', asked to hold the keys of the operator '{head.Operator.Id}' of the roaming network '{RoamingNetworkId}' as well, " +
-                                  $"{holders / 2 + 1} of {holders} deciding. It waits for those who hold them to admit it; this hub goes on by itself then, " +
-                                  $"within {AttestationCheckEvery.TotalMinutes:0} minute(s), or at once with '{CommandLine.RoamingNetworksCommand.CommandName} {RoamingNetworkId} join'.")
+                                  $"{holders / 2 + 1} of {holders} deciding. It waits for those who hold them to admit it; this hub goes on by itself then, as soon as it is told.")
                            : new (ShareholderChangeStatus.Refused, $"'{network.URL}' did not take it: {Description(answer)}");
 
                 #endregion
@@ -1103,10 +1102,41 @@ namespace cloud.charging.open.RoamingHub
         /// decision - <see cref="ShareholderChangeStatus.Undecided"/> then - but the change set of a key statement
         /// this hub signed is made, and signed. By itself, Waiting and Committed say that something was done.
         /// </summary>
-        private async Task<ShareholderChangeResult> ChangeShareholders(ShareholderChangeKind  Kind,
-                                                                       RoamingNetwork_Id      RoamingNetworkId,
-                                                                       String                 Holder,
-                                                                       Boolean                ByItself   = false)
+        private Task<ShareholderChangeResult> ChangeShareholders(ShareholderChangeKind  Kind,
+                                                                 RoamingNetwork_Id      RoamingNetworkId,
+                                                                 String                 Holder,
+                                                                 Boolean                ByItself   = false)
+
+            // By itself: its caller looks, one at a time, or is the hub where the roaming network is made taking a signature.
+            => ByItself
+                   ? GoOnWithShareholders(Kind, RoamingNetworkId, Holder, true)
+                   : OneAfterTheOther(() => GoOnWithShareholders(Kind, RoamingNetworkId, Holder, false));
+
+        /// <summary>
+        /// What somebody says, and what this hub does by itself when it looks, one after the other: told of a change
+        /// set its command just had made, this hub would sign it twice otherwise, and the command would say what was
+        /// before.
+        /// </summary>
+        private async Task<ShareholderChangeResult> OneAfterTheOther(Func<Task<ShareholderChangeResult>> Doing)
+        {
+
+            await shareholdersAdvancing.WaitAsync();
+
+            try
+            {
+                return await Doing();
+            }
+            finally
+            {
+                shareholdersAdvancing.Release();
+            }
+
+        }
+
+        private async Task<ShareholderChangeResult> GoOnWithShareholders(ShareholderChangeKind  Kind,
+                                                                         RoamingNetwork_Id      RoamingNetworkId,
+                                                                         String                 Holder,
+                                                                         Boolean                ByItself)
         {
 
             var what     = Kind switch {
@@ -1420,6 +1450,12 @@ namespace cloud.charging.open.RoamingHub
                     !(NetworkOperator.IdentityKeyIdFor(version, waiting.KeyStatement) is String decidedWith &&
                       waiting.KeyStatement.Signatures.Any(signature => signature.KeyId == decidedWith)))
                 {
+
+                    // The others dismiss this hub: nothing for it to do, unless it takes its signature to leave.
+                    if (Kind == ShareholderChangeKind.Dismiss && Holder == NetworkOperator.Holder)
+                        return new (ShareholderChangeStatus.Undecided,
+                                    $"The roaming network '{RoamingNetworkId}': the change set '{changeSet.Id}' dismisses this hub, '{Holder}'. Where it takes its signature to leave, somebody here says '{CommandLine.RoamingNetworksCommand.CommandName} {RoamingNetworkId} resign'.");
+
                     return new (ShareholderChangeStatus.Undecided,
                                 $"The roaming network '{RoamingNetworkId}': the change set '{changeSet.Id}' {what} waits for somebody at this hub, '{CommandLine.RoamingNetworksCommand.CommandName} {RoamingNetworkId} {command}'.");
                 }

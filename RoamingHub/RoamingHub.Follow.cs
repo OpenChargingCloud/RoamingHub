@@ -870,7 +870,11 @@ namespace cloud.charging.open.RoamingHub
                                                   PushCommits                = false,
                                                   PushStatus                 = false,
                                                   PushCheckpoints            = false,
-                                                  PushPriceStatements        = false
+                                                  PushPriceStatements        = false,
+
+                                                  // Notices of what waits there, where several hold the keys of its
+                                                  // operator: see RoamingHub.ShareholdersAdvance.cs.
+                                                  FurtherTopics              = [ POI_API.PendingChangeSetsTopic, ShareholderChangesTopic ]
 
                                               });
 
@@ -890,7 +894,12 @@ namespace cloud.charging.open.RoamingHub
             peer.OnSynchronized += (_, history) => {
                 Network.LastError = null;
                 trust.Follow(history.Head.RoamingNetwork);
+                // A notice is missed while not connected.
+                AdvanceShareholdersSoon(Network.Id);
             };
+
+            // Something waits there anew, otherwise or no longer: read, and verified, when this hub looks.
+            peer.OnNotice += (_, _, _) => AdvanceShareholdersSoon(Network.Id);
 
             peer.OnHistoryReplacementRefused += (_, _, reason) => {
                 Network.LastError = reason;
@@ -951,6 +960,9 @@ namespace cloud.charging.open.RoamingHub
 
             // Called while the history is locked, which the same thread may enter again.
             History.OnCommitAnnouncement += announcement => Network.Trust.Follow(History.Head.RoamingNetwork);
+
+            // And a commit of a change set this hub signed is signed by it, soon: only queued here.
+            History.OnCommitAnnouncement += announcement => AdvanceShareholdersSoon(Network.Id);
 
             if (!POI.ReplaceRoamingNetworkHistory(History))
                 throw new InvalidOperationException($"The roaming network '{Network.Id}' could not be served.");

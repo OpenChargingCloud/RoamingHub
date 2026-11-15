@@ -13,7 +13,7 @@ sections 4.1 and 8.6; example A1 there plays it with three organizations in one 
 | 3 | A hub signs the commits it follows, and attests with a quorum | built |
 | 4 | A hub is admitted as a shareholder, is dismissed, resigns | built |
 | 5 | Operating under a quorum: what waits for the others | built |
-| 6 | The hubs tell each other what waits, and a configuration says what a hub takes part in | 6.1 built, the rest designed |
+| 6 | The hubs tell each other what waits, and a configuration says what a hub takes part in | 6.1 and 6.2 built, the rest designed |
 
 
 ## What is there, and what is missing
@@ -299,7 +299,7 @@ Open:
 
 ## Phase 6: the hubs tell each other, and a configuration says what a hub takes part in
 
-Step 6.1 is built (`RoamingHub.ShareholdersAdvance.cs`), the rest is a design. Example A1 with three hubs
+Steps 6.1 and 6.2 are built (`RoamingHub.ShareholdersAdvance.cs`), the rest is a design. Example A1 with three hubs
 ([gui/exampleA1.md](https://github.com/OpenChargingCloud/WWCP_POI/blob/master/examples/gui/exampleA1.md)) took
 three people telling each other what to do next: `admit` twice at every holder's hub, `join` twice, `sign` after
 every commit. Two things were missing: a hub did not learn what waits elsewhere, and what it takes part in is said
@@ -338,8 +338,8 @@ were eight commands, and afterwards the head is signed and attested by all three
   dismissing, agreeing to another identity key, stating the keys anew, and resigning.
 - **Kept:** the changes waiting where a roaming network is made are written beside its store,
   `shareholderChanges.json`, whenever they change, and read at the start - those that still fit its head.
-- **Not told yet:** between two looks a hub knows nothing of what waits elsewhere, so the proof of a hub admitted
-  and the signatures of a commit take up to a minute each (6.2). A page shows what was there when it was asked.
+- **Told since 6.2**, below: with 6.1 alone the proof of a hub admitted and the signatures of a commit took up to
+  a minute each.
 - **A hub following asks every hub it follows** what waits, every minute, also where it holds no key and asked for
   none: one public read. Only where it asked, or holds keys, were enough, and takes remembering that it asked.
 - **Commits of change sets signed with a key this hub replaced since** are not signed by itself: it knows its
@@ -358,11 +358,11 @@ the history open anyway:
   does today, and verifies it as it does today. A notice forged or lost does no harm.
 - **Asked as well**, as a notice is missed while a hub is not connected: after every connect, and every minute by
   the timer that attests (`AttestationCheckEvery`), where the hub holds keys of the operator or has asked for
-  them. Every minute is built (6.1).
+  them. Both are built (6.1, 6.2), for every roaming network followed at a hub.
 - **The other way round** stays as it is: a hub following sends its request and its signatures to the hub where
   the roaming network is made, over HTTP and the WebSocket. That hub looks at what waits whenever something was
   taken there.
-- **One loop**, `AdvanceShareholders(network)`, at every hub, after a notice, after the timer, and after a
+- **One loop**, `AdvanceShareholders()`, at every hub, after a notice, after the timer, and after a
   command: for every change waiting it finds what is the turn of this hub, does it where the table above lets it,
   and remembers the rest as *waiting for somebody here*. Doing a step twice is harmless, as every step says today
   that it was done already.
@@ -375,6 +375,33 @@ the history open anyway:
 In WWCP POI: the topic `pendingChangeSets` of `POI_API`, from `OnPendingChangeSet` of the history, and an event of
 `RoamingNetworkPeer` for a push it does not know, which it ignores today. The topic `shareholderChanges` is added
 by the hub (`POIWebSocketServer.AddTopic`), as these changes are its own.
+
+**Built (6.2):**
+
+- **The notice of the hub**, the topic `shareholderChanges` of the WebSocket of every history it serves, action
+  `shareholderChange`, `{ "holder", "kind", "waits" }`: pushed where the roaming network is made whenever a change
+  of the holders waits anew, otherwise than told last - a signature more, its change set made - or no longer.
+  Beside it the topic `pendingChangeSets`, which the POI API had already, with the change set itself.
+- **A hub following subscribes to both** (`RoamingNetworkPeerOptions.FurtherTopics`) and looks when it is told
+  (`RoamingNetworkPeer.OnNotice`), whatever the notice says: it reads what waits as the timer does. It looks as
+  well after every connect, and whenever its copy took a commit, which is how it comes to sign the commit of a
+  change set it signed. A hub followed that knows none of these topics is followed without them, and asked every
+  minute.
+- **One look at a time, and a command is one**: what is asked for while a hub looks is looked at once more
+  afterwards, and a command - `join`, `admit`, `dismiss`, `rekey`, `restate` - waits for a look at it to end. So
+  the hub told of the change set its own command just had made does not sign it a second time, and the command
+  says what became of it.
+- **How long it takes**: in a run of three hubs on one machine, the proof of a hub admitted arrived a quarter of
+  a second after the last `admit`, and the commit was signed by the others a quarter of a second later; with 6.1
+  alone up to a minute each.
+- **The page of a roaming network asks again by itself**, every three seconds while something waits there and
+  every fifteen otherwise, while it is looked at and nobody types into it; it is drawn anew only where something
+  is another thing. It is not told: a browser asks.
+- **The one the others dismiss** is told so in its log, with `resign` for where it takes its signature to leave,
+  and not that it should dismiss itself.
+- **Not built:** what waits for somebody here is not in the list of the roaming networks yet, only in the log and
+  on the page of the roaming network. `LooksWhenTold` of the hub switches the looking when told off, for tests
+  that look at every step alone.
 
 ### The configuration
 
@@ -418,7 +445,7 @@ Not in the configuration: dismissing, approving change sets of the operator, rep
 | Step | What | Where |
 |---|---|---|
 | 6.1 | The changes waiting are kept; the loop, by the timer; the steps that are no decisions | RoamingHub, built |
-| 6.2 | The topics and the notices; the pages ask again | WWCP POI, RoamingHub |
+| 6.2 | The topics and the notices; the pages ask again | WWCP POI, RoamingHub, built |
 | 6.3 | `url`, `follow`, `hold` | RoamingHub |
 | 6.4 | `signCommits`, `admit` | RoamingHub |
 

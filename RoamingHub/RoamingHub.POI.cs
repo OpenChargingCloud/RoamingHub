@@ -236,6 +236,12 @@ namespace cloud.charging.open.RoamingHub
 
                             };
 
+            // A notice of what waits of the holders of the keys of an operator, for those following a history made here:
+            // see RoamingHub.ShareholdersAdvance.cs.
+            POI.AddHistoryTopic(new POIWebSocketTopic(ShareholderChangesTopic,
+                                                      "shareholderChange",
+                                                      "A notice of every change of the holders of the keys of the operator that waits anew, otherwise or no longer: { holder, kind, waits }."));
+
             if (!Directory.Exists(POIDirectory))
                 return;
 
