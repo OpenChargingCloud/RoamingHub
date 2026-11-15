@@ -661,14 +661,14 @@ operator sending its change sets there - gets to everybody while any way between
   network was made. And a head is attested only where its commit is signed here, there as well. A hub holding
   the keys alone signs and attests everything at once, as before.
 
-What changed by it, **to be decided**:
+What changed by it, and stays so (decided 2026-11-15):
 
 - **A commit of another holder is signed by nobody else by itself.** A holder renewing its signing key was
   committed where the roaming network is made, and signed by that hub by making it; now it is committed at the
   holder's own hub and signed by that one alone. With two of two deciding its head is attested by one until
   somebody says `sign` at the other hub, or `signCommits` says `"all"` there; a first copy waits that long.
-  Decision 3 says so - nothing is signed for another by itself - but it was otherwise before for this one
-  commit.
+  Decision 3 says so - nothing is signed for another by itself - and no exception is made for this one commit,
+  although the hub where the roaming network is made signed it before.
 
 Found by it:
 
