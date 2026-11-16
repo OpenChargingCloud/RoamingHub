@@ -1623,6 +1623,27 @@ namespace cloud.charging.open.RoamingHub.Tests
 
             #endregion
 
+            #region A party is added at the second one, and approved at the third one: without the hub that made it
+
+            Boolean Names(RoamingHub Hub, String Id)
+                => HistoryOf(Hub, "QA").Head.RoamingNetwork.TryGetChargingStationOperatorById(ChargingStationOperator_Id.Parse(Id), out _);
+
+            // Signed by the second one and by the identity key of the party, its proof: it waits for one more holder.
+            var added         = POITests.AddedParty(second, "QA", "DE*QAK");
+            var addingId      = HistoryOf(second, "QA").PendingChangeSets.Select(changeSet => changeSet.Id).SingleOrDefault();
+
+            var waitsForThird = await Until(() => { third.AdvanceShareholders().Wait(); return third.WaitingHereOf(id).Any(waiting => waiting.Contains($"approve {addingId}")); });
+            var approved      = await third.ApprovePendingChangeSet(id, addingId);
+            var namedAtBoth   = await Until(() => Names(second, "DE*QAK") && Names(third, "DE*QAK"));
+
+            // Nothing of it waits any longer, at either.
+            await second.AdvanceShareholders();
+            await third. AdvanceShareholders();
+
+            var noneWaits     = await Until(() => HistoryOf(second, "QA").PendingChangeSets.Count == 0 && HistoryOf(third, "QA").PendingChangeSets.Count == 0);
+
+            #endregion
+
             #region The two that are there dismiss the one that is away: begun, signed and committed without it
 
             var outByBeta     = await second.DismissShareholder(id, alpha);     // begins here, and signs the key statement of the two staying
@@ -1658,6 +1679,12 @@ namespace cloud.charging.open.RoamingHub.Tests
                 Assert.That(byGamma.Status,        Is.EqualTo(RoamingNetworkCommitSigningStatus.Signed), byGamma.Message);
                 Assert.That(byGamma.Message,       Does.Contain(URLOf(second, "QA").ToString()),          "the signature was not taken at the other holder's hub");
                 Assert.That(bothAtSecond,          Is.True,                                               "the signature of the third one did not get to the second one");
+
+                Assert.That(added.Success,         Is.False,                                               "one of three holders added a party alone");
+                Assert.That(waitsForThird,         Is.True,                                                "the party added at the second one does not wait for somebody at the third one");
+                Assert.That(approved.Status,       Is.EqualTo(ShareholderChangeStatus.Committed),          approved.Message);
+                Assert.That(namedAtBoth,           Is.True,                                                "the party added at the second one and approved at the third one is named by neither");
+                Assert.That(noneWaits,             Is.True,                                                "the change set adding the party waits still");
 
                 Assert.That(outByBeta.Status,      Is.EqualTo(ShareholderChangeStatus.Waiting),            outByBeta.Message);
                 Assert.That(waitsAtThird,          Is.True,                                                "the dismissal begun at the second one does not wait at the third one");

@@ -765,6 +765,10 @@ Useful alone: what waits survives the hub it was begun at, and every hub shows i
   it leads to names its signing key no longer.
 - **Dismissing the hub that made the roaming network** is begun, signed and committed by the others without it:
   played with three hubs, the first one stopped. Back again, it takes the commit dismissing it.
+- **A party and a transparency software certificate are added at every holder's hub**, `roamingNetworks <id> add
+  …`, `POST /api/v1/poi/RNs/{id}/{parties}` and the pages, also for a copy: signed with the signing key the roaming
+  network names of this hub, waiting for the others where several decide, and told to them at once. A
+  certificate was committed with one signature before, which a quorum refused; it waits now like a party.
 - **A server that did not answer is not asked again for half a minute**, while this hub is not connected with it.
 
 Changed by it: a command at a hub following commits there, where it got the last signature, and the hub where
@@ -776,9 +780,11 @@ Open after it:
 - **The hub that made a roaming network, dismissed, keeps a copy nobody feeds**: it holds no key, so it takes no
   commits of the others, and it follows nobody. It is not turned into a hub following. It does not resign by
   itself either, as before.
-- **Change sets of the operator begin where the roaming network was made**: a party added, the name of the
-  operator. A hub following takes one somebody submits to its POI API, but its own commands and pages do not make
-  them for a copy. The runtime status is not taken for a copy either.
+- **The runtime status is set where the roaming network was made**, and not taken for a copy: a status is not
+  signed, it is taken from a charging station operator a hub knows by its credentials. Passed on between hubs it
+  were taken on the word of another hub, which decision 4 does not have - hubs exchange what is signed.
+- **The name of the operator, and of the holder of its keys,** are changed by the hub the operator is, in the
+  roaming networks it made: not in one it holds keys of with others.
 - **Two changes of one property of the operator made at once** conflict, as found with 7.1: the tips stay, and no
   hub resolves them.
 - **A withdrawal is kept in memory**: after a restart a hub does not pass it on any more.

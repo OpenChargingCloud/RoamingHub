@@ -1356,11 +1356,13 @@ namespace cloud.charging.open.RoamingHub
         /// <summary>
         /// Add a party - a charging station operator, an e-mobility provider, a grid operator, a parking operator, a
         /// charging station or energy meter manufacturer, a transparency software manufacturer or a conformity assessment
-        /// body - to a roaming network this hub operates: a
+        /// body - to a roaming network this hub operates, alone or as one of the holders of the keys of its operator,
+        /// whether it made the roaming network or follows it (SHAREHOLDERS.md, phase 7.3): a
         /// change set this hub signs as its roaming network operator, which waits for the signatures of the identity keys of
         /// the party, as the proof that it holds them, and is committed once they came
         /// (POST ~/poi/RNs/{RN_Id}/history/changeSets/pending/{changeSetId}/signatures); one of a grid operator or a
-        /// conformity assessment body without keys is committed at once.
+        /// conformity assessment body without keys is committed at once. Where several hold the keys of the operator it
+        /// waits for the others as well, at every one of their hubs.
         /// </summary>
         /// <remarks>
         /// The party is given as POI 3 writes it, without anything it holds: {"@id", "name"?, ..., "signingKeys",
@@ -1376,6 +1378,12 @@ namespace cloud.charging.open.RoamingHub
         public RoamingNetworkPartyAddition AddParty(RoamingNetwork_Id  RoamingNetworkId,
                                                     String             EntityType,
                                                     JObject            JSON)
+
+            => ToldToTheOthers(RoamingNetworkId, AddPartyHere(RoamingNetworkId, EntityType, JSON));
+
+        private RoamingNetworkPartyAddition AddPartyHere(RoamingNetwork_Id  RoamingNetworkId,
+                                                         String             EntityType,
+                                                         JObject            JSON)
         {
 
             lock (networkOperatorLock)
@@ -1391,11 +1399,11 @@ namespace cloud.charging.open.RoamingHub
 
                 var network = history.Head.RoamingNetwork;
 
-                if (!NetworkOperator.Operates(network))
+                if (NetworkOperator.SigningKeyIdIn(network) is null)
                     return new (RoamingNetworkPartyStatus.NotOperatedHere,
                                 $"The roaming network '{RoamingNetworkId}' is operated by " +
                                 (network.Operator is not null ? $"'{network.Operator.Id}'" : "nobody") +
-                                $", not by this hub, '{NetworkOperator.Id}': its operator adds its parties.");
+                                $", and this hub, '{NetworkOperator.Id}', holds no key of it: its operator adds its parties.");
 
                 if (JSON["@id"] is not JValue { Type: JTokenType.String } idJSON || String.IsNullOrWhiteSpace(idJSON.Value<String>()))
                     return Invalid($"A {EntityType} needs an identification, '@id'.");
@@ -1446,8 +1454,10 @@ namespace cloud.charging.open.RoamingHub
 
         /// <summary>
         /// Add a transparency software certificate of a conformity assessment body that does not take part, without keys,
-        /// to a roaming network this hub operates: this hub signs it in the place of the body, as its roaming network
-        /// operator, and commits it at once. A body with keys signs its certificates itself, with change sets it submits.
+        /// to a roaming network this hub operates, alone or as one of the holders of the keys of its operator: this
+        /// hub signs it in the place of the body, as its roaming network operator, and commits it at once; where
+        /// several hold the keys of the operator it waits for the others, at every one of their hubs. A body with keys
+        /// signs its certificates itself, with change sets it submits.
         /// </summary>
         /// <remarks>
         /// The certificate is given as POI 3 writes it: {"@id", "chargingStationModel", "chargingStationModelVersion",
@@ -1461,6 +1471,12 @@ namespace cloud.charging.open.RoamingHub
         public RoamingNetworkPartyAddition AddTransparencySoftwareCertificate(RoamingNetwork_Id  RoamingNetworkId,
                                                                               String             ConformityAssessmentBodyId,
                                                                               JObject            JSON)
+
+            => ToldToTheOthers(RoamingNetworkId, AddTransparencySoftwareCertificateHere(RoamingNetworkId, ConformityAssessmentBodyId, JSON));
+
+        private RoamingNetworkPartyAddition AddTransparencySoftwareCertificateHere(RoamingNetwork_Id  RoamingNetworkId,
+                                                                                   String             ConformityAssessmentBodyId,
+                                                                                   JObject            JSON)
         {
 
             lock (networkOperatorLock)
@@ -1471,11 +1487,11 @@ namespace cloud.charging.open.RoamingHub
 
                 var network = history.Head.RoamingNetwork;
 
-                if (!NetworkOperator.Operates(network))
+                if (NetworkOperator.SigningKeyIdIn(network) is null)
                     return new (RoamingNetworkPartyStatus.NotOperatedHere,
                                 $"The roaming network '{RoamingNetworkId}' is operated by " +
                                 (network.Operator is not null ? $"'{network.Operator.Id}'" : "nobody") +
-                                $", not by this hub, '{NetworkOperator.Id}'.");
+                                $", and this hub, '{NetworkOperator.Id}', holds no key of it.");
 
                 if (!ConformityAssessmentBody_Id.TryParse(ConformityAssessmentBodyId, out var bodyId) ||
                     !network.TryGetConformityAssessmentBodyById(bodyId, out var body))
@@ -1503,11 +1519,11 @@ namespace cloud.charging.open.RoamingHub
 
                 try
                 {
-                    changeSet = NetworkOperator.Sign(
+                    changeSet = SignedAsItsOperator(
                                     network,
                                     network.CreateChangeSet(
                                         [ RoamingNetworkChange.Add(certificate, body.Id) ],
-                                        Description: new ImmutableI18NString(I18NString.Create(Languages.en, $"The transparency software certificate '{certificate.Id}' of the conformity assessment body '{body.Id}', signed in its place by its roaming network operator '{NetworkOperator.Id}'."))
+                                        Description: new ImmutableI18NString(I18NString.Create(Languages.en, $"The transparency software certificate '{certificate.Id}' of the conformity assessment body '{body.Id}', signed in its place by its roaming network operator '{network.Operator!.Id}'."))
                                     )
                                 );
                 }
@@ -1516,7 +1532,16 @@ namespace cloud.charging.open.RoamingHub
                     return new (RoamingNetworkPartyStatus.Invalid, $"The certificate '{certificate.Id}' can not be added: {e.Message}");
                 }
 
-                var result = history.Commit(changeSet);
+                // Committed at once where this hub decides alone; where several hold the keys of the operator, it
+                // waits for the others.
+                var result = history.CoSign(changeSet);
+
+                if (result.Status == RoamingNetworkCoSigningStatus.Pending)
+                    return new (RoamingNetworkPartyStatus.Pending,
+                                $"The transparency software certificate '{certificate.Id}' of the conformity assessment body '{body.Id}' is added to the roaming network '{RoamingNetworkId}' " +
+                                $"once the other holders of the keys of its operator signed the change set '{changeSet.Id}', '{CommandLine.RoamingNetworksCommand.CommandName} {RoamingNetworkId} approve {changeSet.Id}' at their hubs. Signed by this hub, it waits until then.",
+                                ChangeSet:  result.ChangeSet ?? changeSet,
+                                Missing:    result.Missing);
 
                 if (!result.IsCommitted || result.Commit is null)
                     return new (RoamingNetworkPartyStatus.Refused, $"The certificate '{certificate.Id}' was not added: {result.ErrorResponse}");
@@ -1527,6 +1552,55 @@ namespace cloud.charging.open.RoamingHub
                             result.Commit);
 
             }
+
+        }
+
+        #endregion
+
+        #region (private) SignedAsItsOperator(Network, ChangeSet) / ToldToTheOthers(RoamingNetworkId, Addition)
+
+        /// <summary>
+        /// The given change set signed with the signing key of this hub the given roaming network names for its
+        /// operator: the operator this hub is, or one it holds keys of with others, whoever made the roaming network.
+        /// </summary>
+        private RoamingNetworkChangeSet SignedAsItsOperator(RoamingNetwork           Network,
+                                                            RoamingNetworkChangeSet  ChangeSet)
+
+            => NetworkOperator.Operates(Network)
+                   ? NetworkOperator.Sign             (Network,   ChangeSet)
+                   : NetworkOperator.SignAsShareholder(ChangeSet, POIKeyKind.Signing, Network);
+
+        /// <summary>
+        /// What was added or waits in the copy of a roaming network followed goes to the other holders' hubs at once,
+        /// not waited for (SHAREHOLDERS.md, phase 7.3). Where this hub made the roaming network, they are told, and ask.
+        /// </summary>
+        private RoamingNetworkPartyAddition ToldToTheOthers(RoamingNetwork_Id            RoamingNetworkId,
+                                                            RoamingNetworkPartyAddition  Addition)
+        {
+
+            if (Addition.Status is RoamingNetworkPartyStatus.Added or RoamingNetworkPartyStatus.Pending)
+            {
+
+                FollowedRoamingNetwork? network;
+
+                lock (poiLock)
+                    followed.TryGetValue(RoamingNetworkId, out network);
+
+                if (network is not null)
+                    _ = Task.Run(async () => {
+                            try
+                            {
+                                await ExchangePending(network);
+                            }
+                            catch (Exception e)
+                            {
+                                Log.Exception(e, $"The roaming network '{RoamingNetworkId}': what was added here could not be told to the other holders' hubs.", "poi", "shareholders");
+                            }
+                        });
+
+            }
+
+            return Addition;
 
         }
 
@@ -1554,11 +1628,11 @@ namespace cloud.charging.open.RoamingHub
 
             try
             {
-                changeSet = NetworkOperator.Sign(
+                changeSet = SignedAsItsOperator(
                                 Network,
                                 Network.CreateChangeSet(
                                     [ RoamingNetworkChange.Add(EntityType, Id, Entity) ],
-                                    Description: new ImmutableI18NString(I18NString.Create(Languages.en, $"The {EntityType} '{Id}' added by its roaming network operator '{NetworkOperator.Id}'."))
+                                    Description: new ImmutableI18NString(I18NString.Create(Languages.en, $"The {EntityType} '{Id}' added by its roaming network operator '{Network.Operator!.Id}'."))
                                 )
                             );
             }

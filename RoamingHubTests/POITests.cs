@@ -986,7 +986,7 @@ namespace cloud.charging.open.RoamingHub.Tests
                 Assert.Multiple(() => {
                     Assert.That(history!.Signers,                                                     Is.Empty);
                     Assert.That(refused.Status,                                                       Is.EqualTo(RoamingNetworkPartyStatus.NotOperatedHere));
-                    Assert.That(refused.Message,                                                      Does.Contain("is operated by 'Somebody', not by this hub"));
+                    Assert.That(refused.Message,                                                      Does.Contain("is operated by 'Somebody', and this hub").And.Contain("holds no key of it"));
                 });
 
             }

@@ -778,7 +778,7 @@ are merged to the same commit everywhere. What waits - the change sets
 waiting for signatures, and the changes of the holders - waits at every one of
 them, exchanged between them, and a change set is committed by the hub where
 it got the last signature. So a holder is admitted or dismissed, a change set
-approved and a signing key renewed while any way between the hubs is open,
+approved, a party added and a signing key renewed while any way between the hubs is open,
 whichever hub is away: also the one that made the roaming network, which the
 others dismiss without it. `GET /api/v1/poi/shareholders/{id}/withdrawals`
 tells the change sets somebody withdrew, and `POST …/changes` takes a change
