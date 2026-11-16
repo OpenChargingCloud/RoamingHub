@@ -1195,6 +1195,56 @@ namespace cloud.charging.open.RoamingHub.Tests
 
         #endregion
 
+        #region AWithdrawalIsKeptOverARestart()
+
+        /// <summary>
+        /// The withdrawal of a change set somebody refused is kept beside the store of its roaming network
+        /// (SHAREHOLDERS.md, phase 7.2): a hub started again tells it still, so that another holder's hub that was
+        /// away meanwhile withdraws the change set as well.
+        /// </summary>
+        [Test]
+        public async Task AWithdrawalIsKeptOverARestart()
+        {
+
+            var id         = RoamingNetwork_Id.Parse("QA");
+            var maker      = await AnotherHub();
+            var directory  = others[^1].Directory;
+
+            Assert.That(maker.CreateRoamingNetwork(id).Success,  Is.True);
+
+            // A party waiting for its proof, refused by the hub.
+            var adding     = maker.AddParty(id,
+                                            nameof(ChargingStationOperator),
+                                            new JObject(new JProperty("@id",           "DE*QAK"),
+                                                        new JProperty("signingKeys",   new JArray(POIPublicKey.From(POITests.NewKey(org.GraphDefined.Vanaheimr.Illias.COSECurve.P256)).ToJSON())),
+                                                        new JProperty("identityKeys",  new JArray(POIPublicKey.From(POITests.NewKey(org.GraphDefined.Vanaheimr.Illias.COSECurve.P521)).ToJSON()))));
+
+            Assert.That(adding.Status,  Is.EqualTo(RoamingNetworkPartyStatus.Pending), adding.Message);
+
+            var refused    = await maker.RefusePendingChangeSet(id, adding.ChangeSet!.Id);
+            var told       = maker.WithdrawalsOf(id).Select(withdrawal => withdrawal.ChangeSetId).ToArray();
+            var file       = Path.Combine(maker.POIDirectory, "QA", RoamingHub.WithdrawalsFileName);
+            var kept       = File.Exists(file);
+
+            await maker.DisposeAsync();
+            others.RemoveAll(other => ReferenceEquals(other.Hub, maker));
+
+            var again      = await AnotherHub(directory);
+            var toldStill  = again.WithdrawalsOf(id).Select(withdrawal => withdrawal.ChangeSetId).ToArray();
+            var notAgain   = HistoryOf(again, "QA").CoSign(adding.ChangeSet);
+
+            Assert.Multiple(() => {
+                Assert.That(refused.Status,   Is.EqualTo(ShareholderChangeStatus.Committed), refused.Message);
+                Assert.That(told,             Is.EqualTo(new[] { adding.ChangeSet.Id }));
+                Assert.That(kept,             Is.True, "the withdrawal is not written beside the store");
+                Assert.That(toldStill,        Is.EqualTo(new[] { adding.ChangeSet.Id }), "after a restart the withdrawal is told no longer");
+                Assert.That(notAgain.Status,  Is.Not.EqualTo(RoamingNetworkCoSigningStatus.Pending).And.Not.EqualTo(RoamingNetworkCoSigningStatus.Committed), "withdrawn, it waits here again");
+            });
+
+        }
+
+        #endregion
+
         #region WhatWaitsIsKeptOverARestart()
 
         /// <summary>

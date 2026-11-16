@@ -574,6 +574,9 @@ namespace cloud.charging.open.RoamingHub
 
             }
 
+            lock (withdrawals)
+                withdrawals.Remove(RoamingNetworkId);
+
             try
             {
                 if (Directory.Exists(network.Directory))
@@ -967,8 +970,10 @@ namespace cloud.charging.open.RoamingHub
 
                     Serve(network, history);
 
-                    // What waited of the holders of the keys of its operator, where this hub is one of them.
+                    // What waited of the holders of the keys of its operator, where this hub is one of them, and the
+                    // change sets somebody withdrew, to pass them on.
                     ReadShareholderChanges(history, Directory);
+                    ReadWithdrawals       (network.Id, Directory);
 
                 }
 

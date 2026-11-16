@@ -320,6 +320,9 @@ namespace cloud.charging.open.RoamingHub
                     // What waited of the holders of the keys of its operator: see RoamingHub.ShareholdersAdvance.cs.
                     ReadShareholderChanges(history, directory);
 
+                    // And the change sets somebody withdrew, to pass them on: see RoamingHub.Pending.cs.
+                    ReadWithdrawals(history.RoamingNetworkId, directory);
+
                     Log.Info($"The roaming network '{history.RoamingNetworkId}' from '{directory}', at revision {history.Head.Commit.Revision}.", "poi");
 
                 }

@@ -744,7 +744,8 @@ Useful alone: what waits survives the hub it was begun at, and every hub shows i
   tested in WWCP POI (`The_same_change_set_committed_at_two_servers_is_one_change`).
 - **Withdrawn everywhere**: the withdrawal of somebody refusing a change set is kept by the hub, told at `GET
   /api/v1/poi/shareholders/{id}/withdrawals`, public, taken by the others when they ask, and sent to a hub where
-  the change set still waits.
+  the change set still waits. Kept beside the store of the roaming network, `withdrawals.json`, the latest hundred,
+  and read at the start: a hub that was away gets them also after this one started again.
 - **The changes of the holders wait at every holder's hub**, beside its store, `shareholderChanges.json`, also
   beside a copy; `GET /api/v1/poi/shareholders/{id}` tells those waiting here. They are exchanged like the change
   sets, after them: taken with `POST …/changes`, from everybody, as the key statement fits the head and each of
@@ -787,7 +788,6 @@ Open after it:
   roaming networks it made: not in one it holds keys of with others.
 - **Two changes of one property of the operator made at once** conflict, as found with 7.1: the tips stay, and no
   hub resolves them.
-- **A withdrawal is kept in memory**: after a restart a hub does not pass it on any more.
 - **A change set made twice**, by two hubs at once from different signatures of its key statement, waits twice:
   the first one committed, the other one fits the head no longer and is dropped.
 - **Not tested**: a withdrawal passed on to a third hub, and two key statements of one change begun at two hubs.

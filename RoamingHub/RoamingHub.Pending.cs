@@ -84,7 +84,13 @@ namespace cloud.charging.open.RoamingHub
 
         }
 
-        // The withdrawals made or taken here, by roaming network: passed on to the other holders' hubs. In memory.
+        /// <summary>
+        /// The withdrawals of change sets this hub knows, beside the store of a roaming network.
+        /// </summary>
+        public const String WithdrawalsFileName = "withdrawals.json";
+
+        // The withdrawals made or taken here, by roaming network: passed on to the other holders' hubs, and kept
+        // beside its store, so that a hub that was away gets them also after this one started again.
         private readonly Dictionary<RoamingNetwork_Id, List<RoamingNetworkChangeSetWithdrawal>>  withdrawals  = [];
 
         #endregion
@@ -94,7 +100,8 @@ namespace cloud.charging.open.RoamingHub
         /// <summary>
         /// The withdrawals of change sets of the given roaming network this hub knows, the latest
         /// <see cref="MaxWithdrawalsKept"/>: made here by somebody refusing a change set, or taken from another
-        /// holder's hub. Each is signed by an owner of a change of its change set, so they are told to everybody.
+        /// holder's hub, and kept over a restart. Each is signed by an owner of a change of its change set, so they
+        /// are told to everybody.
         /// </summary>
         public IReadOnlyList<RoamingNetworkChangeSetWithdrawal> WithdrawalsOf(RoamingNetwork_Id RoamingNetworkId)
         {
@@ -118,7 +125,79 @@ namespace cloud.charging.open.RoamingHub
                 if (kept.Count > MaxWithdrawalsKept)
                     kept.RemoveRange(0, kept.Count - MaxWithdrawalsKept);
 
+                WriteWithdrawals(Withdrawal.RoamingNetworkId, kept);
+
             }
+        }
+
+        #endregion
+
+        #region (private) WriteWithdrawals(RoamingNetworkId, Kept) / ReadWithdrawals(RoamingNetworkId, Directory)
+
+        /// <summary>
+        /// Write the withdrawals of the given roaming network beside its store. Locked by the caller.
+        /// </summary>
+        private void WriteWithdrawals(RoamingNetwork_Id                         RoamingNetworkId,
+                                      List<RoamingNetworkChangeSetWithdrawal>   Kept)
+        {
+
+            try
+            {
+
+                var file = Path.Combine(POIDirectory, RoamingNetworkId.ToString(), WithdrawalsFileName);
+
+                File.WriteAllText(file + ".new", new JArray(Kept.Select(withdrawal => withdrawal.ToJSON())).ToString(Newtonsoft.Json.Formatting.Indented));
+                File.Move        (file + ".new", file, overwrite: true);
+
+            }
+            catch (Exception e)
+            {
+                Log.Exception(e, $"The withdrawals of change sets of the roaming network '{RoamingNetworkId}' could not be kept: after a restart they are passed on no more.", "poi", "shareholders", "store");
+            }
+
+        }
+
+        /// <summary>
+        /// Read the withdrawals of the given roaming network as they were kept in its directory. Each is signed, and
+        /// verified by whoever takes it: by the history of another hub, where the change set waits still.
+        /// </summary>
+        private void ReadWithdrawals(RoamingNetwork_Id  RoamingNetworkId,
+                                     String             Directory)
+        {
+
+            var file = Path.Combine(Directory, WithdrawalsFileName);
+
+            if (!File.Exists(file))
+                return;
+
+            try
+            {
+
+                var read = new List<RoamingNetworkChangeSetWithdrawal>();
+
+                foreach (var withdrawalJSON in (POIJSON.Read(File.ReadAllText(file)) as JArray)?.OfType<JObject>() ?? [])
+                {
+
+                    if (RoamingNetworkChangeSetWithdrawal.TryParse(withdrawalJSON, out var withdrawal, out var error) &&
+                        withdrawal.RoamingNetworkId == RoamingNetworkId)
+                    {
+                        read.Add(withdrawal);
+                    }
+
+                    else
+                        Log.Error($"A withdrawal of a change set of the roaming network '{RoamingNetworkId}' in '{file}' can not be read: {error ?? "it is one of another roaming network"}", "poi", "shareholders");
+
+                }
+
+                lock (withdrawals)
+                    withdrawals[RoamingNetworkId] = [ .. read.TakeLast(MaxWithdrawalsKept) ];
+
+            }
+            catch (Exception e)
+            {
+                Log.Exception(e, $"The withdrawals of change sets kept in '{file}' can not be read.", "poi", "shareholders", "store");
+            }
+
         }
 
         #endregion
