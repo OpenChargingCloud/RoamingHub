@@ -67,6 +67,7 @@ namespace cloud.charging.open.RoamingHub
             // Who holds the keys of the operator of a roaming network, and the changes of that: see RoamingHub.Shareholders.cs.
             AddHandler(HTTPPath.Root + "v1/poi/shareholders/{roamingNetworkId}",                               GetShareholders,         HTTPMethod.GET);
             AddHandler(HTTPPath.Root + "v1/poi/shareholders/{roamingNetworkId}/requests",                      PostShareholderRequest,  HTTPMethod.POST);
+            AddHandler(HTTPPath.Root + "v1/poi/shareholders/{roamingNetworkId}/changes",                       PostChange,              HTTPMethod.POST);
             AddHandler(HTTPPath.Root + "v1/poi/shareholders/{roamingNetworkId}/changes/{holder}/keyStatement", PostKeyStatement,        HTTPMethod.POST);
             AddHandler(HTTPPath.Root + "v1/poi/shareholders/{roamingNetworkId}/join",                          PostJoin,                HTTPMethod.POST);
             AddHandler(HTTPPath.Root + "v1/poi/shareholders/{roamingNetworkId}/admit/{holder}",                request => PostShareholderChange(request, ShareholderChangeKind.Admit),    HTTPMethod.POST);
@@ -74,6 +75,7 @@ namespace cloud.charging.open.RoamingHub
             AddHandler(HTTPPath.Root + "v1/poi/shareholders/{roamingNetworkId}/rekey/{holder}",                request => PostShareholderChange(request, ShareholderChangeKind.AddKey),   HTTPMethod.POST);
             AddHandler(HTTPPath.Root + "v1/poi/shareholders/{roamingNetworkId}/restate",                       request => PostShareholderChange(request, ShareholderChangeKind.Restate),  HTTPMethod.POST);
             AddHandler(HTTPPath.Root + "v1/poi/shareholders/{roamingNetworkId}/pending",                       GetPending,              HTTPMethod.GET);
+            AddHandler(HTTPPath.Root + "v1/poi/shareholders/{roamingNetworkId}/withdrawals",                   GetWithdrawals,          HTTPMethod.GET);
             AddHandler(HTTPPath.Root + "v1/poi/shareholders/{roamingNetworkId}/pending/{changeSetId}/approve", request => PostPendingDecision(request, true),   HTTPMethod.POST);
             AddHandler(HTTPPath.Root + "v1/poi/shareholders/{roamingNetworkId}/pending/{changeSetId}/refuse",  request => PostPendingDecision(request, false),  HTTPMethod.POST);
             AddHandler(HTTPPath.Root + "v1/poi/RNs/{roamingNetworkId}/{parties}",           PostParty,                  HTTPMethod.POST);
@@ -481,6 +483,25 @@ namespace cloud.charging.open.RoamingHub
         }
 
         /// <summary>
+        /// POST /api/v1/poi/shareholders/{roamingNetworkId}/changes: a change of the holders as another holder's hub
+        /// has it waiting, as GET …/shareholders/{roamingNetworkId} tells it there - from everybody, as its key
+        /// statement and every signature of it are verified.
+        /// </summary>
+        private Task<HTTPResponse> PostChange(HTTPRequest Request)
+        {
+
+            if (Request.ParsedURLParameters.Length < 1 || !RoamingNetwork_Id.TryParse(Request.ParsedURLParameters[0], out var roamingNetworkId))
+                return Task.FromResult(ErrorJSON(Request, HTTPStatusCode.NotFound, "This hub serves no such roaming network."));
+
+            // As the text it is: a timestamp is signed as it is written.
+            if (RoamingHub.ReadJSON(Request.HTTPBody is { Length: > 0 } body ? System.Text.Encoding.UTF8.GetString(body) : "") is not JObject json)
+                return Task.FromResult(ErrorJSON(Request, HTTPStatusCode.BadRequest, "The request must be a JSON object."));
+
+            return Task.FromResult(ShareholderResponse(Request, RoamingHub.TakeShareholderChange(roamingNetworkId, json), true));
+
+        }
+
+        /// <summary>
         /// POST /api/v1/poi/shareholders/{roamingNetworkId}/changes/{holder}/keyStatement: the key statement of a
         /// change waiting, with the signature of another holder - from everybody, as each signature is verified.
         /// </summary>
@@ -594,6 +615,21 @@ namespace cloud.charging.open.RoamingHub
                await RoamingHub.PendingChangeSetsOf(roamingNetworkId) is JArray pending
                    ? JSONResponse(Request, HTTPStatusCode.OK, new JObject(new JProperty("pendingChangeSets", pending)))
                    : ErrorJSON   (Request, HTTPStatusCode.NotFound, "This hub serves no such roaming network, or where it is followed could not be asked.");
+
+        /// <summary>
+        /// GET /api/v1/poi/shareholders/{roamingNetworkId}/withdrawals: the withdrawals of change sets of the roaming
+        /// network this hub knows, {"withdrawals": [ … ]}, for the other holders' hubs to withdraw them as well. Public:
+        /// each is signed by an owner of a change of its change set.
+        /// </summary>
+        private Task<HTTPResponse> GetWithdrawals(HTTPRequest Request)
+
+            => Task.FromResult(
+                   Request.ParsedURLParameters.Length >= 1 &&
+                   RoamingNetwork_Id.TryParse(Request.ParsedURLParameters[0], out var roamingNetworkId) &&
+                   RoamingHub.POI.TryGetRoamingNetworkHistory(roamingNetworkId, out _)
+                       ? JSONResponse(Request, HTTPStatusCode.OK, new JObject(new JProperty("withdrawals", new JArray(RoamingHub.WithdrawalsOf(roamingNetworkId).Select(withdrawal => withdrawal.ToJSON())))))
+                       : ErrorJSON   (Request, HTTPStatusCode.NotFound, "This hub serves no such roaming network.")
+               );
 
         /// <summary>
         /// POST /api/v1/poi/shareholders/{roamingNetworkId}/pending/{changeSetId}/approve or …/refuse: sign a change set

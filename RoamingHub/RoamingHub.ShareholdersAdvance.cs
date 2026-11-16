@@ -623,21 +623,59 @@ namespace cloud.charging.open.RoamingHub
 
                         var holds = NetworkOperator.SigningKeyIdIn(copy.Head.RoamingNetwork) is not null;
 
+                        // The change sets waiting, exchanged with the other holders' hubs (phase 7.2).
+                        if (holds)
+                        {
+                            try
+                            {
+                                done.AddRange(await ExchangePending(network));
+                            }
+                            catch (Exception e)
+                            {
+                                Log.Exception(e, $"The roaming network '{network.Id}': the change sets waiting could not be exchanged.", "poi", "shareholders");
+                            }
+                        }
+
                         IReadOnlyList<ShareholderChange> changes;
 
                         var reached = true;
 
                         here = [];
 
-                        try
+                        // A holder's hub: what waits here, after it asked the others what waits there (phase 7.2).
+                        if (holds)
                         {
-                            changes = await GetChanges(network);
+
+                            try
+                            {
+                                await ExchangeShareholderChanges(network);
+                            }
+                            catch (Exception e)
+                            {
+                                Log.Exception(e, $"The roaming network '{network.Id}': the changes of the holders waiting could not be exchanged.", "poi", "shareholders");
+                            }
+
+                            lock (poiLock)
+                            {
+                                ForgetWhatIsDone(copy);
+                                changes = [ .. shareholderChanges.Where(change => change.Key.RoamingNetworkId == network.Id).Select(change => change.Value) ];
+                            }
+
                         }
-                        catch
+
+                        // A hub that only follows: what waits where it follows.
+                        else
                         {
-                            // No hub, or not reached right now: asked again next time.
-                            changes  = [];
-                            reached  = false;
+                            try
+                            {
+                                changes = await GetChanges(network);
+                            }
+                            catch
+                            {
+                                // No hub, or not reached right now: asked again next time.
+                                changes  = [];
+                                reached  = false;
+                            }
                         }
 
                         // Asking to hold its keys, where the configuration says so: once.

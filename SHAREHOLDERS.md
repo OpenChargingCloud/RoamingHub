@@ -14,7 +14,7 @@ sections 4.1 and 8.6; example A1 there plays it with three organizations in one 
 | 4 | A hub is admitted as a shareholder, is dismissed, resigns | built |
 | 5 | Operating under a quorum: what waits for the others | built |
 | 6 | The hubs tell each other what waits, and a configuration says what a hub takes part in | built |
-| 7 | Every holder's hub makes changes: none of them is the one the others need | 7.1 built, 7.2 and 7.3 designed |
+| 7 | Every holder's hub makes changes: none of them is the one the others need | built, but for what 7.3 leaves open |
 
 
 ## What is there, and what is missing
@@ -571,7 +571,7 @@ its turn.
 
 ## Phase 7: every holder's hub makes changes
 
-Designed; 7.1 is built, see *Built (7.1)* below. Until here one hub writes the history of a roaming network, the one where it was made, and
+Built, see *Built (7.1)* and *Built (7.2 and 7.3)* below, each with what it leaves open. Until here one hub writes the history of a roaming network, the one where it was made, and
 every other hub, also one holding keys of its operator, has a copy nobody changes from there. That is a question
 of who is reached, not of whom to trust: under a quorum that hub decides nothing alone. But while it is away
 nothing is decided at all, although as many holders as decide may be there.
@@ -729,11 +729,68 @@ Useful alone: what waits survives the hub it was begun at, and every hub shows i
 - **Two key statements on two tips all the same**, e.g. made before a hub knew of this rule: the tips conflict
   and stay, as every conflict of the operator does. Which of them goes on is said by the holders, not by a hub.
 
+**Built (7.2 and 7.3)** (`ExchangePending` in `RoamingHub.Pending.cs`; `TakeChange`,
+`ExchangeShareholderChanges` and `GoOnHere` in `RoamingHub.Shareholders.cs`):
+
+- **The change sets waiting are those of the history here**, at every holder's hub: a hub following that holds a
+  key of the operator takes change sets into its copy (`AuthorizeChangeSetSubmission`), shows its own with
+  `pending`, and approves and refuses there. A hub that only follows reads them where it follows, as before.
+- **Exchanged, each with each it is connected with**, when a hub looks, when it is told - every history tells of
+  its change sets waiting - and after somebody decided something at it: a change set waiting there is taken here
+  as if it was submitted here, with the signatures it has there; one waiting here is sent there where it lacks it,
+  or signatures of it. The hub where the roaming network was made asks nobody: the others ask it, and send.
+- **Committed where it got the last signature**, by that hub, signed with its signing key, and sent on from
+  there. Two hubs getting there at once, at the same head, make the same commit: what was to be checked is
+  tested in WWCP POI (`The_same_change_set_committed_at_two_servers_is_one_change`).
+- **Withdrawn everywhere**: the withdrawal of somebody refusing a change set is kept by the hub, told at `GET
+  /api/v1/poi/shareholders/{id}/withdrawals`, public, taken by the others when they ask, and sent to a hub where
+  the change set still waits.
+- **The changes of the holders wait at every holder's hub**, beside its store, `shareholderChanges.json`, also
+  beside a copy; `GET /api/v1/poi/shareholders/{id}` tells those waiting here. They are exchanged like the change
+  sets, after them: taken with `POST …/changes`, from everybody, as the key statement fits the head and each of
+  its signatures is verified.
+- **One code for every holder's hub**: a dismissal, the keys stated anew and a new identity key begin wherever
+  somebody says so; the key statement is signed in what waits here; and the change set of a key statement that
+  is signed by all who must is made by a hub that signed it. Told by somebody, a hub following signs first and
+  tells the others, so that one of them makes the change set, as before; where none did - they are away - it
+  makes it itself. A change set made elsewhere is taken with its change, and signed here by itself where this
+  hub signed its key statement.
+- **Two key statements of one change** begun at two hubs: what a holder asks for itself, it asks again, and the
+  later one stays; what the others begin - dismissing, stating the keys anew - the earlier one, at every hub alike.
+- **One key statement after another** (decision 2): a hub signs no second key statement following the same one
+  while one it signed waits, and begins none; it says which one waits.
+- **Half or fewer deciding does not arise**: a change of the holders is taken only where more than half of the
+  holders afterwards decide, so no rule for it was needed.
+- **The one leaving commits its own dismissal** where it signs last, but does not sign that commit: the version
+  it leads to names its signing key no longer.
+- **Dismissing the hub that made the roaming network** is begun, signed and committed by the others without it:
+  played with three hubs, the first one stopped. Back again, it takes the commit dismissing it.
+- **A server that did not answer is not asked again for half a minute**, while this hub is not connected with it.
+
+Changed by it: a command at a hub following commits there, where it got the last signature, and the hub where
+the roaming network was made has it a moment later. And stating the keys anew by two holders takes two commands,
+not four.
+
+Open after it:
+
+- **The hub that made a roaming network, dismissed, keeps a copy nobody feeds**: it holds no key, so it takes no
+  commits of the others, and it follows nobody. It is not turned into a hub following. It does not resign by
+  itself either, as before.
+- **Change sets of the operator begin where the roaming network was made**: a party added, the name of the
+  operator. A hub following takes one somebody submits to its POI API, but its own commands and pages do not make
+  them for a copy. The runtime status is not taken for a copy either.
+- **Two changes of one property of the operator made at once** conflict, as found with 7.1: the tips stay, and no
+  hub resolves them.
+- **A withdrawal is kept in memory**: after a restart a hub does not pass it on any more.
+- **A change set made twice**, by two hubs at once from different signatures of its key statement, waits twice:
+  the first one committed, the other one fits the head no longer and is dropped.
+- **Not tested**: a withdrawal passed on to a third hub, and two key statements of one change begun at two hubs.
+
 ### In WWCP POI
 
-Nothing of its specification changes. To check when it is built: several peers on one history, each to another
-server; and the change sets waiting taken over the WebSocket, where today the topic `pendingChangeSets` carries
-each as a notice a hub following reads again over HTTP.
+Nothing of its specification changes. Checked by building it: several peers on one history, each to another
+server, as the hub runs them; and the change sets waiting are exchanged over HTTP, `GET` and `POST
+~/RNs/{id}/history/changeSets/pending`, told of by the topic `pendingChangeSets`.
 
 ### In which order
 
@@ -743,8 +800,8 @@ each as a notice a hub following reads again over HTTP.
 | 7.2 | What waits kept by every holder's hub, and exchanged | RoamingHub, WWCP POI |
 | 7.3 | Change sets and changes of the holders begun and completed anywhere; one key statement after another | RoamingHub |
 
-7.2 comes before 7.3: a hub completes only what it has. After 7.1 and 7.2 the hub where a roaming network was
-made is still the only one making a commit of signatures, but no longer the only one knowing them.
+7.2 comes before 7.3: a hub completes only what it has. Built, the two came together: a history that takes a
+change set commits it once it has its signatures, wherever that is.
 
 Not designed here:
 

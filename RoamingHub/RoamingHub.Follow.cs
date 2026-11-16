@@ -192,6 +192,11 @@ namespace cloud.charging.open.RoamingHub
         internal Boolean                             Pushes    { get; set; }
 
         /// <summary>
+        /// One at a time keeps its peers: when this hub looks, and before it does something there as a holder.
+        /// </summary>
+        internal SemaphoreSlim                       KeepingPeers  { get; } = new (1, 1);
+
+        /// <summary>
         /// The peers to the copies of the other holders of the keys of its operator, by their URLs, ~/RNs/{RN_Id}:
         /// none while this hub holds no key of it.
         /// </summary>
@@ -559,6 +564,16 @@ namespace cloud.charging.open.RoamingHub
             lock (waitingHere)
                 waitingHere.Remove(RoamingNetworkId);
 
+            lock (poiLock)
+            {
+
+                foreach (var key in shareholderChanges.Keys.Where(key => key.RoamingNetworkId == RoamingNetworkId).ToArray())
+                    shareholderChanges.Remove(key);
+
+                shareholderChangesKept.Remove(RoamingNetworkId);
+
+            }
+
             try
             {
                 if (Directory.Exists(network.Directory))
@@ -828,7 +843,9 @@ namespace cloud.charging.open.RoamingHub
                         continue;
                     }
 
-                    if (Peer.IsConnected)
+                    // Said of the server it is followed at: the copy of another one may be told of before its hub
+                    // holds a key, and takes no attestation until then.
+                    if (Peer.IsConnected && Peer == Network.Peer)
                         Log.Warning($"The attestation of the head of the roaming network '{Network.Id}' was not taken at '{URL}': {e.Message}", "poi", "follow", "security");
 
                     return;
@@ -946,7 +963,14 @@ namespace cloud.charging.open.RoamingHub
                     followed.Add(network.Id, network);
 
                 if (history is not null)
+                {
+
                     Serve(network, history);
+
+                    // What waited of the holders of the keys of its operator, where this hub is one of them.
+                    ReadShareholderChanges(history, Directory);
+
+                }
 
                 Log.Info(history is not null
                              ? $"The roaming network '{network.Id}' from '{Directory}', at revision {history.Head.Commit.Revision}, followed at '{url}'."
@@ -1040,6 +1064,15 @@ namespace cloud.charging.open.RoamingHub
         #region (private) WriteFollowed(Network)
 
         private static void WriteFollowed(FollowedRoamingNetwork Network)
+        {
+
+            // One at a time: written when its trust anchor was followed, and when this hub was told of a copy.
+            lock (Network)
+                WriteFollowedLocked(Network);
+
+        }
+
+        private static void WriteFollowedLocked(FollowedRoamingNetwork Network)
         {
 
             Directory.CreateDirectory(Network.Directory);
@@ -1257,6 +1290,22 @@ namespace cloud.charging.open.RoamingHub
         /// is done where nothing changed.
         /// </summary>
         private async Task KeepPeersOf(FollowedRoamingNetwork Network)
+        {
+
+            await Network.KeepingPeers.WaitAsync();
+
+            try
+            {
+                await KeepPeersOfOneAtATime(Network);
+            }
+            finally
+            {
+                Network.KeepingPeers.Release();
+            }
+
+        }
+
+        private async Task KeepPeersOfOneAtATime(FollowedRoamingNetwork Network)
         {
 
             if (Network.Copy is not RoamingNetworkHistory history)
@@ -1543,6 +1592,9 @@ namespace cloud.charging.open.RoamingHub
 
             // And a commit of a change set this hub signed is signed by it, soon: only queued here.
             History.OnCommitAnnouncement += announcement => AdvanceShareholdersSoon(Network.Id);
+
+            // And a change set waiting here anew, otherwise or no longer (SHAREHOLDERS.md, phase 7.2).
+            History.OnPendingChangeSet   += result       => AdvanceShareholdersSoon(Network.Id);
 
             if (!POI.ReplaceRoamingNetworkHistory(History))
                 throw new InvalidOperationException($"The roaming network '{Network.Id}' could not be served.");

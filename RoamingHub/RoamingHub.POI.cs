@@ -203,8 +203,9 @@ namespace cloud.charging.open.RoamingHub
                                 // Everybody may submit: what a change set changes is the business of
                                 // the signatures of its owners, which every commit checks. But not for a
                                 // roaming network followed at another server: it would be a commit of the
-                                // copy here alone - see RoamingHub.Follow.cs.
-                                AuthorizeChangeSetSubmission  = (request, changeSet) => !IsFollowed(changeSet.RoamingNetworkId),
+                                // copy here alone - see RoamingHub.Follow.cs - unless this hub is one of
+                                // several making it, whose commits go to the others (SHAREHOLDERS.md, phase 7).
+                                AuthorizeChangeSetSubmission  = (request, changeSet) => !IsFollowed(changeSet.RoamingNetworkId) || IsMadeBySeveral(changeSet.RoamingNetworkId),
 
                                 // Everybody may send a signature of a commit in the role of the roaming network
                                 // operator: it is one only by a signing key the version of the commit certifies,
@@ -368,6 +369,12 @@ namespace cloud.charging.open.RoamingHub
             // Called while the history is locked, which the same thread may enter again: the look is only queued.
             History.OnCommitAnnouncement += announcement => {
                 if (Several())
+                    AdvanceShareholdersSoon(roamingNetworkId);
+            };
+
+            // And a change set waiting anew, otherwise or no longer, as another holder's hub sent it (phase 7.2).
+            History.OnPendingChangeSet += result => {
+                if (History.AttestOnlySignedHeads)
                     AdvanceShareholdersSoon(roamingNetworkId);
             };
 

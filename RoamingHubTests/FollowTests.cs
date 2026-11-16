@@ -642,6 +642,10 @@ namespace cloud.charging.open.RoamingHub.Tests
             var dismissed  = await RoamingHub.DismissShareholder(id, beta);
             var twoStill   = HoldersOf(RoamingHub, "QA");
             var resigned   = await follower.  DismissShareholder(id, beta);
+
+            // Committed at the hub leaving, where it got the last signature: sent on from there.
+            await Until(() => HoldersOf(RoamingHub, "QA").Length == 1);
+
             var alone      = HoldersOf(RoamingHub, "QA");
 
             // The key statement of the one staying is signed by the one leaving as well: who follows, follows on.
@@ -777,7 +781,10 @@ namespace cloud.charging.open.RoamingHub.Tests
             #region And dismissed by both, without it
 
             var outByAlpha   = await RoamingHub.DismissShareholder(id, gamma);
-            var outByBeta    = await second.    DismissShareholder(id, gamma);  // its change set is made there, and signed here: committed
+            var outByBeta    = await second.    DismissShareholder(id, gamma);  // its change set is made there, and signed here: committed here
+
+            await Until(() => HoldersOf(RoamingHub, "QA").Length == 2);
+
             var two          = HoldersOf(RoamingHub, "QA");
 
             #endregion
@@ -1279,19 +1286,26 @@ namespace cloud.charging.open.RoamingHub.Tests
             var addingId     = qa.PendingChangeSets.Single().Id;
 
             var waitsAtFirst = await RoamingHub.PendingChangeSetsOf(id);
-            var waitsAtOther = await second.    PendingChangeSetsOf(id);
+            var notYetThere  = await second.    PendingChangeSetsOf(id);
             var notYet       = Names("DE*QAK");
 
-            // For somebody at the second holder, not where it was made and signed: said when each looks.
+            // For somebody at the second holder, not where it was made and signed: said when each looks. The second
+            // one takes it into its own copy then, where it waits as well (phase 7.2).
             await RoamingHub.AdvanceShareholders();
             await second.    AdvanceShareholders();
+
+            var waitsAtOther = await second.    PendingChangeSetsOf(id);
+            var keptAtOther  = HistoryOf(second, "QA").PendingChangeSets.Select(changeSet => changeSet.Id).ToArray();
 
             var forTheFirst  = RoamingHub.WaitingHereOf(id);
             var forTheOther  = second.    WaitingHereOf(id);
 
+            // Committed at its own hub, where it got the last signature, and sent on from there.
             var approved     = await second.ApprovePendingChangeSet(id, addingId);
             var forNobody    = second.    WaitingHereOf(id);
-            var there        = Names("DE*QAK");
+            var madeAtOther  = HistoryOf(second, "QA").Head.Commit;
+            var there        = await Until(() => Names("DE*QAK"));
+            var sameCommit   = qa.Head.Commit.Id == madeAtOther.Id;
             var approvedTwice= await second.ApprovePendingChangeSet(id, addingId);
 
             await CaughtUp("QA", second);
@@ -1314,7 +1328,16 @@ namespace cloud.charging.open.RoamingHub.Tests
             await Task.Delay(50);
 
             var restated1    = await RoamingHub.RestateOperatorKeys(id);    // begins, and signs the key statement
-            var restated2    = await second.    RestateOperatorKeys(id);    // signs it as well: its change set is made there, and signed here
+
+            // One key statement after another: while that one waits, this hub signs no other one following the same.
+            var notBoth      = await RoamingHub.DismissShareholder(id, beta);
+            var waitingOnly  = RoamingHub.ShareholdersOf(id)?["changes"]?.Select(change => change["kind"]!.Value<String>()).ToArray();
+
+            var restated2    = await second.    RestateOperatorKeys(id);    // signs it as well: its change set is made there, and signed and committed here
+
+            // Committed at the hub of the second holder, where it got the last signature: sent on from there.
+            await Until(() => qa.Head.RoamingNetwork.Operator!.KeyStatement!.SignedAt > statedBefore.SignedAt);
+
             var statedAfter  = qa.Head.RoamingNetwork.Operator!.KeyStatement!;
 
             await CaughtUp("QA", second);
@@ -1334,7 +1357,9 @@ namespace cloud.charging.open.RoamingHub.Tests
 
                 Assert.That(added.Success,                                         Is.False, "it waits for the second holder");
                 Assert.That(waitsAtFirst?.Count,                                   Is.EqualTo(1));
-                Assert.That(waitsAtOther?[0]?["changeSet"]?["@id"]?.Value<String>(),  Is.EqualTo(addingId.ToString()), "told at the hub following as well");
+                Assert.That(notYetThere?.Count,                                    Is.EqualTo(0),                   "the second holder's hub has not looked yet");
+                Assert.That(waitsAtOther?.FirstOrDefault()?["changeSet"]?["@id"]?.Value<String>(),  Is.EqualTo(addingId.ToString()), "told at the hub following as well");
+                Assert.That(keptAtOther,                                           Is.EqualTo(new[] { addingId }), "it waits in the copy of the second holder as well");
                 Assert.That(notYet,                                                Is.False, "one of two adds no party");
 
                 Assert.That(forTheFirst,                                           Is.Empty, "the hub that made and signed it has nothing to decide");
@@ -1343,7 +1368,9 @@ namespace cloud.charging.open.RoamingHub.Tests
                 Assert.That(forNobody,                                             Is.Empty, "approved, it waits for nobody here");
 
                 Assert.That(approved.Status,                                       Is.EqualTo(ShareholderChangeStatus.Committed), approved.Message);
-                Assert.That(there,                                                 Is.True);
+                Assert.That(there,                                                 Is.True,  "what the second holder's hub committed did not get to where the roaming network was made");
+                Assert.That(sameCommit,                                            Is.True);
+                Assert.That(madeAtOther.Signatures.Select(signature => signature.KeyId),  Is.EqualTo(new[] { second.NetworkOperator.SigningKeyIdIn(HistoryOf(second, "QA").Head.RoamingNetwork) }), "committed and signed by the hub where it got the last signature");
                 Assert.That(approvedTwice.Status,                                  Is.EqualTo(ShareholderChangeStatus.NotFound),  approvedTwice.Message);
 
                 Assert.That(another.Success,                                       Is.False);
@@ -1353,6 +1380,9 @@ namespace cloud.charging.open.RoamingHub.Tests
                 Assert.That(notThere,                                              Is.False);
 
                 Assert.That(restated1.Status,                                      Is.EqualTo(ShareholderChangeStatus.Waiting),   restated1.Message);
+                Assert.That(notBoth.Status,                                        Is.EqualTo(ShareholderChangeStatus.Refused),   notBoth.Message);
+                Assert.That(notBoth.Message,                                       Does.Contain("one after the other"));
+                Assert.That(waitingOnly,                                           Is.EqualTo(new[] { "restate" }),               "a dismissal not signed does not wait");
                 Assert.That(restated2.Status,                                      Is.EqualTo(ShareholderChangeStatus.Committed), restated2.Message);
                 Assert.That(statedAfter.SignedAt,                                  Is.GreaterThan(statedBefore.SignedAt));
                 Assert.That(statedAfter.Signatures,                                Has.Length.EqualTo(2));
@@ -1500,6 +1530,7 @@ namespace cloud.charging.open.RoamingHub.Tests
                 Assert.That(following.Status,  Is.EqualTo(RoamingNetworkFollowingStatus.Synchronized), following.Message);
             }
 
+            var alpha      = first. NetworkOperator.Holder!;
             var beta       = second.NetworkOperator.Holder!;
             var gamma      = third. NetworkOperator.Holder!;
 
@@ -1592,6 +1623,20 @@ namespace cloud.charging.open.RoamingHub.Tests
 
             #endregion
 
+            #region The two that are there dismiss the one that is away: begun, signed and committed without it
+
+            var outByBeta     = await second.DismissShareholder(id, alpha);     // begins here, and signs the key statement of the two staying
+            var waitsAtThird  = await Until(() => { third.AdvanceShareholders().Wait(); return third.WaitingHereOf(id).Count == 1; });
+            var saidAtThird   = third.WaitingHereOf(id).FirstOrDefault();
+            var outByGamma    = await third. DismissShareholder(id, alpha);     // signs it as well, and makes its change set: nobody else did
+            var lookedSecond  = await second.AdvanceShareholders();             // signs the change set of the key statement it signed: committed
+
+            var twoAtSecond   = await Until(() => HoldersOf(second, "QA").Length == 2);
+            var twoAtThird    = await Until(() => HoldersOf(third,  "QA").Length == 2);
+            var sameAgain     = await Until(() => HistoryOf(second, "QA").Head.Commit.Id == HistoryOf(third, "QA").Head.Commit.Id);
+
+            #endregion
+
             TestRoamingHubs.Remove(directory);
 
             Assert.Multiple(() => {
@@ -1613,6 +1658,15 @@ namespace cloud.charging.open.RoamingHub.Tests
                 Assert.That(byGamma.Status,        Is.EqualTo(RoamingNetworkCommitSigningStatus.Signed), byGamma.Message);
                 Assert.That(byGamma.Message,       Does.Contain(URLOf(second, "QA").ToString()),          "the signature was not taken at the other holder's hub");
                 Assert.That(bothAtSecond,          Is.True,                                               "the signature of the third one did not get to the second one");
+
+                Assert.That(outByBeta.Status,      Is.EqualTo(ShareholderChangeStatus.Waiting),            outByBeta.Message);
+                Assert.That(waitsAtThird,          Is.True,                                                "the dismissal begun at the second one does not wait at the third one");
+                Assert.That(saidAtThird,           Does.Contain($"'roamingNetworks QA dismiss {alpha}'"));
+                Assert.That(outByGamma.Success,    Is.True,                                                outByGamma.Message);
+                Assert.That(twoAtSecond,           Is.True,                                                $"the two did not dismiss the one away: {outByBeta.Message} | {outByGamma.Message} | {String.Join(" ", lookedSecond)}");
+                Assert.That(twoAtThird,            Is.True);
+                Assert.That(sameAgain,             Is.True);
+                Assert.That(HoldersOf(second, "QA"),  Is.EquivalentTo(new[] { beta, gamma }));
 
                 Assert.That(byGammaToo.Success,    Is.True, byGammaToo.Message);
                 Assert.That(atSecond,              Is.True,                                               "what the third one committed did not get to the second one");
@@ -1687,7 +1741,9 @@ namespace cloud.charging.open.RoamingHub.Tests
 
                     var agreed = await Agreeing.RekeyShareholder(id, Holder);
 
-                    Assert.That(agreed.Success,  Is.True, agreed.Message);
+                    said.Add("agreed: " + agreed.Message);
+
+                    Assert.That(agreed.Success,  Is.True, String.Join(" | ", said));
 
                     await CaughtUp("QA", second);
 
@@ -1712,6 +1768,9 @@ namespace cloud.charging.open.RoamingHub.Tests
 
             Assert.That((await second.RekeyShareholder(id, alpha)).Success,  Is.True);
 
+            // Committed where it got the last signature, at the hub of the other holder: sent on from there.
+            await CaughtUp("QA", second);
+
             var byAlpha      = await Replaced(RoamingHub, second, alpha);
             var alpha2       = RoamingHub.NetworkOperator.IdentityKey.Id;
             var namedAlpha   = IdentityKeysOf(alpha);
@@ -1731,10 +1790,13 @@ namespace cloud.charging.open.RoamingHub.Tests
 
             await Task.Delay(50);
 
-            var restated1    = await RoamingHub.RestateOperatorKeys(id);
-            var restated2    = await second.    RestateOperatorKeys(id);
-            var restated3    = await RoamingHub.RestateOperatorKeys(id);
-            var restated4    = await second.    RestateOperatorKeys(id);
+            var statedBefore = qa.Head.RoamingNetwork.Operator!.KeyStatement!.SignedAt;
+            var restated1    = await RoamingHub.RestateOperatorKeys(id);    // begins, and signs the key statement
+            var restated2    = await second.    RestateOperatorKeys(id);    // signs it as well: its change set is made there, and signed and committed here
+
+            // Committed at the hub of the second holder, where it got the last signature: sent on from there.
+            await Until(() => qa.Head.RoamingNetwork.Operator!.KeyStatement!.SignedAt > statedBefore);
+
             var stated       = qa.Head.RoamingNetwork.Operator!.KeyStatement!;
 
             await CaughtUp("QA", second);
@@ -1768,7 +1830,7 @@ namespace cloud.charging.open.RoamingHub.Tests
                 Assert.That(second.NetworkOperator.NextIdentityKey,         Is.Null);
                 Assert.That(second.NetworkOperator.KeptKeyIds,              Is.Empty, String.Join(" | ", byBeta));
 
-                Assert.That(restated4.Status,                               Is.EqualTo(ShareholderChangeStatus.Committed), $"{restated1.Message} | {restated2.Message} | {restated3.Message} | {restated4.Message}");
+                Assert.That(restated2.Status,                               Is.EqualTo(ShareholderChangeStatus.Committed), $"{restated1.Message} | {restated2.Message}");
                 Assert.That(stated.Signatures.Select(signature => signature.KeyId),  Is.EquivalentTo(new[] { alpha2, beta1 }));
 
                 Assert.That(second.FollowedRoamingNetworks.Single().Error,  Is.Null);

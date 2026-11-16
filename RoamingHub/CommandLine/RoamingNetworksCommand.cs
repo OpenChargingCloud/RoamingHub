@@ -226,7 +226,7 @@ namespace cloud.charging.open.RoamingHub.CommandLine
                 lines.Add($"  waiting: {change["kind"]} '{change["holder"]}', its key statement signed by {change["keyStatement"]?["signatures"]?.Count() ?? 0}" +
                           (change["changeSet"] is JToken changeSet ? $", change set {changeSet}" : ", no change set yet"));
 
-            if (cli.Hub.IsFollowed(RoamingNetworkId))
+            if (cli.Hub.IsFollowed(RoamingNetworkId) && !cli.Hub.IsMadeBySeveral(RoamingNetworkId))
                 lines.Add("  what waits is told where it is followed.");
 
             return [ .. lines ];

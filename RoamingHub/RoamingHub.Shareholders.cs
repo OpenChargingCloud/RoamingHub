@@ -303,11 +303,12 @@ namespace cloud.charging.open.RoamingHub
     /// </summary>
     /// <remarks>
     /// <para>
-    /// A change waits at the hub where the roaming network is made, below its JSON API, read and written by
-    /// everybody: everything in it is signed. It is the key statement of the holders afterwards first, which each of
-    /// them signs at its own hub until the quorum before and its own have; then the hub where it waits makes the one
-    /// change set of it, which waits for the signatures of the holders before, and of the new identity key, as every
-    /// change set of the operator does.
+    /// A change waits at every holder's hub (SHAREHOLDERS.md, phases 7.2 and 7.3), below its JSON API, read and
+    /// written by everybody: everything in it is signed. The hubs exchange what waits, each with each it is connected
+    /// with. It is the key statement of the holders afterwards first, which each of them signs at its own hub until
+    /// the quorum before and its own have; then a hub that signed it makes the one change set of it, which waits for
+    /// the signatures of the holders before, and of the new identity key, as every change set of the operator does,
+    /// and is committed by the hub where it got the last one.
     /// </para>
     /// <para>
     /// What is decided is decided by somebody with poi:edit, once per change at each hub: "join" asks, "admit" and
@@ -337,14 +338,15 @@ namespace cloud.charging.open.RoamingHub
         #region ShareholdersOf(RoamingNetworkId)
 
         /// <summary>
-        /// Who holds the keys of the operator of the given roaming network made here, how many of them decide, and the
-        /// changes of that waiting: {"roamingNetworkOperator", "minConsensus", "holders": [ {"holder", "identityKeys",
-        /// "signingKeys"} ], "changes": [ … ]}; null where this hub makes no such roaming network.
+        /// Who holds the keys of the operator of the given roaming network, how many of them decide, and the changes
+        /// of that waiting here: {"roamingNetworkOperator", "minConsensus", "holders": [ {"holder", "identityKeys",
+        /// "signingKeys"} ], "changes": [ … ]}. Where this hub made it, or follows it and holds a key of its operator
+        /// (SHAREHOLDERS.md, phase 7.2); null otherwise.
         /// </summary>
         public JObject? ShareholdersOf(RoamingNetwork_Id RoamingNetworkId)
         {
 
-            if (IsFollowed(RoamingNetworkId) ||
+            if ((IsFollowed(RoamingNetworkId) && !IsMadeBySeveral(RoamingNetworkId)) ||
                 !POI.TryGetRoamingNetworkHistory(RoamingNetworkId, out var history) ||
                 history.Head.RoamingNetwork.Operator is not RoamingNetworkOperator networkOperator)
             {
@@ -387,9 +389,9 @@ namespace cloud.charging.open.RoamingHub
         /// <summary>
         /// Who holds the keys of the operator of the given roaming network this hub makes or follows, as a page shows
         /// it: what <see cref="ShareholdersOf"/> says, with "followed", whether it is a copy here, and "thisHub", the
-        /// holder this hub is there, if it is one. For a roaming network followed the holders are those of the copy,
-        /// and the changes waiting are asked where it is followed: there are no "changes" where that did not answer.
-        /// Null where this hub serves no such roaming network.
+        /// holder this hub is there, if it is one. For a roaming network this hub only follows the holders are those
+        /// of the copy, and the changes waiting are asked where it is followed: there are no "changes" where that did
+        /// not answer. A holder's hub says those waiting here. Null where this hub serves no such roaming network.
         /// </summary>
         public async Task<JObject?> ShareholdersSeenOf(RoamingNetwork_Id RoamingNetworkId)
         {
@@ -401,14 +403,15 @@ namespace cloud.charging.open.RoamingHub
             }
 
             var isFollowed  = IsFollowed(RoamingNetworkId);
-            var json        = isFollowed
+            var asksThere   = isFollowed && !IsMadeBySeveral(RoamingNetworkId);
+            var json        = asksThere
                                   ? HoldersOf(networkOperator)
                                   : ShareholdersOf(RoamingNetworkId);
 
             if (json is null)
                 return null;
 
-            if (isFollowed && TryGetFollowed(RoamingNetworkId, out var network, out _, out _))
+            if (asksThere && TryGetFollowed(RoamingNetworkId, out var network, out _, out _))
             {
                 try
                 {
@@ -455,7 +458,7 @@ namespace cloud.charging.open.RoamingHub
                                                               JObject            JSON)
         {
 
-            if (!TryGetOperated(RoamingNetworkId, out var history, out var notOperated))
+            if (!TryGetHeld(RoamingNetworkId, out var history, out var notOperated))
                 return notOperated;
 
             // What a holder asks for itself: to be one, or another identity key. Dismissing and stating the keys anew
@@ -536,7 +539,7 @@ namespace cloud.charging.open.RoamingHub
                                                                   JObject            KeyStatementJSON)
         {
 
-            if (!TryGetOperated(RoamingNetworkId, out var history, out var notOperated))
+            if (!TryGetHeld(RoamingNetworkId, out var history, out var notOperated))
                 return notOperated;
 
             if (!RoamingNetworkKeyStatement.TryParse(KeyStatementJSON, out var signed, out var error))
@@ -600,6 +603,271 @@ namespace cloud.charging.open.RoamingHub
 
         #endregion
 
+
+        #region TakeShareholderChange(RoamingNetworkId, JSON) / (private) TakeChange(History, Change)
+
+        /// <summary>
+        /// Take a change of the holders of the keys of the operator of the given roaming network as another holder's
+        /// hub has it waiting (SHAREHOLDERS.md, phase 7.2): of whatever kind, with the signatures its key statement
+        /// has there, and its change set once that waits here as well. From everybody, as all of it is signed.
+        /// </summary>
+        public ShareholderChangeResult TakeShareholderChange(RoamingNetwork_Id  RoamingNetworkId,
+                                                             JObject            JSON)
+        {
+
+            if (!TryGetHeld(RoamingNetworkId, out var history, out var notHeld))
+                return notHeld;
+
+            if (!ShareholderChange.TryParse(JSON, RoamingNetworkId, out var change, out var error))
+                return new (ShareholderChangeStatus.Invalid, $"It is no change of the holders of the keys of the operator of the roaming network '{RoamingNetworkId}': {error}");
+
+            return TakeChange(history, change);
+
+        }
+
+        /// <summary>
+        /// Take the given change as another holder's hub has it waiting, into what waits here: one not known here,
+        /// the signatures of its key statement this hub lacks, or its change set made there. It fits the head, and
+        /// every signature of its key statement is one of an identity key it names, or the head. Of two key statements
+        /// of one change, the one the holder itself asked for later replaces the earlier one, and of what the others
+        /// begin - dismissing, stating the keys anew - the earlier one stays, at every hub alike.
+        /// </summary>
+        private ShareholderChangeResult TakeChange(RoamingNetworkHistory  History,
+                                                   ShareholderChange      Change)
+        {
+
+            var roamingNetworkId  = History.RoamingNetworkId;
+            var head              = History.Head.RoamingNetwork;
+
+            if (ChangeError(Change, head) is String changeError)
+                return new (ShareholderChangeStatus.Invalid, changeError);
+
+            var statement  = Change.KeyStatement;
+            var keys       = statement.IdentityKeys.Concat(head.Operator!.IdentityKeys).ToArray();
+
+            if (statement.Signatures.Length == 0)
+                return new (ShareholderChangeStatus.Invalid, "Its key statement is signed by nobody.");
+
+            foreach (var signature in statement.Signatures)
+                if (keys.FirstOrDefault(key => key.Id == signature.KeyId) is not POIPublicKey identityKey || !statement.VerifySignature(identityKey, out _))
+                    return new (ShareholderChangeStatus.Invalid, $"The signature by '{signature.KeyId}' is none of an identity key of a holder.");
+
+            static String Hash(RoamingNetworkKeyStatement KeyStatement)
+                => Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(KeyStatement.GetContentBytes()));
+
+            // What was taken, to go on with once what waits is locked no longer: going on locks the keys of the
+            // operator first.
+            ShareholderChange?  taken   = null;
+            var                 said    = "";
+            var                 anew    = false;
+
+            if (Locked() is ShareholderChangeResult done)
+                return done;
+
+            if (anew)
+                Log.Notice($"The roaming network '{roamingNetworkId}': a change of the holders of the keys of its operator waiting at another hub waits here as well, " +
+                           $"{Change.Kind.ToString().ToLowerInvariant()}{(Change.Holder.Length > 0 ? $" '{Change.Holder}'" : "")}.",
+                           "poi", "shareholders", "security");
+
+            return GoneOnWith(History, taken!, said);
+
+            ShareholderChangeResult? Locked()
+            {
+            lock (poiLock)
+            {
+
+                ForgetWhatIsDone(History);
+
+                // Its change set, made at another hub: taken with it only once that waits here as well.
+                if (Change.ChangeSetId is ChangeSet_Id itsChangeSet &&
+                    !(History.TryGetPendingChangeSet(itsChangeSet, out var pending) && pending.Status == RoamingNetworkCoSigningStatus.Pending))
+                {
+                    return new (ShareholderChangeStatus.Waiting, $"Its change set '{itsChangeSet}' does not wait here yet.");
+                }
+
+                var key = (roamingNetworkId, Change.Holder);
+
+                if (shareholderChanges.TryGetValue(key, out var known))
+                {
+
+                    if (known.Kind != Change.Kind)
+                        return new (ShareholderChangeStatus.Refused, $"Another change of '{Change.Holder}' as a holder of the keys of the operator of the roaming network '{roamingNetworkId}' waits already.");
+
+                    if (known.ChangeSetId.HasValue)
+                        return new (ShareholderChangeStatus.NothingToDo, $"The change set of it was made already: '{known.ChangeSetId}'.");
+
+                    #region The same key statement: its change set, or the signatures this hub lacks
+
+                    if (known.KeyStatement.GetContentBytes().SequenceEqual(statement.GetContentBytes()))
+                    {
+
+                        if (Change.ChangeSetId.HasValue)
+                        {
+                            shareholderChanges[key] = Change;
+                            KeepShareholderChanges(roamingNetworkId);
+                            taken  = Change;
+                            said   = $"Taken with its change set '{Change.ChangeSetId}'.";
+                            return null;
+                        }
+
+                        var all    = known.KeyStatement.Signatures.ToList();
+                        var added  = 0;
+
+                        foreach (var signature in statement.Signatures.Where(signature => all.All(has => has.KeyId != signature.KeyId)))
+                        {
+                            all.Add(signature);
+                            added++;
+                        }
+
+                        if (added == 0)
+                            return new (ShareholderChangeStatus.NothingToDo, "It has no signature the key statement waiting has not.");
+
+                        known.KeyStatement = WithSignatures(known.KeyStatement, all);
+
+                        KeepShareholderChanges(roamingNetworkId);
+
+                        taken  = known;
+                        said   = $"{added} signature(s) of the key statement taken.";
+                        return null;
+
+                    }
+
+                    #endregion
+
+                    #region Another key statement of the same change: one of the two, at every hub the same one
+
+                    var order     = known.KeyStatement.SignedAt.CompareTo(statement.SignedAt);
+
+                    if (order == 0)
+                        order     = String.CompareOrdinal(Hash(known.KeyStatement), Hash(statement));
+
+                    // What a holder asks for itself, it asks again: the later one. What the others begin: the earlier one.
+                    var replaces  = Change.Kind is ShareholderChangeKind.Admit or ShareholderChangeKind.AddKey or ShareholderChangeKind.DropKey
+                                        ? order < 0
+                                        : order > 0;
+
+                    if (!replaces)
+                        return new (ShareholderChangeStatus.NothingToDo, "Another key statement of this change waits here, and stays.");
+
+                    #endregion
+
+                }
+
+                else if (shareholderChanges.Keys.Count(waitingKey => waitingKey.RoamingNetworkId == roamingNetworkId) >= MaxShareholderChanges)
+                    return new (ShareholderChangeStatus.Refused, $"{MaxShareholderChanges} changes of the shareholders of the roaming network '{roamingNetworkId}' wait already.");
+
+                shareholderChanges[key] = Change;
+
+                KeepShareholderChanges(roamingNetworkId);
+
+                taken  = Change;
+                said   = "It waits here as well.";
+                anew   = true;
+
+                return null;
+
+            }
+            }
+
+        }
+
+        /// <summary>
+        /// What follows here from a change taken from another hub, at once and without asking anybody: the change set
+        /// of a key statement this hub signed is made, or signed. Nothing where this hub did not sign it: that is for
+        /// somebody here to decide.
+        /// </summary>
+        private ShareholderChangeResult GoneOnWith(RoamingNetworkHistory  History,
+                                                   ShareholderChange      Change,
+                                                   String                 Taken)
+        {
+
+            var next = GoOnHere(Change.Kind, History, Change.Holder, true, !IsFollowed(History.RoamingNetworkId));
+
+            return next.Status is ShareholderChangeStatus.Waiting or ShareholderChangeStatus.Committed
+                       ? new (next.Status,                     $"{Taken} {next.Message}")
+                       : new (ShareholderChangeStatus.Waiting, Taken);
+
+        }
+
+        #endregion
+
+        #region (private) ExchangeShareholderChanges(Network)
+
+        /// <summary>
+        /// Exchange the changes of the holders waiting with every server the given roaming network followed is
+        /// connected with, where this hub is one of several making it (SHAREHOLDERS.md, phase 7.2): those waiting
+        /// there are taken here, and those waiting here are sent there where it lacks them, signatures of their key
+        /// statements or their change sets. After the change sets waiting were exchanged, as a change is taken with
+        /// its change set only where that waits. A server that is away, or no hub, is asked the next time.
+        /// </summary>
+        private async Task ExchangeShareholderChanges(FollowedRoamingNetwork Network)
+        {
+
+            if (Network.Copy is not RoamingNetworkHistory history || !IsMadeBySeveral(Network.Id))
+                return;
+
+            foreach (var (url, peer) in Network.Peers)
+            {
+                try
+                {
+
+                    // A server that did not answer a moment ago, and is not connected: asked when it is back.
+                    if (IsAway(url, peer) || ShareholdersURLAt(url, Network.Id) is not String there)
+                        continue;
+
+                    var theirs = await GetChangesAt(there, Network.Id);
+
+                    foreach (var change in theirs)
+                        TakeChange(history, change);
+
+                    ShareholderChange[] mine;
+
+                    // What fits the head still: what was committed meanwhile is forgotten when this hub looks at it.
+                    lock (poiLock)
+                    {
+                        ForgetWhatIsDone(history);
+                        mine = [ .. shareholderChanges.Where (change => change.Key.RoamingNetworkId == Network.Id).
+                                                       Select(change => change.Value).
+                                                       Where (change => ChangeError(change, history.Head.RoamingNetwork) is null) ];
+                    }
+
+                    foreach (var change in mine)
+                    {
+
+                        var known = theirs.FirstOrDefault(waiting => waiting.Holder == change.Holder && waiting.Kind == change.Kind);
+
+                        if (known is not null                                                                           &&
+                            known.KeyStatement.GetContentBytes().SequenceEqual(change.KeyStatement.GetContentBytes())   &&
+                            (known.ChangeSetId.HasValue ||
+                             (!change.ChangeSetId.HasValue &&
+                              change.KeyStatement.Signatures.All(signature => known.KeyStatement.Signatures.Any(has => has.KeyId == signature.KeyId)))))
+                        {
+                            continue;
+                        }
+
+                        await Post(there + "/changes", change.ToJSON());
+
+                    }
+
+                }
+                catch (HttpRequestException)
+                {
+                    // Away: asked again when it is back, or a while later.
+                    unreached[url] = TimeProvider.GetUtcNow();
+                }
+                catch (TaskCanceledException)
+                {
+                    unreached[url] = TimeProvider.GetUtcNow();
+                }
+                catch
+                {
+                    // It answered something else: asked again when this hub looks next.
+                }
+            }
+
+        }
+
+        #endregion
 
         #region JoinRoamingNetworkOperator(RoamingNetworkId, URL = null)
 
@@ -1175,6 +1443,90 @@ namespace cloud.charging.open.RoamingHub
                                                                          Boolean                ByItself)
         {
 
+            RoamingNetworkHistory?   history;
+            FollowedRoamingNetwork?  network  = null;
+
+            if (IsFollowed(RoamingNetworkId))
+            {
+
+                if (!TryGetFollowed(RoamingNetworkId, out network, out history, out var notFollowed))
+                    return notFollowed;
+
+                if (NetworkOperator.SigningKeyIdIn(history.Head.RoamingNetwork) is null)
+                    return new (ShareholderChangeStatus.NothingToDo, $"This hub holds no key of the operator of the roaming network '{RoamingNetworkId}': it is none of those who decide.");
+
+                // What waits at the other holders' hubs, before somebody decides here: a hub that looks asked already.
+                if (!ByItself)
+                {
+                    await ExchangePending(network);
+                    await ExchangeShareholderChanges(network);
+                }
+
+            }
+
+            else if (!TryGetOperated(RoamingNetworkId, out history, out var notOperated))
+                return notOperated;
+
+            // Where this hub made the roaming network, the others are told, and ask.
+            if (network is null)
+                return GoOnHere(Kind, history, Holder, ByItself, true);
+
+            // Told by somebody, a hub following signs the key statement first, and tells the others: one of them that
+            // signed it makes its change set then, at once. Only where none did, this hub makes it itself.
+            var before = history.Head.Commit.Id;
+            var result = GoOnHere(Kind, history, Holder, ByItself, false, MakeItsChangeSet: ByItself);
+
+            if (!ByItself && result.Status is ShareholderChangeStatus.Waiting)
+            {
+
+                await ExchangeShareholderChanges(network);
+                await ExchangePending(network);
+                await ExchangeShareholderChanges(network);
+
+                Boolean waits;
+
+                lock (poiLock)
+                    waits = shareholderChanges.ContainsKey((RoamingNetworkId, Holder));
+
+                // Done meanwhile: another hub made its change set, this one signed it as it was told of it, and that
+                // was the last signature it lacked. Nothing is begun anew.
+                result = waits
+                             ? GoOnHere(Kind, history, Holder, false, false)
+                             : history.Head.Commit.Id != before
+                                   ? new (ShareholderChangeStatus.Committed, $"The roaming network '{RoamingNetworkId}' is at revision {history.Head.Commit.Revision}: what was asked for is signed by this hub, and committed.")
+                                   : new (ShareholderChangeStatus.Waiting,   $"What was asked for in the roaming network '{RoamingNetworkId}' is signed by this hub, and waits here no longer.");
+
+            }
+
+            // What went on here is told to the other holders' hubs at once.
+            if (result.Status is ShareholderChangeStatus.Waiting or ShareholderChangeStatus.Committed)
+            {
+                await ExchangePending(network);
+                await ExchangeShareholderChanges(network);
+            }
+
+            return result;
+
+        }
+
+        /// <summary>
+        /// What <see cref="GoOnWithShareholders"/> does at this hub, in its own history and with what waits here: the
+        /// same at every holder's hub, whether it made the roaming network or follows it (SHAREHOLDERS.md, phases 7.2
+        /// and 7.3). A change begins here, its key statement is signed here, and where that is signed by all who must
+        /// and by this hub, the one change set of it is made here, or signed here where another hub made it.
+        /// </summary>
+        /// <param name="Made">Whether this hub made the roaming network: it does not resign.</param>
+        /// <param name="MakeItsChangeSet">Whether the change set of a key statement complete is made here, where none waits yet: not before the other holders' hubs were told of it.</param>
+        private ShareholderChangeResult GoOnHere(ShareholderChangeKind  Kind,
+                                                 RoamingNetworkHistory  History,
+                                                 String                 Holder,
+                                                 Boolean                ByItself,
+                                                 Boolean                Made,
+                                                 Boolean                MakeItsChangeSet   = true)
+        {
+
+            var roamingNetworkId  = History.RoamingNetworkId;
+
             var what     = Kind switch {
                                ShareholderChangeKind.Admit    => $"admitting '{Holder}'",
                                ShareholderChangeKind.Dismiss  => $"dismissing '{Holder}'",
@@ -1195,340 +1547,314 @@ namespace cloud.charging.open.RoamingHub
             var own      = Kind is ShareholderChangeKind.AddKey or ShareholderChangeKind.DropKey &&
                            Holder == NetworkOperator.Holder;
 
-            #region At the hub where the roaming network is made
-
-            if (!IsFollowed(RoamingNetworkId))
-            {
-
-                if (!TryGetOperated(RoamingNetworkId, out var history, out var notOperated))
-                    return notOperated;
-
-                var head = history.Head.RoamingNetwork;
-
-                lock (networkOperatorLock)
-                lock (poiLock)
-                try
-                {
-
-                    ForgetWhatIsDone(history);
-
-                    shareholderChanges.TryGetValue((RoamingNetworkId, Holder), out var change);
-
-                    // By itself this hub begins nothing.
-                    if (change is null && ByItself)
-                        return new (ShareholderChangeStatus.NothingToDo, $"Nothing {what} waits in the roaming network '{RoamingNetworkId}'.");
-
-                    #region A dismissal begins here: the key statement of those who stay
-
-                    if (change is null && Kind == ShareholderChangeKind.Dismiss)
-                    {
-
-                        var staying = head.Operator!.IdentityKeys.Where(key => key.HolderOrUnnamed != Holder).ToArray();
-
-                        if (staying.Length == head.Operator.IdentityKeys.Length)
-                            return new (ShareholderChangeStatus.NotFound, $"'{Holder}' holds no keys of the operator of the roaming network '{RoamingNetworkId}'.");
-
-                        if (Holder == NetworkOperator.Holder)
-                            return new (ShareholderChangeStatus.Invalid, $"This hub makes the roaming network '{RoamingNetworkId}': it does not resign as a holder of the keys of its operator.");
-
-                        var holders = POIPartyKeys.Holders(staying).Count;
-
-                        change = new ShareholderChange(ShareholderChangeKind.Dismiss,
-                                                       RoamingNetworkId,
-                                                       Holder,
-                                                       NetworkOperator.StateKeysOf(RoamingNetworkId,
-                                                                                   head.Operator.Id,
-                                                                                   staying,
-                                                                                   (Byte) (holders / 2 + 1),
-                                                                                   TimeProvider.GetUtcNow(),
-                                                                                   KeyStatementValidity));
-
-                        shareholderChanges[(RoamingNetworkId, Holder)] = change;
-
-                    }
-
-                    #endregion
-
-                    #region Stating the keys anew begins here as well: the same keys, the same quorum, from now
-
-                    if (change is null && Kind == ShareholderChangeKind.Restate)
-                    {
-
-                        change = new ShareholderChange(ShareholderChangeKind.Restate,
-                                                       RoamingNetworkId,
-                                                       "",
-                                                       NetworkOperator.StateKeysOf(RoamingNetworkId,
-                                                                                   head.Operator!.Id,
-                                                                                   head.Operator.IdentityKeys,
-                                                                                   head.Operator.MinConsensus,
-                                                                                   TimeProvider.GetUtcNow(),
-                                                                                   KeyStatementValidity));
-
-                        shareholderChanges[(RoamingNetworkId, "")] = change;
-
-                    }
-
-                    #endregion
-
-                    #region A new identity key of this hub begins here as well: next to the old one, then the old one out
-
-                    if (change is null && own)
-                    {
-
-                        try
-                        {
-                            change = MyKeyChange(Kind, head);
-                        }
-                        catch (Exception e)
-                        {
-                            return new (ShareholderChangeStatus.Invalid, $"Nothing {what} can be made: {e.Message}");
-                        }
-
-                        if (change is null)
-                            return new (ShareholderChangeStatus.Invalid, $"The roaming network '{RoamingNetworkId}' does not name the identity keys of this hub as {what} needs them.");
-
-                        shareholderChanges[(RoamingNetworkId, Holder)] = change;
-
-                    }
-
-                    #endregion
-
-                    if (change is null)
-                        return new (ShareholderChangeStatus.NotFound,
-                                    Kind == ShareholderChangeKind.Admit
-                                        ? $"'{Holder}' did not ask to hold the keys of the operator of the roaming network '{RoamingNetworkId}'."
-                                        : $"Nothing {what} waits in the roaming network '{RoamingNetworkId}'.");
-
-                    if (change.Kind != Kind)
-                        return new (ShareholderChangeStatus.NotFound,
-                                    change.Kind == ShareholderChangeKind.Admit
-                                        ? $"'{Holder}' asked to be admitted to the roaming network '{RoamingNetworkId}': nothing {what} waits."
-                                        : $"Another change of '{Holder}' waits in the roaming network '{RoamingNetworkId}': nothing {what}.");
-
-                    if (ChangeError(change, head) is String changeError)
-                    {
-                        shareholderChanges.Remove((RoamingNetworkId, Holder));
-                        return new (ShareholderChangeStatus.Invalid, changeError + " It waits no longer.");
-                    }
-
-                    #region Its change set waits, or was committed
-
-                    if (change.ChangeSetId is ChangeSet_Id changeSetId)
-                    {
-
-                        if (history.TryGetPendingChangeSet(changeSetId, out var pending) && pending.Status == RoamingNetworkCoSigningStatus.Pending)
-                            return new (ByItself ? ShareholderChangeStatus.NothingToDo : ShareholderChangeStatus.Waiting,
-                                        $"The change set '{changeSetId}' {what} waits for signatures: {String.Join(" ", pending.Missing ?? [])}");
-
-                        shareholderChanges.Remove((RoamingNetworkId, Holder));
-
-                        return new (ShareholderChangeStatus.NothingToDo, $"The change set '{changeSetId}' {what} waits no longer.");
-
-                    }
-
-                    #endregion
-
-                    // Signed by this hub, as one of those who decide: with its identity key the roaming network names.
-                    if (NetworkOperator.IdentityKeyIdFor(head, change.KeyStatement) is String identityKeyId &&
-                        change.KeyStatement.Signatures.All(signature => signature.KeyId != identityKeyId))
-                    {
-
-                        // The decision: somebody here says so.
-                        if (ByItself)
-                            return new (ShareholderChangeStatus.Undecided,
-                                        $"The roaming network '{RoamingNetworkId}': {what} waits for somebody at this hub, '{CommandLine.RoamingNetworksCommand.CommandName} {RoamingNetworkId} {command}'.");
-
-                        change.KeyStatement = NetworkOperator.CoSign(change.KeyStatement, identityKeyId);
-
-                    }
-
-                    if (!IsSignedByItsQuorums(change, head, out var missing))
-                        return new (ByItself ? ShareholderChangeStatus.NothingToDo : ShareholderChangeStatus.Waiting,
-                                    $"The key statement {what} is signed by this hub. It waits for the other holders: {missing} " +
-                                    $"Each signs it with '{CommandLine.RoamingNetworksCommand.CommandName} {RoamingNetworkId} {command}' at its hub" +
-                                    (Kind == ShareholderChangeKind.Dismiss
-                                         ? $", and '{Holder}' itself with '{CommandLine.RoamingNetworksCommand.CommandName} {RoamingNetworkId} resign'."
-                                         : "."));
-
-                    #region The key statement is signed: the change set of it, signed by this hub, waits for the others
-
-                    try
-                    {
-
-                        var changeSet  = SignedAsAHolder(ChangeSetOf(change, head)!, change, head);
-
-                        var result     = history.CoSign(changeSet);
-
-                        if (result.Status == RoamingNetworkCoSigningStatus.Committed || result.Status == RoamingNetworkCoSigningStatus.AlreadyCommitted)
-                        {
-                            shareholderChanges.Remove((RoamingNetworkId, Holder));
-                            Log.Notice($"The roaming network '{RoamingNetworkId}': {what} is committed, revision {history.Head.Commit.Revision}.", "poi", "shareholders", "security");
-                            return new (ShareholderChangeStatus.Committed, $"The roaming network '{RoamingNetworkId}' is at revision {history.Head.Commit.Revision}: {what} is committed.");
-                        }
-
-                        if (result.Status != RoamingNetworkCoSigningStatus.Pending)
-                            return new (ShareholderChangeStatus.Invalid, $"The change set {what} was refused: {result.ErrorResponse}");
-
-                        change.ChangeSetId = changeSet.Id;
-
-                        Log.Notice($"The roaming network '{RoamingNetworkId}': the change set '{changeSet.Id}' {what} waits for signatures.", "poi", "shareholders", "security");
-
-                        return new (ShareholderChangeStatus.Waiting,
-                                    $"The change set '{changeSet.Id}' {what} is made and signed by this hub. It waits for signatures: {String.Join(" ", result.Missing ?? [])}");
-
-                    }
-                    catch (Exception e)
-                    {
-                        return new (ShareholderChangeStatus.Invalid, $"The change set {what} can not be made: {e.Message}");
-                    }
-
-                    #endregion
-
-                }
-                finally
-                {
-                    KeepShareholderChanges(RoamingNetworkId);
-                }
-
-            }
-
-            #endregion
-
-            #region At another holder's hub, which follows it
-
-            if (!TryGetFollowed(RoamingNetworkId, out var network, out var copy, out var notFollowed))
-                return notFollowed;
-
-            var version = copy.Head.RoamingNetwork;
-
-            if (NetworkOperator.SigningKeyIdIn(version) is null)
-                return new (ShareholderChangeStatus.NothingToDo, $"This hub holds no key of the operator of the roaming network '{RoamingNetworkId}': it is none of those who decide.");
-
             // This hub is the one leaving.
-            var leaving = Kind == ShareholderChangeKind.Dismiss && Holder == NetworkOperator.Holder;
+            var leaving  = Kind == ShareholderChangeKind.Dismiss && Holder == NetworkOperator.Holder;
 
+            var head     = History.Head.RoamingNetwork;
+
+            lock (networkOperatorLock)
+            lock (poiLock)
             try
             {
 
-                var asked = await GetChange(network, Holder);
+                ForgetWhatIsDone(History);
 
-                #region Its own identity key: this hub asks for it, where the roaming network is made
+                shareholderChanges.TryGetValue((roamingNetworkId, Holder), out var change);
 
-                if (asked is null && own && !ByItself)
+                // By itself this hub begins nothing.
+                if (change is null && ByItself)
+                    return new (ShareholderChangeStatus.NothingToDo, $"Nothing {what} waits in the roaming network '{roamingNetworkId}'.");
+
+                // One key statement after another (SHAREHOLDERS.md, phase 7.3): this hub signs no second one
+                // following the same one while one it signed waits, and begins none, which it signs by beginning it.
+                // Signed by more than half of the holders, two that exclude each other so never both get there, at
+                // whichever hubs they were begun.
+                ShareholderChangeResult? OneAfterTheOther()
                 {
 
-                    if (MyKeyChange(Kind, version) is not ShareholderChange request)
-                        return new (ShareholderChangeStatus.Invalid, $"The roaming network '{RoamingNetworkId}' does not name the identity keys of this hub as {what} needs them.");
+                    var mine = new[] { NetworkOperator.IdentityKeyIdIn(head), NetworkOperator.IdentityKey.Id, NetworkOperator.NextIdentityKey?.Id }.
+                                   OfType<String>().
+                                   ToHashSet();
 
-                    if (ChangeError(request, version) is String requestError)
-                        return new (ShareholderChangeStatus.Invalid, requestError);
+                    return shareholderChanges.FirstOrDefault(other => other.Key.RoamingNetworkId == roamingNetworkId   &&
+                                                                      other.Key.Holder           != Holder             &&
+                                                                      ChangeError(other.Value, head) is null           &&
+                                                                      other.Value.KeyStatement.Signatures.Any(signature => mine.Contains(signature.KeyId))).Value is ShareholderChange first
 
-                    var (status, answer) = await Post(ShareholdersURL(network) + "/requests", request.ToJSON());
+                               ? new (ShareholderChangeStatus.Refused,
+                                      $"This hub signed the key statement {(first.Kind == ShareholderChangeKind.Restate ? "stating the keys of the operator anew" : $"of another change, {first.Kind.ToString().ToLowerInvariant()} '{first.Holder}'")}, " +
+                                      $"which waits in the roaming network '{roamingNetworkId}': one after the other. {Char.ToUpperInvariant(what[0])}{what[1..]} is signed here once that is done.")
 
-                    return status is >= 200 and < 300
-                               ? new (ShareholderChangeStatus.Waiting,
-                                      $"This hub asked for {what} at '{network.URL}'. It waits for the other holders: each agrees with " +
-                                      $"'{CommandLine.RoamingNetworksCommand.CommandName} {RoamingNetworkId} {command}' at its hub.")
-                               : new (ShareholderChangeStatus.Refused, $"'{network.URL}' did not take it: {Description(answer)}");
+                               : null;
+
+                }
+
+                if (change is null && (Kind is ShareholderChangeKind.Dismiss or ShareholderChangeKind.Restate || own) && OneAfterTheOther() is ShareholderChangeResult oneWaits)
+                    return oneWaits;
+
+                #region A dismissal begins here: the key statement of those who stay
+
+                if (change is null && Kind == ShareholderChangeKind.Dismiss)
+                {
+
+                    var staying = head.Operator!.IdentityKeys.Where(key => key.HolderOrUnnamed != Holder).ToArray();
+
+                    if (staying.Length == head.Operator.IdentityKeys.Length)
+                        return new (ShareholderChangeStatus.NotFound, $"'{Holder}' holds no keys of the operator of the roaming network '{roamingNetworkId}'.");
+
+                    if (staying.Length == 0)
+                        return new (ShareholderChangeStatus.Invalid, $"'{Holder}' is the last one holding keys of the operator of the roaming network '{roamingNetworkId}'.");
+
+                    if (leaving && Made)
+                        return new (ShareholderChangeStatus.Invalid, $"This hub makes the roaming network '{roamingNetworkId}': it does not resign as a holder of the keys of its operator.");
+
+                    var holders = POIPartyKeys.Holders(staying).Count;
+
+                    change = new ShareholderChange(ShareholderChangeKind.Dismiss,
+                                                   roamingNetworkId,
+                                                   Holder,
+                                                   NetworkOperator.StateKeysOf(roamingNetworkId,
+                                                                               head.Operator.Id,
+                                                                               staying,
+                                                                               (Byte) (holders / 2 + 1),
+                                                                               TimeProvider.GetUtcNow(),
+                                                                               KeyStatementValidity));
+
+                    shareholderChanges[(roamingNetworkId, Holder)] = change;
 
                 }
 
                 #endregion
 
-                if (asked is not ShareholderChange waiting || waiting.Kind != Kind)
-                    return new (ShareholderChangeStatus.NotFound, $"Nothing {what} waits at '{network.URL}'.");
+                #region Stating the keys anew begins here as well: the same keys, the same quorum, from now
 
-                if (ChangeError(waiting, version) is String changeError)
-                    return new (ShareholderChangeStatus.Invalid, changeError);
-
-                #region The key statement lacks the signature of this hub
-
-                if (waiting.ChangeSetId is null)
+                if (change is null && Kind == ShareholderChangeKind.Restate)
                 {
 
-                    // The one leaving signs the key statement of those who stay as well, with the identity key the
-                    // roaming network names still: the statement names it no longer, and follows the one before by it.
-                    if ((NetworkOperator.IdentityKeyIdFor(version, waiting.KeyStatement) ??
-                         (leaving ? NetworkOperator.IdentityKeyIdIn(version) : null)) is not String identityKeyId)
+                    change = new ShareholderChange(ShareholderChangeKind.Restate,
+                                                   roamingNetworkId,
+                                                   "",
+                                                   NetworkOperator.StateKeysOf(roamingNetworkId,
+                                                                               head.Operator!.Id,
+                                                                               head.Operator.IdentityKeys,
+                                                                               head.Operator.MinConsensus,
+                                                                               TimeProvider.GetUtcNow(),
+                                                                               KeyStatementValidity));
+
+                    shareholderChanges[(roamingNetworkId, "")] = change;
+
+                }
+
+                #endregion
+
+                #region A new identity key of this hub begins here as well: next to the old one, then the old one out
+
+                if (change is null && own)
+                {
+
+                    try
                     {
-                        return new (ByItself ? ShareholderChangeStatus.NothingToDo : ShareholderChangeStatus.Waiting,
-                                    $"The key statement {what} names no identity key of this hub: it waits for the others, and for its change set to be made at '{network.URL}'.");
+                        change = MyKeyChange(Kind, head);
+                    }
+                    catch (Exception e)
+                    {
+                        return new (ShareholderChangeStatus.Invalid, $"Nothing {what} can be made: {e.Message}");
                     }
 
-                    if (waiting.KeyStatement.Signatures.Any(signature => signature.KeyId == identityKeyId))
+                    if (change is null)
+                    {
+
+                        // Done meanwhile, committed at another holder's hub and taken here since this was asked for.
+                        var names  = head.Operator!.IdentityKeys.Select(key => key.Id).ToHashSet();
+
+                        if (Kind == ShareholderChangeKind.AddKey
+                                ? NetworkOperator.NextIdentityKey is POIPublicKey next && names.Contains(next.Id)
+                                : !names.Contains(NetworkOperator.IdentityKey.Id))
+                        {
+                            return new (ShareholderChangeStatus.Committed, $"The roaming network '{roamingNetworkId}' is at revision {History.Head.Commit.Revision}: {what} is committed.");
+                        }
+
+                        return new (ShareholderChangeStatus.Invalid, $"The roaming network '{roamingNetworkId}' does not name the identity keys of this hub as {what} needs them.");
+
+                    }
+
+                    shareholderChanges[(roamingNetworkId, Holder)] = change;
+
+                }
+
+                #endregion
+
+                if (change is null)
+                    return new (ShareholderChangeStatus.NotFound,
+                                Kind == ShareholderChangeKind.Admit
+                                    ? $"'{Holder}' did not ask to hold the keys of the operator of the roaming network '{roamingNetworkId}'."
+                                    : $"Nothing {what} waits in the roaming network '{roamingNetworkId}'.");
+
+                if (change.Kind != Kind)
+                    return new (ShareholderChangeStatus.NotFound,
+                                change.Kind == ShareholderChangeKind.Admit
+                                    ? $"'{Holder}' asked to be admitted to the roaming network '{roamingNetworkId}': nothing {what} waits."
+                                    : $"Another change of '{Holder}' waits in the roaming network '{roamingNetworkId}': nothing {what}.");
+
+                if (ChangeError(change, head) is String changeError)
+                {
+                    shareholderChanges.Remove((roamingNetworkId, Holder));
+                    return new (ShareholderChangeStatus.Invalid, changeError + " It waits no longer.");
+                }
+
+                // What this hub decides with: its identity key the roaming network and the key statement name. The one
+                // leaving signs the key statement of those who stay as well, with the identity key the roaming network
+                // names still: the statement names it no longer, and follows the one before by it.
+                var identityKeyId = NetworkOperator.IdentityKeyIdFor(head, change.KeyStatement) ??
+                                    (leaving ? NetworkOperator.IdentityKeyIdIn(head) : null);
+
+                Boolean Decided()
+                    => identityKeyId is not null && change.KeyStatement.Signatures.Any(signature => signature.KeyId == identityKeyId);
+
+                // Where this hub gets the last signature of the change set dismissing it, it commits it, but does not
+                // sign that commit: the version it leads to names its signing key no longer, and a history refuses a
+                // commit signed by a key it takes its role from. Its signers are what its head says again when this
+                // hub looks next (KeepPeersOf), where the change set still waits.
+                void LeavingSignsNoCommit()
+                {
+                    if (leaving && !Made)
+                        History.Signers = [];
+                }
+
+                #region Its change set waits: signed here as a holder before, where this hub decided, or was told to
+
+                if (change.ChangeSetId is ChangeSet_Id changeSetId)
+                {
+
+                    if (!(History.TryGetPendingChangeSet(changeSetId, out var pending)    &&
+                          pending.Status == RoamingNetworkCoSigningStatus.Pending         &&
+                          pending.ChangeSet is RoamingNetworkChangeSet waitingChangeSet))
+                    {
+                        shareholderChanges.Remove((roamingNetworkId, Holder));
+                        return new (ShareholderChangeStatus.NothingToDo, $"The change set '{changeSetId}' {what} waits no longer.");
+                    }
+
+                    if (ChangeSetOf(change, head, waitingChangeSet)?.Id != waitingChangeSet.Id)
+                        return new (ShareholderChangeStatus.Invalid, $"The change set '{changeSetId}' is not the one {what} with the key statement waiting: it is not signed.");
+
+                    // By itself only the change set of a key statement this hub signed: of one the others dismiss
+                    // without it, somebody here says that it resigns.
+                    if (ByItself && !Decided())
+                        return new (ShareholderChangeStatus.Undecided,
+                                    leaving
+                                        ? $"The roaming network '{roamingNetworkId}': the change set '{changeSetId}' dismisses this hub, '{Holder}'. Where it takes its signature to leave, somebody here says '{CommandLine.RoamingNetworksCommand.CommandName} {roamingNetworkId} resign'."
+                                        : $"The roaming network '{roamingNetworkId}': the change set '{changeSetId}' {what} waits for somebody at this hub, '{CommandLine.RoamingNetworksCommand.CommandName} {roamingNetworkId} {command}'.");
+
+                    var signed = SignedAsAHolder(waitingChangeSet, change, head);
+
+                    if (signed.Signatures.Length == waitingChangeSet.Signatures.Length)
                         return new (ByItself ? ShareholderChangeStatus.NothingToDo : ShareholderChangeStatus.Waiting,
-                                    $"The key statement {what} is signed by this hub already: it waits for the others, and for its change set to be made at '{network.URL}'.");
+                                    $"The change set '{changeSetId}' {what} is signed by this hub. It waits for signatures: {String.Join(" ", pending.Missing ?? [])}");
+
+                    LeavingSignsNoCommit();
+
+                    var added = History.AddPendingSignatures(changeSetId,
+                                                             signed.Signatures.Where(signature => waitingChangeSet.Signatures.All(has => has.KeyId != signature.KeyId)));
+
+                    if (added.Status is RoamingNetworkCoSigningStatus.Committed or RoamingNetworkCoSigningStatus.AlreadyCommitted)
+                    {
+                        shareholderChanges.Remove((roamingNetworkId, Holder));
+                        Log.Notice($"The roaming network '{roamingNetworkId}': {what} is committed, revision {History.Head.Commit.Revision}.", "poi", "shareholders", "security");
+                        return new (ShareholderChangeStatus.Committed, $"The change set '{changeSetId}' {what} is signed by this hub, and committed: the roaming network '{roamingNetworkId}' is at revision {History.Head.Commit.Revision}.");
+                    }
+
+                    if (added.Status != RoamingNetworkCoSigningStatus.Pending)
+                        return new (ShareholderChangeStatus.Invalid, $"The signature of the change set '{changeSetId}' {what} was not taken: {added.ErrorResponse}");
+
+                    Log.Notice($"The change set '{changeSetId}' {what} in the roaming network '{roamingNetworkId}' was signed as '{NetworkOperator.Holder}'.", "poi", "shareholders", "security");
+
+                    return new (ShareholderChangeStatus.Waiting,
+                                $"The change set '{changeSetId}' {what} is signed by this hub. It waits for signatures: {String.Join(" ", added.Missing ?? [])}");
+
+                }
+
+                #endregion
+
+                // Signed by this hub, as one of those who decide.
+                if (identityKeyId is not null && !Decided())
+                {
 
                     // The decision: somebody here says so.
                     if (ByItself)
                         return new (ShareholderChangeStatus.Undecided,
                                     leaving
-                                        ? $"The roaming network '{RoamingNetworkId}': the others dismiss this hub, '{Holder}'. Where it takes its signature to leave, somebody here says '{CommandLine.RoamingNetworksCommand.CommandName} {RoamingNetworkId} resign'."
-                                        : $"The roaming network '{RoamingNetworkId}': {what} waits for somebody at this hub, '{CommandLine.RoamingNetworksCommand.CommandName} {RoamingNetworkId} {command}'.");
+                                        ? $"The roaming network '{roamingNetworkId}': the others dismiss this hub, '{Holder}'. Where it takes its signature to leave, somebody here says '{CommandLine.RoamingNetworksCommand.CommandName} {roamingNetworkId} resign'."
+                                        : $"The roaming network '{roamingNetworkId}': {what} waits for somebody at this hub, '{CommandLine.RoamingNetworksCommand.CommandName} {roamingNetworkId} {command}'.");
 
-                    var (status, answer) = await Post($"{ShareholdersURL(network)}/changes/{(Holder.Length > 0 ? Uri.EscapeDataString(Holder) : "-")}/keyStatement",
-                                                      NetworkOperator.CoSign(waiting.KeyStatement, identityKeyId).ToJSON(Embedded: true));
+                    if (OneAfterTheOther() is ShareholderChangeResult notBoth)
+                        return notBoth;
 
-                    if (status is < 200 or >= 300)
-                        return new (ShareholderChangeStatus.Refused, $"'{network.URL}' did not take the signature of the key statement: {Description(answer)}");
-
-                    // Where that was the last one it lacked, its change set was made there at once: signed here as well,
-                    // as this hub signed its key statement.
-                    var next = await ChangeShareholders(Kind, RoamingNetworkId, Holder, ByItself: true);
-
-                    return next.Status is ShareholderChangeStatus.Waiting or ShareholderChangeStatus.Committed
-                               ? new (next.Status,                     $"The key statement {what} is signed by this hub, and its signature was taken at '{network.URL}'. {next.Message}")
-                               : new (ShareholderChangeStatus.Waiting, $"The key statement {what} is signed by this hub, and its signature was taken at '{network.URL}'. It waits for the other holders.");
+                    change.KeyStatement = NetworkOperator.CoSign(change.KeyStatement, identityKeyId);
 
                 }
 
-                #endregion
+                if (!IsSignedByItsQuorums(change, head, out var missing))
+                    return new (ByItself ? ShareholderChangeStatus.NothingToDo : ShareholderChangeStatus.Waiting,
+                                (Decided()
+                                     ? $"The key statement {what} is signed by this hub. "
+                                     : $"The key statement {what} names no identity key of this hub. ") +
+                                $"It waits for the other holders: {missing} " +
+                                $"Each signs it with '{CommandLine.RoamingNetworksCommand.CommandName} {roamingNetworkId} {command}' at its hub" +
+                                (Kind == ShareholderChangeKind.Dismiss && !leaving
+                                     ? $", and '{Holder}' itself with '{CommandLine.RoamingNetworksCommand.CommandName} {roamingNetworkId} resign'."
+                                     : "."));
 
-                #region Its change set waits: signed as a holder before
+                // By itself only the change set of a key statement this hub signed.
+                if (ByItself && !Decided())
+                    return new (ShareholderChangeStatus.NothingToDo,
+                                $"The key statement {what} is signed by the others: its change set is made where one of them is.");
 
-                if (await GetPendingChangeSet(network, waiting.ChangeSetId.Value) is not RoamingNetworkChangeSet changeSet)
-                    return new (ShareholderChangeStatus.NotFound, $"The change set '{waiting.ChangeSetId}' {what} waits no longer at '{network.URL}'.");
+                // The others first: one of them that signed it makes its change set, once told.
+                if (!MakeItsChangeSet)
+                    return new (ShareholderChangeStatus.Waiting,
+                                $"The key statement {what} is signed by all who must: its change set is made now.");
 
-                if (ChangeSetOf(waiting, version, changeSet)?.Id != changeSet.Id)
-                    return new (ShareholderChangeStatus.Invalid, $"The change set '{changeSet.Id}' at '{network.URL}' is not the one {what} with the key statement waiting: it is not signed.");
+                #region The key statement is signed: the change set of it, signed by this hub, waits for the others
 
-                // By itself only the change set of a key statement this hub signed: of one the others dismiss
-                // without it, somebody here says that it resigns.
-                if (ByItself &&
-                    !((NetworkOperator.IdentityKeyIdFor(version, waiting.KeyStatement) ??
-                       (leaving ? NetworkOperator.IdentityKeyIdIn(version) : null)) is String decidedWith &&
-                      waiting.KeyStatement.Signatures.Any(signature => signature.KeyId == decidedWith)))
+                try
                 {
 
-                    // The others dismiss this hub: nothing for it to do, unless it takes its signature to leave.
-                    if (Kind == ShareholderChangeKind.Dismiss && Holder == NetworkOperator.Holder)
-                        return new (ShareholderChangeStatus.Undecided,
-                                    $"The roaming network '{RoamingNetworkId}': the change set '{changeSet.Id}' dismisses this hub, '{Holder}'. Where it takes its signature to leave, somebody here says '{CommandLine.RoamingNetworksCommand.CommandName} {RoamingNetworkId} resign'.");
+                    var changeSet  = SignedAsAHolder(ChangeSetOf(change, head)!, change, head);
 
-                    return new (ShareholderChangeStatus.Undecided,
-                                $"The roaming network '{RoamingNetworkId}': the change set '{changeSet.Id}' {what} waits for somebody at this hub, '{CommandLine.RoamingNetworksCommand.CommandName} {RoamingNetworkId} {command}'.");
+                    LeavingSignsNoCommit();
+
+                    var result     = History.CoSign(changeSet);
+
+                    if (result.Status == RoamingNetworkCoSigningStatus.Committed || result.Status == RoamingNetworkCoSigningStatus.AlreadyCommitted)
+                    {
+                        shareholderChanges.Remove((roamingNetworkId, Holder));
+                        Log.Notice($"The roaming network '{roamingNetworkId}': {what} is committed, revision {History.Head.Commit.Revision}.", "poi", "shareholders", "security");
+                        return new (ShareholderChangeStatus.Committed, $"The roaming network '{roamingNetworkId}' is at revision {History.Head.Commit.Revision}: {what} is committed.");
+                    }
+
+                    if (result.Status != RoamingNetworkCoSigningStatus.Pending)
+                        return new (ShareholderChangeStatus.Invalid, $"The change set {what} was refused: {result.ErrorResponse}");
+
+                    change.ChangeSetId = changeSet.Id;
+
+                    Log.Notice($"The roaming network '{roamingNetworkId}': the change set '{changeSet.Id}' {what} waits for signatures.", "poi", "shareholders", "security");
+
+                    return new (ShareholderChangeStatus.Waiting,
+                                $"The change set '{changeSet.Id}' {what} is made and signed by this hub. It waits for signatures: {String.Join(" ", result.Missing ?? [])}");
+
                 }
-
-                var signed = SignedAsAHolder(changeSet, waiting, version);
-
-                if (signed.Signatures.Length == changeSet.Signatures.Length)
-                    return new (ByItself ? ShareholderChangeStatus.NothingToDo : ShareholderChangeStatus.Waiting,
-                                $"The change set '{changeSet.Id}' {what} is signed by this hub already: it waits for the others.");
-
-                return await SendChangeSetSignatures(network,
-                                                     changeSet,
-                                                     signed,
-                                                     what);
+                catch (Exception e)
+                {
+                    return new (ShareholderChangeStatus.Invalid, $"The change set {what} can not be made: {e.Message}");
+                }
 
                 #endregion
 
             }
-            catch (Exception e)
+            finally
             {
-                return new (ShareholderChangeStatus.Refused, $"'{network.URL}' could not be asked: {e.Message}");
+                KeepShareholderChanges(roamingNetworkId);
             }
-
-            #endregion
 
         }
 
@@ -1902,6 +2228,29 @@ namespace cloud.charging.open.RoamingHub
 
         }
 
+        /// <summary>
+        /// The history here of a roaming network this hub holds a key of the operator of: one it made, or one it
+        /// follows as one of several making it (SHAREHOLDERS.md, phase 7.2).
+        /// </summary>
+        private Boolean TryGetHeld(RoamingNetwork_Id                                 RoamingNetworkId,
+                                   [NotNullWhen(true)]  out RoamingNetworkHistory?    History,
+                                   [NotNullWhen(false)] out ShareholderChangeResult?  Result)
+        {
+
+            if (!IsFollowed(RoamingNetworkId))
+                return TryGetOperated(RoamingNetworkId, out History, out Result);
+
+            Result = null;
+
+            if (IsMadeBySeveral(RoamingNetworkId) && POI.TryGetRoamingNetworkHistory(RoamingNetworkId, out History))
+                return true;
+
+            History  = null;
+            Result   = new (ShareholderChangeStatus.NotFound, $"This hub holds no key of the operator of the roaming network '{RoamingNetworkId}': what waits of its holders is told where it is followed.");
+            return false;
+
+        }
+
         private Boolean TryGetFollowed(RoamingNetwork_Id                                 RoamingNetworkId,
                                        [NotNullWhen(true)]  out FollowedRoamingNetwork?   Network,
                                        [NotNullWhen(true)]  out RoamingNetworkHistory?    History,
@@ -1944,6 +2293,45 @@ namespace cloud.charging.open.RoamingHub
             return url.EndsWith(suffix, StringComparison.Ordinal)
                        ? $"{url[..^suffix.Length]}/api/v1/{POIPathSegment}/shareholders/{Network.Id}"
                        : throw new InvalidOperationException($"'{url}' is no roaming network at a hub: its shareholders are not told there.");
+
+        }
+
+        /// <summary>
+        /// Where the hub serving the given copy of a roaming network, ~/RNs/{RN_Id} below its POI API, tells and takes
+        /// the changes of its shareholders; null where that is no hub.
+        /// </summary>
+        private static String? ShareholdersURLAt(String             URL,
+                                                 RoamingNetwork_Id  RoamingNetworkId)
+        {
+
+            var url     = URL.TrimEnd('/');
+            var suffix  = $"/{POIPathSegment}/RNs/{RoamingNetworkId}";
+
+            return url.EndsWith(suffix, StringComparison.Ordinal)
+                       ? $"{url[..^suffix.Length]}/api/v1/{POIPathSegment}/shareholders/{RoamingNetworkId}"
+                       : null;
+
+        }
+
+        /// <summary>
+        /// The changes of the holders waiting at the hub that tells them at the given URL.
+        /// </summary>
+        private static async Task<IReadOnlyList<ShareholderChange>> GetChangesAt(String             There,
+                                                                                 RoamingNetwork_Id  RoamingNetworkId)
+        {
+
+            using var response = await shareholderHTTP.GetAsync(There);
+
+            if (!response.IsSuccessStatusCode)
+                return [];
+
+            var changes = new List<ShareholderChange>();
+
+            foreach (var changeJSON in ReadJSON(await response.Content.ReadAsStringAsync())?["changes"]?.OfType<JObject>() ?? [])
+                if (ShareholderChange.TryParse(changeJSON, RoamingNetworkId, out var change, out _))
+                    changes.Add(change);
+
+            return changes;
 
         }
 

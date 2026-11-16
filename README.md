@@ -774,10 +774,15 @@ says who signed its head as its operator, and how many holders decide.
 Where several hold the keys of the operator, **each of their hubs commits**:
 the hubs following are connected with each other as well as with the one that
 made the roaming network, what one commits goes to all of them, and two tips
-are merged to the same commit everywhere. So far a holder renews its signing
-key at its own hub that way, and what it commits gets to the others while any
-way between them is open, whichever hub is away; change sets are still
-committed where the roaming network was made. The copies of the other holders
+are merged to the same commit everywhere. What waits - the change sets
+waiting for signatures, and the changes of the holders - waits at every one of
+them, exchanged between them, and a change set is committed by the hub where
+it got the last signature. So a holder is admitted or dismissed, a change set
+approved and a signing key renewed while any way between the hubs is open,
+whichever hub is away: also the one that made the roaming network, which the
+others dismiss without it. `GET /api/v1/poi/shareholders/{id}/withdrawals`
+tells the change sets somebody withdrew, and `POST …/changes` takes a change
+of the holders another hub has waiting. The copies of the other holders
 are those the roaming network names, its `urls`, and those the hub is told of,
 `alsoAt` in its configuration; `GET /api/v1/poi/followed` says them as
 `"alsoAt": [ { "url", "connected" } ]`. See phase 7 of
