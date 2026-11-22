@@ -182,7 +182,7 @@ namespace cloud.charging.open.RoamingHub.Tests
         /// </remarks>
         protected async Task<HttpClient> SignedIn()
 
-            => await SignedInAs(RoamingHub.DefaultAdminUser, Password);
+            => await SignedInAs(RoamingHub.DefaultAdminUser.ToString(), Password);
 
         #endregion
 

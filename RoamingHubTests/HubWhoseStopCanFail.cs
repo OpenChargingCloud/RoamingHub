@@ -43,7 +43,7 @@ namespace cloud.charging.open.RoamingHub.Tests
                                               WWCPConfigFile  ConfigFile,
                                               TimeProvider?   Clock)
 
-        : RoamingHub(HTTPPort:        IPPort.Parse(TestPorts.Free()),
+        : RoamingHub(HTTPPort:        TestPorts.Free(),
                      AccountsPath:    AccountsPath,
                      ConfigFile:      ConfigFile,
                      LogToConsole:    false,

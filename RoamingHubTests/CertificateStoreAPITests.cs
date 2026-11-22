@@ -72,7 +72,7 @@ namespace cloud.charging.open.RoamingHub.Tests
             File.WriteAllText(file, """{ "nts": { "groups": { "legal": { "enabled": false } } } }""");
 
             hub        = await TestPorts.StartedOnFreshPorts(() => new RoamingHub(
-                             HTTPPort:          IPPort.Parse(TestPorts.Free()),
+                             HTTPPort:          TestPorts.Free(),
                              AccountsPath:      Path.Combine(directory, "accounts"),
                              ConfigFile:        new WWCPConfigFile(file),
                              CertificatesPath:  Path.Combine(directory, "certificates"),

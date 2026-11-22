@@ -136,14 +136,14 @@ namespace cloud.charging.open.RoamingHub.Tests
         /// <summary>
         /// One on the given port, with its routes, and not yet listening.
         /// </summary>
-        private static StubPeer Made(UInt16   Port,
+        private static StubPeer Made(IPPort   Port,
                                      String   Role,
                                      String   PartyId,
                                      String   Version,
                                      Boolean  WithHubClientInfo)
         {
 
-            var server  = new HTTPServer(IPAddress: IPv4Address.Localhost, TCPPort: IPPort.Parse(Port));
+            var server  = new HTTPServer(IPAddress: IPv4Address.Localhost, TCPPort: Port);
             var origin  = $"http://127.0.0.1:{Port}";
             var stub    = new StubPeer(server, $"{origin}/versions");
             var api     = server.AddHTTPAPI(HTTPPath.Root);

@@ -553,7 +553,7 @@ namespace cloud.charging.open.RoamingHub.Tests
         /// An account of the given name, in the group of the given role, if any, and an API key of it, made the way the
         /// "apiKeys" command makes one; the key.
         /// </summary>
-        private async Task<String> AccountWithAPIKey(String         Name,
+        private async Task<String> AccountWithAPIKey(User_Id        Name,
                                                      String?        Role     = null,
                                                      APIKeyRights   Rights   = APIKeyRights.ReadWrite)
         {
@@ -561,12 +561,12 @@ namespace cloud.charging.open.RoamingHub.Tests
             Assert.That(RoamingHub.ExtAPI.TryGetOrganization(Organization_Id.Parse(RoamingHub.DefaultOrganization), out var organization) &&
                         organization is Organization, Is.True, "the hub's organization is not there");
 
-            if (!RoamingHub.ExtAPI.TryGetUser(User_Id.Parse(Name), out var account))
+            if (!RoamingHub.ExtAPI.TryGetUser(Name, out var account))
             {
 
                 account = await RoamingHub.ExtAPI.CreateUser(
-                                    User_Id.Parse(Name),
-                                    I18NString.Create(Languages.en, Name),
+                                    Name,
+                                    I18NString.Create(Languages.en, Name.ToString()),
                                     SimpleEMailAddress.Parse($"{Name}@localhost"),
                                     User2OrganizationEdgeLabel.IsMember,
                                     (Organization) organization!,
@@ -577,7 +577,7 @@ namespace cloud.charging.open.RoamingHub.Tests
                                     IsAuthenticated:           true
                                 );
 
-                Assert.That(RoamingHub.ExtAPI.TryGetUser(User_Id.Parse(Name), out account), Is.True, $"the account '{Name}' was not made");
+                Assert.That(RoamingHub.ExtAPI.TryGetUser(Name, out account), Is.True, $"the account '{Name}' was not made");
 
             }
 
@@ -810,9 +810,9 @@ namespace cloud.charging.open.RoamingHub.Tests
 
             await QAWithTwoOperators();
 
-            var feedKey               = await AccountWithAPIKey("gefapp", "gef-feed");
-            var readOnlyKey           = await AccountWithAPIKey("gefapp", Rights: APIKeyRights.ReadOnly);
-            var otherKey              = await AccountWithAPIKey("other");
+            var feedKey               = await AccountWithAPIKey(User_Id.Parse("gefapp"), "gef-feed");
+            var readOnlyKey           = await AccountWithAPIKey(User_Id.Parse("gefapp"), Rights: APIKeyRights.ReadOnly);
+            var otherKey              = await AccountWithAPIKey(User_Id.Parse("other"));
 
             await using var feed      = await WebSocketClient.Connect(URL, WithAPIKey(feedKey));
             await using var readOnly  = await WebSocketClient.Connect(URL, WithAPIKey(readOnlyKey));

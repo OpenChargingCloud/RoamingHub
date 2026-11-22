@@ -309,7 +309,7 @@ it registers, and the URLs those lead to. The hub goes to the public internet
 and nowhere else unless `peerNetworks` says so - not to itself, its private,
 shared or link-local networks, the metadata service of a cloud at
 169.254.169.254, nor their IPv6 and NAT64 twins (POI3-ISSUES.md S19). Every
-address a name resolves to is checked when it is dialled, so a name rebound
+address a name resolves to is checked when it is connected to, so a name rebound
 to a private address after a first look does not get there; an address that
 is refused is answered like one nobody answers at. Rules come first, in their
 order, the first that matches deciding:
@@ -353,7 +353,7 @@ refuses it the same way.
 
 A name server reached over TLS or HTTPS shows a certificate, and is judged by
 it at every handshake the way a time server is at its key exchange - see
-below: issued for the address it is dialled at, chaining to a root this
+below: issued for the address it is reached at, chaining to a root this
 machine trusts or to a TLS root of the hub's store kept for `dns`, and, where
 its entry says so, one it is held to:
 

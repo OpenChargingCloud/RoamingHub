@@ -126,7 +126,7 @@ namespace cloud.charging.open.RoamingHub.Tests
             var hub = await TestPorts.StartedOnFreshPorts(() => {
 
                 var home  = Path.Combine(directory, "hub" + hubs.Count);
-                var made  = new RoamingHub(HTTPPort:        IPPort.Parse(TestPorts.Free()),
+                var made  = new RoamingHub(HTTPPort:        TestPorts.Free(),
                                            AccountsPath:    Path.Combine(home, "accounts"),
                                            ConfigFile:      TestRoamingHubs.ConfigFile(home, Configuration ?? TestRoamingHubs.Offline),
                                            LogToConsole:    false,
@@ -214,7 +214,7 @@ namespace cloud.charging.open.RoamingHub.Tests
 
             using var page          = await http.GetAsync("");
             using var signIn        = await http.PostAsync("ext/login", new FormUrlEncodedContent([
-                                                                            new KeyValuePair<String, String>("login",     RoamingHub.DefaultAdminUser),
+                                                                            new KeyValuePair<String, String>("login",     RoamingHub.DefaultAdminUser.ToString()),
                                                                             new KeyValuePair<String, String>("password",  hub.GeneratedPassword!)
                                                                         ]));
             using var status        = await http.GetAsync("api/v1/status");
@@ -277,8 +277,8 @@ namespace cloud.charging.open.RoamingHub.Tests
             for (var guess = 1; guess <= 10; guess++)
                 using (await SignIn(hub, "nobody", $"Not-The-Password-{guess}", ("X-Forwarded-For", "192.0.2.7"), ("X-Forwarded-Proto", "https"))) { }
 
-            using var guesser = await SignIn(hub, RoamingHub.DefaultAdminUser, hub.GeneratedPassword!, ("X-Forwarded-For", "192.0.2.7"),    ("X-Forwarded-Proto", "https"));
-            using var other   = await SignIn(hub, RoamingHub.DefaultAdminUser, hub.GeneratedPassword!, ("X-Forwarded-For", "198.51.100.4"), ("X-Forwarded-Proto", "https"));
+            using var guesser = await SignIn(hub, RoamingHub.DefaultAdminUser.ToString(), hub.GeneratedPassword!, ("X-Forwarded-For", "192.0.2.7"),    ("X-Forwarded-Proto", "https"));
+            using var other   = await SignIn(hub, RoamingHub.DefaultAdminUser.ToString(), hub.GeneratedPassword!, ("X-Forwarded-For", "198.51.100.4"), ("X-Forwarded-Proto", "https"));
 
             var session       = other.Headers.TryGetValues("Set-Cookie", out var cookies)
                                     ? cookies.FirstOrDefault(cookie => cookie.StartsWith($"{hub.ExtAPI.SessionCookieName}=", StringComparison.Ordinal))

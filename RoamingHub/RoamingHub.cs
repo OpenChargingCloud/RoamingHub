@@ -265,7 +265,7 @@ namespace cloud.charging.open.RoamingHub
                           HTTPPath?              HTTPRootPath       = null,
                           HTTPExtAPI?            ExtAPI             = null,
                           String?                AccountsPath       = null,
-                          IIPAddress?            HTTPHostname       = null,
+                          IPAddress?            HTTPHostname       = null,
                           IPPort?                HTTPPort           = null,
                           WWCPConfigFile?        ConfigFile         = null,
                           OCPIConfiguration?     OCPI               = null,

@@ -331,9 +331,9 @@ namespace cloud.charging.open.RoamingHub
             // nobody but this event. Which file and why - not the line, which
             // can hold a session, a CDR or a token.
             // A peer hands in the URL its versions are fetched from, and the URLs
-            // they lead to: dialled only on the public internet, and in the
+            // they lead to: connected to only on the public internet, and in the
             // networks the configuration allows - checked against every address
-            // a name resolves to, at the moment it is dialled.
+            // a name resolves to, at the moment it is connected to.
             ocpiAPI.RemoteNetworkAcl = ocpiSettings.EffectivePeerNetworks;
 
             if (ocpiSettings.PeerNetworks is { Count: > 0 } peerNetworks)

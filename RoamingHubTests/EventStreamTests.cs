@@ -119,7 +119,7 @@ namespace cloud.charging.open.RoamingHub.Tests
         /// group of the given role - made the way the hub makes its first one,
         /// so that it may sign in - and its password.
         /// </summary>
-        private async Task<(User Account, String Password)> AnAccountIn(String  Name,
+        private async Task<(User Account, String Password)> AnAccountIn(User_Id Name,
                                                                         String  Role)
         {
 
@@ -129,8 +129,8 @@ namespace cloud.charging.open.RoamingHub.Tests
                         organization is Organization, Is.True, "the hub's organization is not there");
 
             await RoamingHub.ExtAPI.CreateUser(
-                      User_Id.Parse(Name),
-                      I18NString.Create(Languages.en, Name),
+                      Name,
+                      I18NString.Create(Languages.en, Name.ToString()),
                       SimpleEMailAddress.Parse($"{Name}@localhost"),
                       User2OrganizationEdgeLabel.IsMember,
                       (Organization) organization!,
@@ -142,7 +142,7 @@ namespace cloud.charging.open.RoamingHub.Tests
                       IsAuthenticated:           true
                   );
 
-            Assert.That(RoamingHub.ExtAPI.TryGetUser(User_Id.Parse(Name), out var account),        Is.True, $"the account '{Name}' was not made");
+            Assert.That(RoamingHub.ExtAPI.TryGetUser(Name, out var account),        Is.True, $"the account '{Name}' was not made");
             Assert.That(RoamingHub.ExtAPI.TryGetUserGroup(UserGroup_Id.Parse(Role), out var group), Is.True, $"the hub has no group '{Role}'");
 
             var joined = await RoamingHub.ExtAPI.AddUserToUserGroup((User) account!, User2UserGroupEdgeLabel.IsMember, (UserGroup) group!);
@@ -264,7 +264,7 @@ namespace cloud.charging.open.RoamingHub.Tests
 
             RoamingHub.API.EventStreamHeartbeat = TimeSpan.FromMilliseconds(300);
 
-            var (account, password) = await AnAccountIn("operator", "hub");
+            var (account, password) = await AnAccountIn(User_Id.Parse("operator"), "hub");
 
             using var http          = await SignedInAs("operator", password);
 

@@ -17,6 +17,7 @@
 
 #region Usings
 
+using org.GraphDefined.Vanaheimr.Hermod;
 using System.Text;
 
 using Newtonsoft.Json.Linq;
@@ -157,12 +158,12 @@ namespace cloud.charging.open.RoamingHub.Tests
 
             Assert.Multiple(() => {
 
-                Assert.That(rules.Allows(IP("192.168.7.10"),    443), Is.True,  "allowed by the file");
-                Assert.That(rules.Allows(IP("192.168.8.10"),    443), Is.False, "another private network");
-                Assert.That(rules.Allows(IP("127.0.0.1"),       443), Is.False);
-                Assert.That(rules.Allows(IP("169.254.169.254"), 80),  Is.False, "the metadata service of a cloud");
-                Assert.That(rules.Allows(IP("8.8.8.8"),         443), Is.True,  "the public internet");
-                Assert.That(new OCPIConfiguration().EffectivePeerNetworks.Allows(IP("10.1.2.3"), 443), Is.False, "without rules as well");
+                Assert.That(rules.Allows(IP("192.168.7.10"),    IPPort.Parse(443)), Is.True,  "allowed by the file");
+                Assert.That(rules.Allows(IP("192.168.8.10"),    IPPort.Parse(443)), Is.False, "another private network");
+                Assert.That(rules.Allows(IP("127.0.0.1"),       IPPort.Parse(443)), Is.False);
+                Assert.That(rules.Allows(IP("169.254.169.254"), IPPort.Parse(80)),  Is.False, "the metadata service of a cloud");
+                Assert.That(rules.Allows(IP("8.8.8.8"),         IPPort.Parse(443)), Is.True,  "the public internet");
+                Assert.That(new OCPIConfiguration().EffectivePeerNetworks.Allows(IP("10.1.2.3"), IPPort.Parse(443)), Is.False, "without rules as well");
 
                 Assert.That(configuration.ToJSON()["peerNetworks"]?.Values<String>(),
                             Is.EqualTo(new[] { "192.168.7.0/24 => ALLOW", "203.0.113.0/24 => DENY" }));

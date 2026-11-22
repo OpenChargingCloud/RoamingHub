@@ -78,7 +78,7 @@ namespace cloud.charging.open.RoamingHub.Tests
         /// The command, typed over SSH by an account of the given name, made
         /// for the purpose and put in the group of the given role.
         /// </summary>
-        private async Task<String[]> RunOverSSHAs(String  Login,
+        private async Task<String[]> RunOverSSHAs(User_Id Login,
                                                   String  Role,
                                                   String  Command)
         {
@@ -87,8 +87,8 @@ namespace cloud.charging.open.RoamingHub.Tests
                         organization is Organization, Is.True, "the hub's organization is not there");
 
             await RoamingHub.ExtAPI.CreateUser(
-                      User_Id.Parse(Login),
-                      I18NString.Create(Languages.en, Login),
+                      Login,
+                      I18NString.Create(Languages.en, Login.ToString()),
                       SimpleEMailAddress.Parse($"{Login}@localhost"),
                       User2OrganizationEdgeLabel.IsMember,
                       (Organization) organization!,
@@ -100,7 +100,7 @@ namespace cloud.charging.open.RoamingHub.Tests
                       IsAuthenticated:           true
                   );
 
-            Assert.That(RoamingHub.ExtAPI.TryGetUser     (User_Id.     Parse(Login), out var account),  Is.True, $"the account '{Login}' was not made");
+            Assert.That(RoamingHub.ExtAPI.TryGetUser     (User_Id.     Parse(Login.ToString()), out var account),  Is.True, $"the account '{Login}' was not made");
             Assert.That(RoamingHub.ExtAPI.TryGetUserGroup(UserGroup_Id.Parse(Role),  out var group),    Is.True, $"the hub has no group '{Role}'");
             Assert.That((await RoamingHub.ExtAPI.AddUserToUserGroup((User) account!, User2UserGroupEdgeLabel.IsMember, (UserGroup) group!)).IsSuccess,
                         Is.True, $"'{Login}' could not be put in '{Role}'");
@@ -384,11 +384,11 @@ namespace cloud.charging.open.RoamingHub.Tests
 
             var signingKeyBefore  = RoamingHub.NetworkOperator.SigningKey.Id;
 
-            var listed            = await RunOverSSHAs("looker", "viewer", "roamingNetworks");
-            var made              = await RunOverSSHAs("maker",  "viewer", "roamingNetworks add OTHER");
-            var added             = await RunOverSSHAs("adder",  "viewer", "roamingNetworks QA add gridOperator DE*GRD");
-            var rotated           = await RunOverSSHAs("rotor",  "viewer", "roamingNetworkOperator rotate signingKey");
-            var renamed           = await RunOverSSHAs("namer",  "viewer", "roamingNetworkOperator name Somebody Else");
+            var listed            = await RunOverSSHAs(User_Id.Parse("looker"), "viewer", "roamingNetworks");
+            var made              = await RunOverSSHAs(User_Id.Parse("maker"),  "viewer", "roamingNetworks add OTHER");
+            var added             = await RunOverSSHAs(User_Id.Parse("adder"),  "viewer", "roamingNetworks QA add gridOperator DE*GRD");
+            var rotated           = await RunOverSSHAs(User_Id.Parse("rotor"),  "viewer", "roamingNetworkOperator rotate signingKey");
+            var renamed           = await RunOverSSHAs(User_Id.Parse("namer"),  "viewer", "roamingNetworkOperator name Somebody Else");
 
             Assert.Multiple(() => {
 

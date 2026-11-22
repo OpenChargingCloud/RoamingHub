@@ -70,7 +70,7 @@ namespace cloud.charging.open.RoamingHub.Tests
             // Its log on neither the console nor the disk: a test run's
             // console is for the test run.
             return new RoamingHub(
-                       HTTPPort:         IPPort.Parse(TestPorts.Free()),
+                       HTTPPort:         TestPorts.Free(),
                        AccountsPath:     Path.Combine(Directory, "accounts"),
                        ConfigFile:       configFile,
                        LogToConsole:     false,
