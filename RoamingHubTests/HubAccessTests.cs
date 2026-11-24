@@ -272,6 +272,9 @@ namespace cloud.charging.open.RoamingHub.Tests
         [TestCase("viewer",       "nts:run",            false)]
         [TestCase("viewer",       "ssh:read",           false)]
         [TestCase("viewer",       "poi:edit",           false)]
+        [TestCase("viewer",       "state:read",         true)]
+        [TestCase("viewer",       "state:run",          false)]
+        [TestCase("viewer",       "reset:run",          false)]
 
         [TestCase("hub",          "dns:edit",           true)]
         [TestCase("hub",          "dns:run",            true)]
@@ -286,6 +289,9 @@ namespace cloud.charging.open.RoamingHub.Tests
         [TestCase("hub",          "ssh:read",           false)]
         [TestCase("hub",          "ssh:edit",           false)]
         [TestCase("hub",          "poi:edit",           false)]
+        [TestCase("hub",          "state:read",         true)]
+        [TestCase("hub",          "state:run",          false)]
+        [TestCase("hub",          "reset:run",          false)]
 
         [TestCase("systemadmin",  "peers:edit",         true)]
         [TestCase("systemadmin",  "peers:run",          true)]

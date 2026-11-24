@@ -117,8 +117,9 @@ namespace cloud.charging.open.RoamingHub
         #region Roles
 
         /// <summary>
-        /// May look at this hub and at who is on it, and do nothing to it -
-        /// and may not read what the peers say to each other.
+        /// May look at this hub, at who is on it and at what is going on in it,
+        /// and do nothing to it - and may not read what the peers say to each
+        /// other.
         /// </summary>
         public static readonly Role  Viewer  = new ("viewer",
                                                     [ Permission.Read(NodeResources.Configuration),
@@ -126,13 +127,15 @@ namespace cloud.charging.open.RoamingHub
                                                       Permission.Read(NodeResources.NTS),
                                                       Permission.Read(NodeResources.Certificates),
                                                       Permission.Read(NodeResources.Log),
+                                                      Permission.Read(NodeResources.State),
                                                       Permission.Read(Peers) ],
                                                     "looks at the hub and its peers, and not at their traffic");
 
         /// <summary>
-        /// Whoever runs this hub: everything the viewer may do, and on top of it
-        /// where it resolves names and reads the time, asking those servers
-        /// whether they work, and what went between the peers.
+        /// Whoever runs this hub: everything the viewer may do, its state
+        /// included, and on top of it where it resolves names and reads the
+        /// time, asking those servers whether they work, and what went between
+        /// the peers.
         /// </summary>
         /// <remarks>
         /// Day-to-day operation. A hub is run by whoever is asked why a CPO and
@@ -151,6 +154,7 @@ namespace cloud.charging.open.RoamingHub
                                                       Permission.Run (NodeResources.NTS),
                                                       Permission.Read(NodeResources.Certificates),
                                                       Permission.Read(NodeResources.Log),
+                                                      Permission.Read(NodeResources.State),
                                                       Permission.Read(Peers),
                                                       Permission.Read(Traffic) ],
                                                     "runs the hub: its name and time servers, and what goes between the peers");

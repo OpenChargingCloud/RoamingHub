@@ -1106,7 +1106,7 @@ A hub has four roles:
 | `peers` | read | - | read | everything |
 | `log` | read | - | read | everything |
 | `traffic` | - | - | read | everything |
-| `state` | - | read, run | - | everything |
+| `state` | read | read, run | read | everything |
 | `reset` | - | run | - | everything |
 | `poi` | - | - | - | everything |
 | `poi-status` | - | - | - | everything, where `statusRoles` binds it |
@@ -1132,7 +1132,9 @@ everybody who may look at the configuration should read.
 The `support` is the node's, as every node has it: an operator's telephone
 support, who sees what is going on and has it reported again (`state`) and
 restarts the hub once it is idle (`reset`), and reads nothing of the hub's -
-not its configuration, not its log, not its traffic.
+not its configuration, not its log, not its traffic. The `viewer` and the `hub`
+read the `state` too, as what is going on is part of what they look at, but
+neither has it reported again nor restarts the hub.
 
 The `roles` section of the configuration file adds roles, or says differently
 what `viewer` or `hub` may do:
