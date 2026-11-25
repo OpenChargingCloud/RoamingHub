@@ -1,5 +1,7 @@
 # RoamingHub
 
+![The EV charging test environment, the roaming hub (RN) highlighted](docs/EVChargingTestEnvironment.svg)
+
 One OCPI roaming hub, with a JSON API in front of it: a C# HTTP backend built
 on [Hermod](https://github.com/Vanaheimr/Hermod) and the
 [OCPI library](https://github.com/OpenChargingCloud/WWCP_OCPI).
