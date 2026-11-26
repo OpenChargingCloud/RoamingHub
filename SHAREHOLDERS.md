@@ -132,8 +132,9 @@ Open:
   so follows the one before (*A holder named later*, phase 6): a hub following goes on. A trust anchor from before a holder was admitted or dismissed does not: the key statements
   in between lead on from it (*An old trust anchor*, phase 6). An
   identity key replaced does not either: it is replaced in two changes, whose key statements follow one another (phase 5).
-- **A hub does not say where its roaming networks are:** the `urls` of a roaming network it makes are empty, so
-  the trust anchor it serves names the URL it was asked at.
+- **A hub does not say where its roaming networks are,** unless its configuration says where it is reached:
+  `url`, since phase 6.3. Without it the `urls` of a roaming network it makes are empty, and the trust anchor it
+  serves names the URL it was asked at.
 - **OCPI and DATEX II** read the roaming networks of this hub: whether a copy is published by them is not decided,
   and DATEX II does not publish it.
 
@@ -233,7 +234,7 @@ Open:
   store; before, it was forgotten unless its change set was made, which the history keeps.
 - **The hub that makes the roaming network does not resign**, and a dismissal begins there.
 - **The URL of a copy** is taken into the roaming network only where it is one over https, `~/RNs/{id}`; a hub
-  does not say its own by itself.
+  says its own where its configuration says where it is reached (`url`, phase 6.3).
 
 
 ## Phase 5: operating under a quorum
@@ -460,11 +461,18 @@ keeps the changes of the operator with a person, so admitting stays one command 
 `follow` saying anything else is refused.
 
 - **`url`** is a URL over http or https without a query. A roaming network made from then on names
-  `{url}/RNs/{RN_Id}` as its `urls` from its genesis; every trust anchor served, of a roaming network made here or
-  of a copy, names it first (`POI_API.PublicURL`); and a hub asking to hold keys says it as the URL of its copy,
-  where it is https and nobody said another one.
-- **Not built of `url`:** a roaming network made before does not get it into its `urls` - that were a change set,
-  waiting for the others under a quorum - but its trust anchor names it all the same.
+  `{url}/RNs/{RN_Id}` as its `urls` from its genesis, where it is https, as WWCP POI takes no other URL in the
+  `urls`; every trust anchor served, of a roaming network made here or of a copy, names it first
+  (`POI_API.PublicURL`), over http as well; and a hub asking to hold keys says it as the URL of its copy, where it
+  is https and nobody said another one.
+- **A roaming network not naming it yet** - made before `url` was said, or held since without it, e.g. by a hub
+  that moved - is given it at the start (`NameWhereReachedAsConfigured()`): a change set of its `urls`, the URL of
+  this hub after those it names, signed by this hub as a holder of the keys of its operator, which owns them. Where
+  this hub decides alone, it is committed at once; where several decide, it waits for the others and is told to
+  their hubs, as everything the operator owns, and it is not made again while it waits. Not where this hub holds no
+  key of the operator, nor over http, nor where the roaming network names the most URLs it may (16).
+- **Not built of `url`:** a URL this hub was reached at before stays in the `urls`: nothing says which of them was
+  its own. Removing one is a change set of the `urls` like any other.
 - **`follow`** is done after the start, in the background, `FollowAsConfigured()`: what is followed already is left
   as it is, and a roaming network this hub makes itself is not followed, which its log says. The trust anchor names
   where, unless `url` of the entry does.

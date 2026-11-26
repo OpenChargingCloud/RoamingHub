@@ -453,7 +453,9 @@ namespace cloud.charging.open.RoamingHub
             // Attest the heads of the roaming networks this hub operates, and state its keys anew in time: see RoamingHub.Attestations.cs.
             StartAttesting();
 
-            // Follow what the "poi" section names and is not followed yet: see RoamingHub.POIConfigured.cs.
+            // Have the roaming networks this hub holds keys of name where it is reached, as the "poi" section says,
+            // and follow what it names and is not followed yet: see RoamingHub.POIConfigured.cs.
+            NameWhereReachedAsConfigured();
             _ = FollowAsConfigured();
 
             Log.Info   ($"The JSON API is at {APIURL}v1/status", "web", "http");

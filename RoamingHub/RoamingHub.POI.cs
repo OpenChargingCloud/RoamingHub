@@ -477,8 +477,8 @@ namespace cloud.charging.open.RoamingHub
                                              Description:  Description is not null && !Description.IsNullOrEmpty() ? new ImmutableI18NString(Description) : null,
                                              // Stating its keys from the genesis on: see RoamingHub.Attestations.cs.
                                              Operator:     OperatorStatingItsKeys(Id, TimeProvider.GetUtcNow()),
-                                             // Where this hub is reached, where the "poi" section says so: see RoamingHub.POIConfigured.cs.
-                                             URLs:         poiConfiguration.URLOf(Id) is URL reachedAt ? [ reachedAt ] : null);
+                                             // Where this hub is reached, where the "poi" section says so, over https: see RoamingHub.POIConfigured.cs.
+                                             URLs:         CopyURLOf(Id) is URL reachedAt ? [ reachedAt ] : null);
             }
             catch (Exception e)
             {

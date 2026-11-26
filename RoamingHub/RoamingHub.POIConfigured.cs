@@ -17,6 +17,9 @@
 
 #region Usings
 
+using Newtonsoft.Json.Linq;
+
+using org.GraphDefined.Vanaheimr.Illias;
 using org.GraphDefined.Vanaheimr.Hermod.HTTP;
 
 using cloud.charging.open.protocols.WWCP.POI;
@@ -43,7 +46,10 @@ namespace cloud.charging.open.RoamingHub
     /// "url": where the POI API of this hub is reached. No hub knows its own public URL, so without it the trust
     /// anchor of a roaming network names the URL it was asked at, and a roaming network names no copies. With it, a
     /// roaming network made here names it from its genesis on, every trust anchor served here names it first, and
-    /// this hub says it as the URL of its copy when it asks to hold the keys of an operator, over https.
+    /// this hub says it as the URL of its copy when it asks to hold the keys of an operator. A roaming network that
+    /// does not name it yet, made before or held since without it, is given it at the start (NameWhereReachedAsConfigured).
+    /// A roaming network names it over https only, as WWCP POI takes no other: over http it is named by the trust
+    /// anchors alone.
     /// </para>
     /// <para>
     /// "follow": a roaming network followed already goes on from the trust anchor it has got to. "hold" asks once,
@@ -118,6 +124,152 @@ namespace cloud.charging.open.RoamingHub
             }
 
             return said;
+
+        }
+
+        #endregion
+
+        #region NameWhereReachedAsConfigured()
+
+        /// <summary>
+        /// Have each roaming network whose operator this hub holds keys of name where this hub serves it, as the
+        /// configuration says ("url"), where it does not yet: one made here before the configuration said it, or one
+        /// followed and held without it. By a change set of its "urls", the URL of this hub after those it names,
+        /// signed by this hub as a holder of the keys of the operator, which owns them: committed at once where this
+        /// hub decides alone, waiting for the other holders where several decide, as every change of what the
+        /// operator owns, and told to their hubs. Not made again while one of it waits. At the start, as the
+        /// configuration says where this hub is reached from then on.
+        /// </summary>
+        /// <remarks>
+        /// A URL this hub was reached at before stays: nothing says which of the URLs a roaming network names was
+        /// this hub's.
+        /// </remarks>
+        /// <returns>What became of each, said.</returns>
+        public IReadOnlyList<String> NameWhereReachedAsConfigured()
+        {
+
+            var said = new List<String>();
+
+            foreach (var id in POI.RoamingNetworks.Select(network => network.Id).
+                                                   OrderBy(id => id.ToString(), StringComparer.OrdinalIgnoreCase).
+                                                   ToArray())
+            {
+
+                // None said, or not over https.
+                if (CopyURLOf(id) is not URL url)
+                    break;
+
+                try
+                {
+
+                    RoamingNetworkChangeSet        changeSet;
+                    RoamingNetworkCoSigningResult  result;
+
+                    lock (networkOperatorLock)
+                    {
+
+                        if (!POI.TryGetRoamingNetworkHistory(id, out var history))
+                            continue;
+
+                        var network = history.Head.RoamingNetwork;
+
+                        // Named already, or this hub holds no key of its operator: then whoever does names its copies.
+                        if (network.URLs.Contains(url) || NetworkOperator.SigningKeyIdIn(network) is null)
+                            continue;
+
+                        // Waiting already, e.g. since the last start.
+                        if (history.PendingChangeSets.Any(pending => pending.Changes.Any(change => change.PropertyName == POINetworkURLs.JSONProperty &&
+                                                                                                   change.NewValue is JArray urls &&
+                                                                                                   urls.Any(named => named.Type == JTokenType.String &&
+                                                                                                                     named.Value<String>() == url.ToString()))))
+                        {
+                            continue;
+                        }
+
+                        if (network.URLs.Length >= POINetworkURLs.MaxCount)
+                        {
+                            said.Add($"The roaming network '{id}' does not name '{url}', where this hub serves it: it names {network.URLs.Length} URLs, the most it may.");
+                            Log.Warning(said[^1], "poi", "config");
+                            continue;
+                        }
+
+                        changeSet = SignedAsItsOperator(
+                                        network,
+                                        network.CreateChangeSet(
+                                            [ RoamingNetworkChange.UpdateProperty(network,
+                                                                                  POINetworkURLs.JSONProperty,
+                                                                                  null,
+                                                                                  POINetworkURLs.ToJSON(network.URLs.Append(url))) ],
+                                            Description: new ImmutableI18NString(I18NString.Create(Languages.en, $"The roaming network '{id}' names where '{NetworkOperator.Id}' serves it: '{url}'."))
+                                        )
+                                    );
+
+                        result = history.CoSign(changeSet);
+
+                    }
+
+                    if (result.Status == RoamingNetworkCoSigningStatus.Pending)
+                    {
+                        said.Add($"As the configuration says: the roaming network '{id}' names '{url}', where this hub serves it, once the other holders of the keys of its operator " +
+                                 $"signed the change set '{changeSet.Id}', '{CommandLine.RoamingNetworksCommand.CommandName} {id} approve {changeSet.Id}' at their hubs. Signed by this hub, it waits until then.");
+                        Log.Notice(said[^1], "poi", "config");
+                        TellTheOthers(id);
+                    }
+
+                    else if (result.IsCommitted && result.Commit is not null)
+                    {
+                        said.Add($"As the configuration says: the roaming network '{id}' names '{url}' now, where this hub serves it, at revision {result.Commit.Revision}, commit {result.Commit.Id}.");
+                        Log.Notice(said[^1], "poi", "config");
+                        TellTheOthers(id);
+                    }
+
+                    else
+                    {
+                        said.Add($"The roaming network '{id}' does not name '{url}', where this hub serves it: {result.ErrorResponse}");
+                        Log.Error(said[^1], "poi", "config");
+                    }
+
+                }
+                catch (Exception e)
+                {
+                    said.Add($"The roaming network '{id}' does not name '{url}', where this hub serves it: {e.Message}");
+                    Log.Exception(e, said[^1], "poi", "config");
+                }
+
+            }
+
+            return said;
+
+        }
+
+        #endregion
+
+        #region (private) TellTheOthers(RoamingNetworkId)
+
+        /// <summary>
+        /// What was committed or waits in the copy of a roaming network followed goes to the other holders' hubs at
+        /// once, not waited for (SHAREHOLDERS.md, phase 7.3). Where this hub made the roaming network, they are told,
+        /// and ask.
+        /// </summary>
+        private void TellTheOthers(RoamingNetwork_Id RoamingNetworkId)
+        {
+
+            FollowedRoamingNetwork? network;
+
+            lock (poiLock)
+                followed.TryGetValue(RoamingNetworkId, out network);
+
+            if (network is not null)
+                _ = Task.Run(async () => {
+                        try
+                        {
+                            await ExchangePending(network);
+                        }
+                        catch (Exception e)
+                        {
+                            Log.Exception(e, $"The roaming network '{RoamingNetworkId}': where this hub serves it could not be told to the other holders' hubs.", "poi", "config");
+                        }
+                    });
 
         }
 

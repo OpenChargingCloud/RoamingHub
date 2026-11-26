@@ -1000,20 +1000,136 @@ namespace cloud.charging.open.RoamingHub.Tests
 
         /// <summary>
         /// A roaming network made at a hub that says where it is reached names that URL from its genesis on; one made
-        /// at a hub that does not, names none.
+        /// at a hub that does not, names none. Nor does one made at a hub reached over http, as WWCP POI takes no other
+        /// URL than https: it is made all the same, and its trust anchor names where the hub is reached.
         /// </summary>
         [Test]
         public async Task ARoamingNetworkMadeNamesWhereItsHubIsReached()
         {
 
             var reached  = await AnotherHub(POI: new JObject(new JProperty("url", "https://hub-c.example/poi/")));
+            var plain    = await AnotherHub(POI: new JObject(new JProperty("url", "http://hub-d.example/poi")));
+
+            var made     = plain.CreateRoamingNetwork(RoamingNetwork_Id.Parse("QD"));
 
             Assert.That(reached.   CreateRoamingNetwork(RoamingNetwork_Id.Parse("QC")).Success,  Is.True);
             Assert.That(RoamingHub.CreateRoamingNetwork(RoamingNetwork_Id.Parse("QA")).Success,  Is.True);
 
+            using var http   = new HttpClient();
+            var plainAnchor  = await http.GetStringAsync($"{URLOf(plain, "QD")}/trustAnchor");
+
             Assert.Multiple(() => {
                 Assert.That(HistoryOf(reached,    "QC").Head.RoamingNetwork.URLs.Select(url => url.ToString()),  Is.EqualTo(new[] { "https://hub-c.example/poi/RNs/QC" }));
                 Assert.That(HistoryOf(RoamingHub, "QA").Head.RoamingNetwork.URLs,                                Is.Empty);
+                Assert.That(made.Success,                                                                        Is.True, made.Message);
+                Assert.That(HistoryOf(plain,      "QD").Head.RoamingNetwork.URLs,                                Is.Empty, "a URL over http in the roaming network");
+                Assert.That(plainAnchor,                                                                         Does.Contain("hub-d.example"));
+            });
+
+        }
+
+        #endregion
+
+        #region ARoamingNetworkMadeBeforeItsHubSaidWhereItIsReachedNamesItAfterARestart()
+
+        /// <summary>
+        /// A roaming network made at a hub before its configuration said where it is reached names that URL once the
+        /// hub started with it: by a change set of its "urls", committed at once where the hub decides alone. Once: a
+        /// start after that commits nothing.
+        /// </summary>
+        [Test]
+        public async Task ARoamingNetworkMadeBeforeItsHubSaidWhereItIsReachedNamesItAfterARestart()
+        {
+
+            var poi        = new JObject(new JProperty("url", "https://hub-e.example/poi"));
+
+            var hub        = await AnotherHub();
+            var directory  = others.Single().Directory;
+
+            Assert.That(hub.CreateRoamingNetwork(RoamingNetwork_Id.Parse("QE")).Success,  Is.True);
+
+            var before     = HistoryOf(hub, "QE").Head.RoamingNetwork.URLs;
+
+            await hub.DisposeAsync();
+            others.Clear();
+
+            var restarted  = await AnotherHub(directory, POI: poi);
+            var head       = HistoryOf(restarted, "QE").Head;
+            var again      = restarted.NameWhereReachedAsConfigured();
+
+            await restarted.DisposeAsync();
+            others.Clear();
+
+            var third      = await AnotherHub(directory, POI: poi);
+
+            Assert.Multiple(() => {
+                Assert.That(before,                                                           Is.Empty);
+                Assert.That(head.RoamingNetwork.URLs.Select(url => url.ToString()),           Is.EqualTo(new[] { "https://hub-e.example/poi/RNs/QE" }));
+                Assert.That(head.Commit.ChangeSet?.Changes.Single().PropertyName,             Is.EqualTo("urls"));
+                Assert.That(again,                                                            Is.Empty, String.Join(" ", again));
+                Assert.That(HistoryOf(third, "QE").Head.Commit.Id,                            Is.EqualTo(head.Commit.Id), "a start after the one naming it commits again");
+            });
+
+        }
+
+        #endregion
+
+        #region AHolderReachedElsewhereIsNamedOnceTheOthersApprove()
+
+        /// <summary>
+        /// A hub holding keys of the operator of a roaming network with another one, which says where it is reached
+        /// only after it was admitted, has the roaming network name it as well: its change set of the "urls" waits for
+        /// the other holder, as everything the operator owns where two decide, and is committed once that one approved
+        /// it. It is not made again while it waits.
+        /// </summary>
+        [Test]
+        public async Task AHolderReachedElsewhereIsNamedOnceTheOthersApprove()
+        {
+
+            var id         = RoamingNetwork_Id.Parse("QA");
+
+            Assert.That(RoamingHub.CreateRoamingNetwork(id).Success,  Is.True);
+
+            var second     = await Followed("QA");
+            var directory  = others.Single().Directory;
+            var beta       = second.NetworkOperator.Holder!;
+
+            Assert.That((await second.    JoinRoamingNetworkOperator(id)).Status,  Is.EqualTo(ShareholderChangeStatus.Waiting));
+            Assert.That((await RoamingHub.AdmitShareholder(id, beta)).Status,      Is.EqualTo(ShareholderChangeStatus.Waiting));
+            Assert.That((await second.    JoinRoamingNetworkOperator(id)).Status,  Is.EqualTo(ShareholderChangeStatus.Committed));
+
+            await CaughtUp("QA", second);
+
+            var qa         = HistoryOf(RoamingHub, "QA");
+            var before     = qa.Head.RoamingNetwork.URLs;
+
+            // Started again, now saying where it is reached.
+            await second.DisposeAsync();
+            others.Clear();
+
+            var restarted  = await AnotherHub(directory, POI: new JObject(new JProperty("url", "https://hub-b.example/poi")));
+            var waits      = HistoryOf(restarted, "QA").PendingChangeSets.ToArray();
+            var notTwice   = restarted.NameWhereReachedAsConfigured();
+
+            // Told to the hub where the roaming network is made, and approved there.
+            await restarted. AdvanceShareholders();
+            await RoamingHub.AdvanceShareholders();
+
+            var arrived    = await Until(() => qa.PendingChangeSets.Count == 1);
+            var approved   = arrived
+                                 ? await RoamingHub.ApprovePendingChangeSet(id, qa.PendingChangeSets.Single().Id)
+                                 : null;
+            var named      = await Until(() => qa.Head.RoamingNetwork.URLs.Length == 1);
+
+            Assert.Multiple(() => {
+                Assert.That(before,                                                       Is.Empty);
+                Assert.That(waits.Length,                                                 Is.EqualTo(1), "the change set of the urls does not wait at the hub saying it");
+                Assert.That(waits.FirstOrDefault()?.Changes.Single().PropertyName,        Is.EqualTo("urls"));
+                Assert.That(notTwice,                                                     Is.Empty, String.Join(" ", notTwice));
+                Assert.That(arrived,                                                      Is.True, "the change set does not reach the hub where the roaming network is made");
+                Assert.That(approved?.Success,                                            Is.True, approved?.Message);
+                Assert.That(named,                                                        Is.True, "the roaming network does not name the copy");
+                Assert.That(qa.Head.RoamingNetwork.URLs.Select(url => url.ToString()),    Is.EqualTo(new[] { "https://hub-b.example/poi/RNs/QA" }));
             });
 
         }

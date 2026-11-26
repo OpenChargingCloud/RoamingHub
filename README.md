@@ -951,7 +951,12 @@ start and done as if somebody had said it then. `url` says where the POI API
 of this hub is reached, as no hub knows its own public URL: a roaming network
 made from then on names `{url}/RNs/{id}` among its `urls`, every trust anchor
 served here names it first, and the hub says it as the URL of its copy when it
-asks to hold the keys of an operator, over https. `follow` names the roaming
+asks to hold the keys of an operator, over https. A roaming network that does
+not name it yet - made before, or held since without it - is given it at the
+start, by a change set of its `urls` that waits for the other holders where
+several decide; a roaming network names it over https only, as WWCP POI takes
+no other, so a hub reached over http is named by its trust anchors alone.
+`follow` names the roaming
 networks of other servers to follow, each by its trust anchor - the text of
 its QR code, or its URL - and by `url` where the trust anchor names none; one
 followed already is left as it is. With `hold` the hub asks to hold the keys
