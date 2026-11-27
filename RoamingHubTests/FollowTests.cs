@@ -1536,7 +1536,11 @@ namespace cloud.charging.open.RoamingHub.Tests
                 Assert.That(approved.Status,                                       Is.EqualTo(ShareholderChangeStatus.Committed), approved.Message);
                 Assert.That(there,                                                 Is.True,  "what the second holder's hub committed did not get to where the roaming network was made");
                 Assert.That(sameCommit,                                            Is.True);
-                Assert.That(madeAtOther.Signatures.Select(signature => signature.KeyId),  Is.EqualTo(new[] { second.NetworkOperator.SigningKeyIdIn(HistoryOf(second, "QA").Head.RoamingNetwork) }), "committed and signed by the hub where it got the last signature");
+                Assert.That(madeAtOther.Signatures.Select(signature => signature.KeyId).FirstOrDefault(),  Is.EqualTo(second.NetworkOperator.SigningKeyIdIn(HistoryOf(second, "QA").Head.RoamingNetwork)), "committed and signed by the hub where it got the last signature");
+                // And signed by the hub where the roaming network is made as well, as soon as it took the commit, where it
+                // looks when told: it signed the change set (SHAREHOLDERS.md, phase 7.1). Whether before this test read it
+                // or after, is a race; by nobody else.
+                Assert.That(madeAtOther.Signatures.Skip(1).Select(signature => signature.KeyId),  Is.SubsetOf(new[] { RoamingHub.NetworkOperator.SigningKeyIdIn(qa.Head.RoamingNetwork) }), "signed by somebody else than the holders");
                 Assert.That(approvedTwice.Status,                                  Is.EqualTo(ShareholderChangeStatus.NotFound),  approvedTwice.Message);
 
                 Assert.That(another.Success,                                       Is.False);
