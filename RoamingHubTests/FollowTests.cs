@@ -1933,8 +1933,14 @@ namespace cloud.charging.open.RoamingHub.Tests
 
                     Assert.That(update.Success,  Is.True, update.Message);
 
+                    // Done where the key is replaced, once its copy there names the old key no longer: committed there,
+                    // it is sent on from there, and where the roaming network is made, it is read once it got there -
+                    // read before, that copy named the old key and the new one, now and then.
                     if (update.Complete)
+                    {
+                        await CaughtUp("QA", second);
                         return said;
+                    }
 
                     var agreed = await Agreeing.RekeyShareholder(id, Holder);
 
